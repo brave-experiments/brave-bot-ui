@@ -1,4 +1,5 @@
-// That a question the planner asks can be answered from the window.
+// That the questions the planner asks can be answered from the window — including several
+// at once, and a second series after the first is answered.
 //
 // A live turn: it drives a real model and costs a few tokens. The prompt asks the planner
 // to put a choice to the person before doing anything, which is what makes it reach for
@@ -38,8 +39,10 @@ if (await page.locator('.trust').isVisible().catch(() => false)) {
 }
 
 await page.locator('.composer textarea').fill(
-  'I want to add a --json flag to this project. Before writing anything, put the choice to ' +
-    'me: a new module, or extending the existing output code? Ask me and wait for my answer.',
+  'I want to add a --json flag to this project. Do not write anything. First, in ONE ask_user ' +
+    'call, ask me two questions together: which approach, and what to name the flag. After I ' +
+    'answer, make a SECOND ask_user call with one further question. Then just summarise my ' +
+    'answers.',
 )
 await page.locator('.send').click()
 console.log('sent; waiting to be asked…')
@@ -87,19 +90,35 @@ check(
 )
 await page.screenshot({ path: '/tmp/bravebot-ui/16-asked.png' })
 
-// Pick the first option of the first question, and check picking is visible.
+check(questions >= 2, `several questions arrive in one series (${questions})`)
+
+// Answer every question, so nothing is silently declined and the multi-question path is
+// the one under test.
 const first = card.locator('.choices .choice').first()
 const label = (await first.locator('.label').textContent())?.trim() ?? ''
-await first.click()
+for (let at = 0; at < questions; at++) {
+  const block = card.locator('.ask-question').nth(at)
+  if ((await block.locator('.choices .choice').count()) > 0) {
+    await block.locator('.choices .choice').first().click()
+  } else {
+    await block.locator('.typed').fill('whatever you think best')
+  }
+}
 await page.waitForTimeout(200)
 check(
   (await first.getAttribute('aria-pressed')) === 'true',
   'a picked choice says so, to itself and to a screen reader',
 )
+check(
+  (await card.locator('.choice.picked').count()) >= 1,
+  'each question keeps its own selection, independently of the others',
+)
 
 await card.locator('.confirm-actions .approve').click()
 await page.waitForTimeout(1500)
 
+const records = await card.locator('.asked-answer').count()
+check(records === questions, `every question is recorded, not just the first (${records})`)
 const given = (await card.locator('.asked-answer .given').first().textContent())?.trim() ?? ''
 check(
   given === label,
@@ -110,12 +129,49 @@ check(
   'and stops offering the choices once they are answered',
 )
 
+// --- a second series, in the same turn -----------------------------------------------
+//
+// Nothing upstream limits a turn to one ask: it is an ordinary tool, so the model may reach
+// for it again on a later round. Each series is its own question with its own id, and only
+// the newest is outstanding.
+const again = await page
+  .locator('.confirm.ask')
+  .nth(1)
+  .waitFor({ state: 'visible', timeout: 150000 })
+  .then(() => true)
+  .catch(() => false)
+
+if (again) {
+  check(true, 'a second series in the same turn is put to the person too')
+  const second = page.locator('.confirm.ask').nth(1)
+  // The answered series must stay answered: its record stands and it offers no choices, so
+  // a second question cannot reopen the first.
+  const earlier = page.locator('.confirm.ask').first()
+  check(
+    (await earlier.locator('.choices').count()) === 0 &&
+      (await earlier.locator('.asked-answer').count()) === questions,
+    'the first series stays answered rather than reopening',
+  )
+  const secondChoices = await second.locator('.choices .choice').count()
+  if (secondChoices > 0) await second.locator('.choices .choice').first().click()
+  else await second.locator('.typed').first().fill('either is fine')
+  await second.locator('.confirm-actions .approve').click()
+  await page.waitForTimeout(1200)
+  check(
+    (await second.locator('.asked-answer').count()) > 0,
+    'and it records what was answered',
+  )
+  await page.screenshot({ path: '/tmp/bravebot-ui/18-asked-again.png' })
+} else {
+  console.log('  --   the planner did not ask a second time this run')
+}
+
 const done = await page
   .locator('.composer textarea:not([disabled])')
   .waitFor({ state: 'visible', timeout: 150000 })
   .then(() => true)
   .catch(() => false)
-check(done, 'the turn carries on with the answer')
+check(done, 'the turn carries on with the answers')
 await page.screenshot({ path: '/tmp/bravebot-ui/17-answered.png' })
 
 await app.close()

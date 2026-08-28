@@ -168,6 +168,7 @@ function touched(entries: Entry[]): { target: string; confined: boolean }[] {
   for (const entry of entries) {
     if (entry.kind !== 'tool' || !entry.activity.target) continue
     if (entry.activity.failed) continue
+    if (!namesAFile(entry.activity.verb)) continue
     // A file the turn wrote is not a file it read. It has its own panel, and naming it
     // here as well told the reader the model had seen contents it never opened.
     if (isWrite(entry.activity)) continue
@@ -223,6 +224,24 @@ function written(entries: Entry[]): Write[] {
     rows.set(entry.activity.target, { target: entry.activity.target, state })
   }
   return [...rows.values()]
+}
+
+/**
+ * Whether a call's target is a file at all.
+ *
+ * Not every call that has a target has a *path*: a search names a pattern, a skill names a
+ * skill, and asking names a count of questions — the agent puts whatever identifies the call
+ * in that field, which is right for a transcript line and wrong for this list. Listed
+ * indiscriminately, "2 questions" appeared under Files read as though the model had opened a
+ * file by that name.
+ *
+ * An allow-list rather than a list of things to skip, because the failure directions are not
+ * equal. A new tool missing from here is absent from a panel; a new tool that slipped past a
+ * deny-list would be this interface claiming the model read something it never opened. The
+ * verbs are literals from the agent's dispatch table, so this matches the tool that ran.
+ */
+function namesAFile(verb: string): boolean {
+  return verb === 'Read' || verb === 'List' || verb === 'Write' || verb === 'Update'
 }
 
 /**

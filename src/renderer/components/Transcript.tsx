@@ -323,6 +323,8 @@ function Questions({
       return chosen.length > 0 ? { chosen } : {}
     })
 
+  const blank = collected().filter((answer) => !answer.typed && !answer.chosen).length
+
   if (answers) {
     return (
       <div className="confirm ask">
@@ -333,7 +335,11 @@ function Questions({
           </span>
         </div>
         {prompts.map((prompt, at) => (
-          <div className="asked-answer" key={prompt.key}>
+          // Keyed by position, not by `prompt.key`: that key is canonical *content*, and a
+          // series may legitimately contain the same question twice. The order never
+          // changes — the agent emits one prompt per question, in order — so the index is
+          // both stable and unique where the content is only stable.
+          <div className="asked-answer" key={at}>
             <div className="question">{prompt.question}</div>
             <div className="given">{describe(prompt, answers[at])}</div>
           </div>
@@ -352,7 +358,7 @@ function Questions({
       </div>
 
       {prompts.map((prompt, at) => (
-        <fieldset className="ask-question" key={prompt.key}>
+        <fieldset className="ask-question" key={at}>
           <legend>
             <span className="header">{prompt.header}</span>
             {prompt.multiple && <span className="any">pick any</span>}
@@ -393,6 +399,12 @@ function Questions({
         </button>
         <button className="approve" onClick={() => onAnswer(request.request.request, collected())}>
           Answer
+          {/* Leaving a question blank declines it, which is legitimate but should not be a
+              surprise — with several questions on screen it is easy to answer two of three
+              and not notice. Said on the button rather than after the fact. */}
+          {blank > 0 && prompts.length > 1 && (
+            <span className="aside"> · {blank} declined</span>
+          )}
         </button>
       </div>
     </div>
