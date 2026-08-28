@@ -1,0 +1,28 @@
+[package]
+name = "bua-bridge"
+description = "Drives brave-user-agent for a graphical front-end"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# brave-user-agent is depended on, never modified. See docs/phase-0-rpc-protocol.md §2.
+#
+# Path dependencies against a sibling checkout while this is in development. A release
+# build pins a git rev instead: these crates carry no compatibility promise, so the rev
+# is load-bearing and an upgrade needs a test pass rather than a version bump.
+[dependencies]
+bua-agent = { path = "../../../brave-user-agent/crates/agent" }
+bua-config = { path = "../../../brave-user-agent/crates/config" }
+bua-net = { path = "../../../brave-user-agent/crates/net" }
+bua-core = { path = "../../../brave-user-agent/crates/core" }
+# For `sessions` (the on-disk record), `store` (~/.bua), and `audit::as_json`. All three
+# are `pub`. This drags ratatui in for a binary that draws nothing, which costs a few
+# seconds of compile time and some dead code the linker discards. The alternative was
+# extracting them upstream, which is a refactor of a repository we do not own.
+bua-tui = { path = "../../../brave-user-agent/crates/tui" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+bua-aichat = { path = "../../../brave-user-agent/crates/aichat" }

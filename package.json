@@ -1,0 +1,38 @@
+{
+  "name": "brave-user-agent-ui",
+  "version": "0.1.0",
+  "description": "A macOS interface to brave-user-agent",
+  "license": "MPL-2.0",
+  "private": true,
+  "main": "./out/main/index.js",
+  "scripts": {
+    "bridge": "./scripts/build-bridge.sh",
+    "dev": "npm run bridge && electron-vite dev",
+    "build": "npm run bridge && tsc --noEmit && electron-vite build",
+    "typecheck": "tsc --noEmit",
+    "start": "electron-vite preview",
+    "drive": "npm run bridge && electron-vite build && node scripts/drive.mjs",
+    "drive:markdown": "npm run bridge && electron-vite build && node scripts/drive-markdown.mjs",
+    "drive:resize": "npm run bridge && electron-vite build && node scripts/drive-resize.mjs",
+    "drive:panels": "npm run bridge && electron-vite build && node scripts/drive-panels.mjs",
+    "drive:columns": "npm run bridge && electron-vite build && node scripts/drive-columns.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^44.0.0",
+    "electron-vite": "^5.0.0",
+    "playwright-core": "^1.62.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-markdown": "^10.1.0",
+    "remark-breaks": "^4.0.0",
+    "remark-gfm": "^4.0.1"
+  }
+}

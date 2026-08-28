@@ -1,0 +1,142 @@
+//! One session's live state, and the turn that may be running in it.
+//!
+//! The turn engine is synchronous: it blocks on the model, and it blocks on a person when
+//! it wants to write. So a turn runs on its own thread and the dispatch thread stays free
+//! to answer, to cancel, and to serve other sessions.
+//!
+//! What the two threads share is deliberately small. The worker takes the session's state
+//! for the duration of the turn and hands it back by releasing the lock; the dispatch
+//! thread holds only what it needs to answer a question or stop the work.
+
+use bua_agent::Conversation;
+use bua_agent::confirm::Decision;
+use bua_core::cancel::Cancel;
+use bua_core::todo::Row;
+use bua_core::trust::TrustStore;
+use bua_tui::sessions::Handle;
+use std::collections::BTreeMap;
+use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Sender;
+
+/// Everything a session carries between turns.
+///
+/// Held behind a mutex the worker takes for the length of a turn. The dispatch thread does
+/// not contend for it, because a session with a turn in flight refuses another one anyway.
+pub struct State {
+    /// The exchange so far, which is what resuming restores.
+    pub conversation: Conversation,
+    /// Which paths this session's user vouched for, and what its writes recorded since.
+    ///
+    /// Carried forward turn to turn rather than re-derived: a turn that writes untrusted
+    /// data into a trusted path records that path as untrusted, and losing that would let
+    /// the next turn read the same data back as trusted.
+    pub trust: TrustStore,
+    /// How the session is written down.
+    ///
+    /// `None` for a fresh session until its first turn creates it, so a window somebody
+    /// opened and abandoned leaves nothing behind. A resumed one has this from the start:
+    /// it already has a record, and the point of resuming is to write back to it.
+    pub handle: Option<Handle>,
+    pub turns: usize,
+    pub tokens: u64,
+    pub todos: BTreeMap<usize, Vec<Row>>,
+    /// The first thing the user asked, which is what a list calls the session.
+    pub first_prompt: Option<String>,
+}
+
+impl State {
+    pub fn fresh(trust: TrustStore) -> Self {
+        Self {
+            conversation: Conversation::new(),
+            trust,
+            handle: None,
+            turns: 0,
+            tokens: 0,
+            todos: BTreeMap::new(),
+            first_prompt: None,
+        }
+    }
+
+    /// The state a stored session resumes with.
+    ///
+    /// The handle is built here rather than left for `save` to mint, because the two ways
+    /// of making one are not interchangeable: `Handle::begin` takes a new id and would
+    /// write the continued session to a second record, leaving the one the user opened
+    /// frozen at the point they opened it. `Handle::resuming` keeps the record's id, which
+    /// is what makes a turn taken here land in the session it was taken in — and what
+    /// `bua --resume` needs in order to pick the same session back up. The terminal does
+    /// the same at `crates/tui/src/app.rs`.
+    pub fn resumed(project: &Path, record: &bua_tui::sessions::Record, trust: TrustStore) -> Self {
+        Self {
+            conversation: Conversation::restored(record.conversation.clone()),
+            trust,
+            handle: Some(Handle::resuming(project, record)),
+            turns: record.turns,
+            tokens: record.tokens,
+            todos: record.todo_rows(),
+            first_prompt: Some(record.title.clone()),
+        }
+    }
+}
+
+/// A turn in flight, from the dispatch thread's point of view.
+///
+/// It cannot see the work. It can stop it, and it can answer the one question the work is
+/// allowed to ask.
+pub struct Running {
+    /// Fresh for every turn. Reusing one could cancel a turn before it started.
+    pub cancel: Cancel,
+    /// Where an approval goes. Dropping this end is what turns a departed front-end into
+    /// a refusal, so it must not outlive the session.
+    pub answers: Sender<Decision>,
+    /// Which write is waiting, if any.
+    pub pending: crate::turn::Pending,
+    pub turn: usize,
+    /// Set by the worker on its way out.
+    ///
+    /// The dispatch thread needs to know a turn has ended without joining on it, and it
+    /// must not learn this by probing the answer channel: sending anything down that to
+    /// see whether it is still connected would deliver a real decision to a real write.
+    pub finished: Arc<AtomicBool>,
+}
+
+impl Running {
+    /// Answer the write that is waiting, if the id given is the one that is waiting.
+    ///
+    /// Returns whether the answer was applied. A `false` is not a retryable failure: the
+    /// id is unknown or has already been used, and an approval is single-use.
+    pub fn answer(&self, request: u64, decision: Decision) -> bool {
+        let Ok(mut pending) = self.pending.lock() else {
+            return false;
+        };
+        if *pending != Some(request) {
+            return false;
+        }
+        // Cleared here as well as in the confirmer, so a second reply racing the first
+        // finds nothing to answer whichever of them gets the lock first.
+        *pending = None;
+        drop(pending);
+        self.answers.send(decision).is_ok()
+    }
+
+    /// Whether the work has ended.
+    pub fn is_finished(&self) -> bool {
+        self.finished.load(Ordering::Acquire)
+    }
+
+    /// Refuse whatever is waiting, because nobody is going to answer it.
+    ///
+    /// Called when a session closes or the process ends. Dropping the sender would have
+    /// the same effect, since the confirmer treats a closed channel as a refusal, but
+    /// saying it outright does not depend on when a drop happens to run.
+    pub fn refuse_pending(&self) {
+        if let Ok(mut pending) = self.pending.lock()
+            && pending.is_some()
+        {
+            *pending = None;
+            let _ = self.answers.send(Decision::Reject);
+        }
+    }
+}

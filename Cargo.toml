@@ -1,0 +1,16 @@
+[workspace]
+resolver = "3"
+members = ["crates/bua-bridge"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+# Matches brave-user-agent's own floor. Building against its crates with an older
+# toolchain than it requires would fail in its sources, not ours, which is a confusing
+# place to discover a version problem.
+rust-version = "1.88"
+license = "MPL-2.0"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
