@@ -269,3 +269,30 @@ export function diffLines(changes: Change[]): { sign: string; text: string; kind
     }
   })
 }
+
+/**
+ * An entry as plain text, for the clipboard.
+ *
+ * Only the kinds that are text return any. A confirm card, a run, an output and a vouch all
+ * come back `null` deliberately: what is on screen for those is a diff, an argv, some bytes
+ * and a path — evidence, laid out to be read in place — and a "Copy" that flattened one of
+ * them into a paragraph would produce something that reads like a record of the exchange
+ * without being one. A quarantined blob does copy, because it is exactly text and copying it
+ * to your own clipboard decides nothing.
+ */
+export function plainText(entry: Entry): string | null {
+  switch (entry.kind) {
+    case 'user':
+    case 'assistant':
+    case 'narration':
+    case 'error':
+    case 'replayed-tool':
+      return entry.text
+    case 'quarantined':
+      // The preview, which is all the interface ever had: the kernel trimmed it before it
+      // arrived and the full text was never sent here to copy.
+      return entry.shown.preview.join('\n')
+    default:
+      return null
+  }
+}

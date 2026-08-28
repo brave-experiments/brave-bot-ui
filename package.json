@@ -6,8 +6,10 @@
   "private": true,
   "main": "./out/main/index.js",
   "scripts": {
+    "postinstall": "node scripts/name-dev-app.mjs",
+    "name-dev-app": "node scripts/name-dev-app.mjs",
     "bridge": "./scripts/build-bridge.sh",
-    "dev": "npm run bridge && electron-vite dev",
+    "dev": "npm run bridge && npm run name-dev-app && electron-vite dev",
     "build": "npm run bridge && tsc --noEmit && electron-vite build",
     "typecheck": "tsc --noEmit",
     "start": "electron-vite preview",
@@ -17,9 +19,13 @@
     "drive:panels": "npm run bridge && electron-vite build && node scripts/drive-panels.mjs",
     "drive:columns": "npm run bridge && electron-vite build && node scripts/drive-columns.mjs",
     "drive:run": "npm run bridge && electron-vite build && node scripts/drive-run.mjs",
-    "drive:ask": "npm run bridge && electron-vite build && node scripts/drive-ask.mjs"
+    "drive:ask": "npm run bridge && electron-vite build && node scripts/drive-ask.mjs",
+    "package": "npm run bridge && electron-vite build && node scripts/package.mjs",
+    "drive:menu": "npm run bridge && electron-vite build && node scripts/drive-menu.mjs",
+    "drive:packaged": "node scripts/drive-packaged.mjs"
   },
   "devDependencies": {
+    "@electron/packager": "^20.3.0",
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",

@@ -911,3 +911,106 @@ button { font: inherit; color: inherit; cursor: pointer; }
   font-family: var(--mono);
   white-space: pre-wrap;
 }
+
+/* ------------------------------------------------------------- notice */
+
+/* Shares the trust dialog's scrim and card, but wider and scrollable: this holds output
+   from `bravebot doctor`, whose length nobody controls. */
+.notice {
+  width: 560px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  padding: 22px 24px;
+  border-radius: 14px;
+  background: var(--bg);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
+}
+.notice h2 { margin: 0 0 12px; font-size: 15px; }
+.notice-body {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--bubble-agent);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.notice-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
+
+/* Present only to catch a right-click on a transcript entry. It must not be a box: the
+   entries are block-level with collapsing margins, and a wrapper that generated one would
+   change the spacing of every row. */
+.entry-hit { display: contents; }
+
+/* ------------------------------------------------------------- popmenu */
+
+.new-split { display: flex; gap: 4px; align-items: stretch; }
+.new-split .new { flex: 1; }
+.new-recent {
+  width: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: var(--code-bg);
+  color: var(--ink-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+.new-recent:hover { color: var(--ink); }
+
+/* Opaque, not translucent. The window is already `vibrancy: 'sidebar'`, and a blurred panel
+   over a blurred window blurs twice into something neither legible nor Mac-like. */
+.popmenu {
+  position: fixed;
+  z-index: 10;
+  min-width: 220px;
+  max-width: 380px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
+  animation: popmenu-in 90ms ease-out;
+}
+@keyframes popmenu-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: none; }
+}
+.popitem {
+  display: block;
+  width: 100%;
+  padding: 5px 9px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.popitem.active, .popitem:hover:not([aria-disabled]) {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.popitem[aria-disabled] { opacity: 0.45; cursor: default; }
+.popitem-label { display: block; }
+.popitem-detail {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.popitem.active .popitem-detail { color: var(--accent-ink); opacity: 0.75; }
+
+@media (prefers-reduced-motion: reduce) {
+  .popmenu { animation: none; }
+}

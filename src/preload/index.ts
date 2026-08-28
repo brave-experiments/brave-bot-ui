@@ -11,6 +11,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { BridgeEvent, BridgeFailure } from '../shared/protocol'
 import type { StoredLayout } from '../shared/layout'
+import type { CommandId, ContextCommandId, ContextRef, WindowState } from '../shared/commands'
 
 export interface Answer<T> {
   ok?: T
@@ -39,9 +40,63 @@ const api = {
     void ipcRenderer.invoke('bravebot:layout:write', layout)
   },
 
+  /**
+   * The projects opened before, newest first.
+   *
+   * There is no write half, deliberately: the main process records these when it hands out
+   * a directory, so this list is something the renderer can show but not forge an entry in.
+   */
+  readRecents(): Promise<string[]> {
+    return ipcRenderer.invoke('bravebot:recents:read') as Promise<string[]>
+  },
+
   /** Ask the user for a project directory, natively. */
   chooseDirectory(): Promise<string | null> {
     return ipcRenderer.invoke('bravebot:choose-directory') as Promise<string | null>
+  },
+
+  /**
+   * Listen for menu items being chosen. Returns an unsubscribe.
+   *
+   * One channel carrying one id, not a general "run this in the renderer" hook. The id is
+   * checked against the command list on the way out and again on the way in, and that list
+   * contains nothing that answers a question the agent asked — those are answered in the
+   * transcript, beside the evidence, and a menu is not beside anything.
+   */
+  onCommand(
+    listener: (id: CommandId | ContextCommandId, context: ContextRef | null) => void,
+  ): () => void {
+    const handler = (
+      _event: IpcRendererEvent,
+      id: CommandId | ContextCommandId,
+      context: ContextRef | null,
+    ) => listener(id, context)
+    ipcRenderer.on('bravebot:command', handler)
+    return () => ipcRenderer.off('bravebot:command', handler)
+  },
+
+  /**
+   * Ask for the menu that belongs to a thing on screen.
+   *
+   * Carries which kind of thing and which one, and nothing else. What the menu says is
+   * decided in the main process from labels compiled into it — the renderer cannot put a
+   * word on screen this way, which is the point: a transcript can hold content the agent
+   * read off disk.
+   */
+  popupContext(reference: ContextRef): void {
+    ipcRenderer.send('bravebot:menu:popup', reference)
+  },
+
+  /**
+   * Tell the menu what is currently possible.
+   *
+   * Without it "Cancel Turn" is black with nothing running and "Send" is black with an
+   * empty composer — a menu offering what the window will refuse. Best-effort and
+   * unanswered, like `writeLayout`: a menu item left momentarily wrong is not worth a
+   * round trip.
+   */
+  publishState(state: WindowState): void {
+    ipcRenderer.send('bravebot:menu:state', state)
   },
 
   /** Listen for everything the agent announces. Returns an unsubscribe. */

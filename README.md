@@ -47,6 +47,45 @@ Three columns, each side one resizable and foldable:
 The two side columns fold to nothing from a chevron at either end of the transcript's
 header, and their widths and fold states survive a relaunch.
 
+### The name in the menu bar
+
+The bold word beside the Apple menu is the one part of the menu a template cannot set: AppKit
+reads it from the running bundle's `CFBundleName` before any JavaScript runs, and
+`app.setName` does not touch it — that renames `app.name`, which `app.getPath('userData')` is
+built from, so using it would move `layout.json` and orphan every remembered column.
+
+Unpackaged, the running bundle is Electron's own, so `scripts/name-dev-app.mjs` renames it.
+It runs from `npm run dev` and from `postinstall`, because an `npm install` restores the
+original. If the menu bar ever says "Electron" again, `npm run name-dev-app` puts it back.
+
+The real fix is a packaging step with a `productName`, which does not exist yet.
+
+## Keys
+
+The menu is where these are written down, which is most of why it exists — before it there
+was no way to find out that ⌘↵ sent a prompt.
+
+| Key | What |
+| --- | --- |
+| `⌘N` | New session |
+| `⇧⌘W` | Close the session — `⌘W` still closes the window |
+| `⌘↵` | Send |
+| `⌘.` | Cancel the running turn |
+| `⌥⌘←` / `⌥⌘→` | Fold the session list / the context panel |
+| right-click | A session row, or anything in the transcript |
+| `Esc` | Cancel, from the composer |
+
+`Esc` is the one that is not in a menu. As an accelerator it would fire with no session open
+and would fight every other use of the key, so it stays where it was: a convenience local to
+the composer.
+
+**No key answers a question.** The five the agent can ask — a write, a command, whether the
+planner may read output, whether to vouch, and a series of questions — are answered in the
+transcript and nowhere else. An approval is a claim that somebody looked at the evidence,
+and a keystroke can be typed from muscle memory into a window whose contents changed a frame
+ago. The absence is structural: no command id names an approval, and the dispatch table in
+`src/renderer/commands.ts` is not given the callbacks that answer.
+
 ## Layout
 
 ```
@@ -56,8 +95,11 @@ crates/bravebot-bridge/        the Rust library and the bravebot-rpc binary
   src/bin/bravebot-rpc.rs      read stdin, frame stdout, nothing else
   tests/                  eight integration suites, including the refusal guarantees
 src/main/                 Electron main: one window, one child process, a narrow channel
+  menu.ts                 the application menu, built from the shared command list
+  recents.ts              the projects opened before, which only this side writes
 src/preload/              the only thing the renderer can reach
 src/renderer/             the React app
+  commands.ts             what a chosen menu item does — and what it deliberately cannot
 src/shared/               types both sides agree on
 scripts/                  the bridge build, a live smoke test, and the app drivers
 docs/                     the protocol design
@@ -124,9 +166,11 @@ releases are, with the credentials present, or it will ship unable to reach the 
 | --- | --- |
 | `npm run dev` | Build the bridge, then run the app with hot reload |
 | `npm run bridge` | Build `bravebot-rpc` only, through `direnv` where it can |
+| `npm run name-dev-app` | Name the development app "Brave Bot" in the menu bar (see below) |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run build` | Bridge, typecheck, then bundle main + preload + renderer into `out/` |
 | `npm start` | Preview a built bundle without rebuilding |
+| `npm run package` | Build a `.app` into `dist/` (see Packaging) |
 | `cargo test -p bravebot-bridge` | The Rust suites |
 
 TypeScript runs `strict`, plus `noUncheckedIndexedAccess`, `noUnusedLocals` and
@@ -152,8 +196,17 @@ at, that a control keeps keyboard focus through an animation.
 | `npm run drive:markdown` | Markdown rendering, light and dark |
 | `npm run drive:run` | Approving a command from the window, end to end through a live turn |
 | `npm run drive:ask` | Answering a series of questions the planner asks, likewise live |
+| `npm run drive:menu` | The application menu: what it offers, what it greys, and what it refuses to offer |
+| `npm run drive:packaged` | A built `.app`: that a release hides the developer items and finds its agent |
 | `node scripts/drive-turn.mjs` | A live inference request through the window, to prove the binary carries its credentials rather than inheriting them |
 | `scripts/smoke-turn.sh` | A live turn straight through `bravebot-rpc`, no app |
+
+`drive:menu` cannot press a menu's own keystroke: Playwright's keyboard reaches the web
+contents over CDP, and an AppKit key equivalent never sees it. So it asserts the accelerator
+*string* as a contract and drives the effect by clicking the item. The packaged case it cannot reach at all, because it drives a checkout;
+`drive:packaged` covers that separately, against a real bundle. What is left for a hand is
+⌘C/⌘V actually reaching the composer — the role assertion proves the item is there, only a
+person proves the keystroke arrives.
 
 Each driver launches the app, prints a line per assertion and leaves screenshots in
 `/tmp/bravebot-ui/`. Five of them cost real tokens: `drive:markdown`, `drive:run`, `drive:ask`,
@@ -174,10 +227,26 @@ Three steps, in order: `scripts/build-bridge.sh` produces `bravebot-rpc`, `tsc -
 the types, and `electron-vite` bundles the main process, the preload and the renderer into
 `out/`. `npm start` then previews that bundle.
 
-There is no packaging step yet. A packaged app expects `bravebot-rpc` beside it as a resource —
-`Bridge.binaryPath()` looks in `process.resourcesPath` when `app.isPackaged` and falls back
-to `target/debug/bravebot-rpc` in development — and must be built with credentials present, per
-the note above.
+### Packaging
+
+```bash
+npm run package
+```
+
+Bridge, typecheck, bundle, then `@electron/packager` builds `dist/Brave Bot-darwin-<arch>/Brave
+Bot.app`. `bravebot-rpc` is copied in as a resource, which is where `Bridge.binaryPath()` looks
+when `app.isPackaged` — the `target/debug` fallback is development only, so packaging is the
+only way that branch is ever exercised.
+
+Naming the bundle is also how the menu bar gets the right word in a release: AppKit reads it
+from `CFBundleName` before any of our code runs. `scripts/name-dev-app.mjs` is the equivalent
+hack for `npm run dev`; here it is simply the bundle's own name.
+
+**A bundle built from a development checkout has no credentials.** It starts, lists sessions
+and opens them, and fails at the first inference request — the degraded mode described above,
+now inside an app that cannot inherit an environment from a shell. A real release has to be
+built the way the agent's own releases are. There is no signing or notarisation step either,
+so the bundle is for testing rather than for giving to anybody.
 
 ## Security posture
 

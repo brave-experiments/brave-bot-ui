@@ -1,11 +1,26 @@
+import { useCallback, useRef, useState } from 'react'
 import type { SessionSummary } from '../../shared/protocol'
+import { PopMenu, type PopItem } from './PopMenu'
 
 interface Props {
   sessions: SessionSummary[]
   openId: string | undefined
   onOpen: (summary: SessionSummary) => void
-  onNew: () => void
+  onNew: (directory?: string) => void
   build: string | null
+}
+
+/**
+ * Ask the main process for the menu that belongs to a thing here.
+ *
+ * Only the kind and the id travel. What the menu says is decided over there, from labels
+ * compiled into it, so nothing on screen can put a word into a native menu.
+ */
+function contextMenu(target: 'session' | 'entry', id: string) {
+  return (event: React.MouseEvent): void => {
+    event.preventDefault()
+    window.bravebot.popupContext({ target, id })
+  }
 }
 
 /**
@@ -15,13 +30,13 @@ interface Props {
  * one column. The project is the secondary line, the way a group chat names itself under
  * the message.
  */
+export { contextMenu }
+
 export function Sessions({ sessions, openId, onOpen, onNew, build }: Props): React.JSX.Element {
   return (
     <aside className="sessions" id="sessions-column">
       <header className="sessions-head">
-        <button className="new" onClick={onNew} title="Open a project">
-          <span className="plus">+</span> New session
-        </button>
+        <NewSession onNew={onNew} />
       </header>
 
       <div className="session-list">
@@ -36,6 +51,7 @@ export function Sessions({ sessions, openId, onOpen, onNew, build }: Props): Rea
             key={`${session.directory}/${session.id}`}
             className={`session ${session.id === openId ? 'current' : ''}`}
             onClick={() => onOpen(session)}
+            onContextMenu={contextMenu('session', session.id)}
           >
             <span className="session-title">{session.title}</span>
             <span className="session-where">
@@ -53,6 +69,65 @@ export function Sessions({ sessions, openId, onOpen, onNew, build }: Props): Rea
         </footer>
       )}
     </aside>
+  )
+}
+
+/**
+ * The button that starts a session, and the list of places to start one in.
+ *
+ * A split control: the button itself does exactly what it always did — opens the folder
+ * picker — and the chevron beside it offers the projects opened before. Anything else would
+ * have made the common case slower to reach in order to make the second case possible.
+ */
+function NewSession({ onNew }: { onNew: (directory?: string) => void }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [directories, setDirectories] = useState<string[]>([])
+  const chevron = useRef<HTMLButtonElement>(null)
+
+  // Read when the menu is opened rather than held and kept in step: the list changes in the
+  // main process, and a copy up here would be one more thing that can be stale.
+  const show = useCallback(() => {
+    void window.bravebot.readRecents().then((found) => {
+      setDirectories(found)
+      setOpen(true)
+    })
+  }, [])
+
+  const items: PopItem[] = directories.length
+    ? directories.map((directory) => ({
+        id: directory,
+        label: directory.split('/').pop() || directory,
+        // Two checkouts of one project share a basename, and picking the wrong one is a
+        // mistake nothing later would announce.
+        detail: directory,
+      }))
+    : [{ id: 'none', label: 'No projects opened yet', enabled: false }]
+
+  return (
+    <div className="new-split">
+      <button className="new" onClick={() => onNew()} title="Open a project">
+        <span className="plus">+</span> New session
+      </button>
+      <button
+        ref={chevron}
+        className="new-recent"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Projects opened before"
+        title="Projects opened before"
+        onClick={() => (open ? setOpen(false) : show())}
+      >
+        <span aria-hidden="true">⌄</span>
+      </button>
+      <PopMenu
+        open={open}
+        anchor={chevron}
+        items={items}
+        label="Projects opened before"
+        onChoose={(id) => onNew(id)}
+        onClose={() => setOpen(false)}
+      />
+    </div>
   )
 }
 

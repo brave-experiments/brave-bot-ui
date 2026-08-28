@@ -12,6 +12,10 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Bridge, BridgeError } from './bridge'
 import { parseLayout } from '../shared/layout'
+import { parseContextRef, parseWindowState } from '../shared/commands'
+import { installMenu, popupContext, rebuildMenu, refreshMenu } from './menu'
+import { noteProject, recents } from './recents'
+import { isProjectPath } from '../shared/recents'
 
 let window: BrowserWindow | null = null
 let bridge: Bridge | null = null
@@ -60,6 +64,13 @@ function createWindow(): void {
   window.on('closed', () => {
     window = null
   })
+
+  // Built here rather than once at startup, because the menu holds the window it delivers a
+  // chosen item to. On macOS closing the last window does not quit the app, and clicking the
+  // dock icon builds a new one — with the menu installed once, every item would still be
+  // pointing at the window that was closed, and the whole menu would go quiet with nothing
+  // on screen to say why.
+  installMenu(window)
 }
 
 /**
@@ -96,6 +107,13 @@ app.whenReady().then(() => {
     }
     try {
       const ok = await bridge.request(method, (params ?? {}) as Record<string, unknown>)
+      // Opening a session is the other way a project becomes recent, and this handler is
+      // already the choke point that sees it. Reading one field it is forwarding anyway is
+      // a smaller thing than a channel that would let the renderer write the list itself.
+      if (method === 'session.open' || method === 'session.new') {
+        const directory = (params as { directory?: unknown } | null)?.directory
+        if (isProjectPath(directory) && noteProject(directory)) rebuildMenu()
+      }
       return { ok }
     } catch (error) {
       if (error instanceof BridgeError) {
@@ -145,7 +163,31 @@ app.whenReady().then(() => {
       title: 'Open a project',
       properties: ['openDirectory', 'createDirectory'],
     })
-    return result.canceled ? null : (result.filePaths[0] ?? null)
+    if (result.canceled) return null
+    const directory = result.filePaths[0] ?? null
+    // Recorded here, where a real directory has just been chosen, rather than being taken
+    // from the renderer later. The recents list is the main process's own record; the
+    // renderer can read it and ask to open something on it, and cannot write to it.
+    if (directory && noteProject(directory)) rebuildMenu()
+    return directory
+  })
+
+  /** The projects opened before, newest first. Read-only on purpose. */
+  ipcMain.handle('bravebot:recents:read', () => recents())
+
+  // What the window can currently do, so the menu can grey what it cannot. The renderer is
+  // the only thing that knows this, and it says so rather than being asked: a menu that has
+  // to poll would be a second copy of the transcript's state, arriving late.
+  ipcMain.on('bravebot:menu:state', (_event, value: unknown) => {
+    const state = parseWindowState(value)
+    if (state) refreshMenu(state)
+  })
+
+  // A right-click on something in the window. The reference is validated rather than
+  // trusted: it decides which menu is built, and an unrecognised one gets no menu at all.
+  ipcMain.on('bravebot:menu:popup', (_event, value: unknown) => {
+    const reference = parseContextRef(value)
+    if (reference) popupContext(reference)
   })
 
   createWindow()

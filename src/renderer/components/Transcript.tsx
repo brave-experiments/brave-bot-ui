@@ -5,6 +5,7 @@ import type { Side } from '../columns'
 import type { Asked } from '../App'
 import { Diff } from './Diff'
 import { Fold } from './Fold'
+import { contextMenu } from './Sessions'
 import { Markdown } from './Markdown'
 
 interface Live {
@@ -41,7 +42,10 @@ interface Props {
   problem: string | null
   collapsed: Record<Side, boolean>
   onToggle: (side: Side) => void
-  onSend: (prompt: string) => void
+  /** The composer's text, owned by `App` so the Send menu item can be grey when it is empty. */
+  draft: string
+  onDraft: (draft: string) => void
+  onSubmit: () => void
   onCancel: () => void
   onDecide: Answer
   onAnswer: AnswerQuestions
@@ -96,12 +100,13 @@ export function Transcript({
   problem,
   collapsed,
   onToggle,
-  onSend,
+  draft,
+  onDraft,
+  onSubmit,
   onCancel,
   onDecide,
   onAnswer,
 }: Props): React.JSX.Element {
-  const [draft, setDraft] = useState('')
   const bottom = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -142,19 +147,12 @@ export function Transcript({
         {head}
         <div className="empty-body">
           <div>
-            <h1>Brave User Agent</h1>
+            <h1>Bravebot</h1>
             <p>Choose a session on the left, or open a project to start a new one.</p>
           </div>
         </div>
       </main>
     )
-  }
-
-  const submit = (): void => {
-    const prompt = draft.trim()
-    if (!prompt || live.running) return
-    setDraft('')
-    onSend(prompt)
   }
 
   return (
@@ -166,7 +164,16 @@ export function Transcript({
           run.kind === 'run' ? (
             <ToolRun key={run.id} entries={run.entries} />
           ) : (
-            <Row key={run.entry.id} entry={run.entry} onDecide={onDecide} onAnswer={onAnswer} />
+            // Wrapped only to catch the right-click. `display: contents` keeps the wrapper
+            // out of the layout entirely, so the bubbles flow exactly as they did — the
+            // alternative was an `onContextMenu` on each of the eleven shapes `Row` returns.
+            <div
+              key={run.entry.id}
+              className="entry-hit"
+              onContextMenu={contextMenu('entry', run.entry.id)}
+            >
+              <Row entry={run.entry} onDecide={onDecide} onAnswer={onAnswer} />
+            </div>
           ),
         )}
 
@@ -188,16 +195,16 @@ export function Transcript({
           value={draft}
           placeholder={pending ? `${waitingOn(pending.kind)} above first…` : 'Ask something…'}
           disabled={live.running && !pending}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => onDraft(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault()
-              submit()
-            }
+            // Cmd+Enter is deliberately not handled here any more. It is the Session menu's
+            // accelerator now, and AppKit consumes an accelerator before the renderer sees
+            // the key — so a branch here would be either dead code or, if it ever did run,
+            // a second send of the same prompt.
             if (event.key === 'Escape' && live.running) onCancel()
           }}
         />
-        <button className="send" onClick={submit} disabled={live.running || !draft.trim()}>
+        <button className="send" onClick={onSubmit} disabled={live.running || !draft.trim()}>
           Send
         </button>
       </footer>
