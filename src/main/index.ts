@@ -78,6 +78,9 @@ const ALLOWED = new Set([
   'turn.send',
   'turn.cancel',
   'confirm.reply',
+  'run.reply',
+  'output.reply',
+  'vouch.reply',
   'trust.reply',
   'doctor',
 ])

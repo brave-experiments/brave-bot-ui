@@ -527,6 +527,42 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* Reviewing a body nobody vouched for is a different act, and must not look alike. */
 .confirm.untrusted { border-color: var(--warn); border-width: 2px; }
 
+/* A run that would hand the user's own data to a program is marked the same way, on
+   confidentiality rather than integrity. Two different reasons to look twice, drawn alike
+   because the instruction to the reader is the same one. */
+.confirm.run.releases { border-color: var(--warn); border-width: 2px; }
+
+/* Output the planner has not read is confined content, and is drawn as confined content
+   rather than as a quotation: it is the one card whose whole body is untrusted bytes. */
+.confirm.output { border-color: var(--confine); }
+.confirm.output .confirm-head .intent,
+.confirm.vouch .confirm-head .intent { color: var(--confine); }
+
+/* The argv, one stage per line, with the resolved binary under each. Monospaced and
+   allowed to wrap: a long command must be readable in full, since approving what is cut
+   off at the edge of a card is the thing this card exists to prevent. */
+.stages { list-style: none; margin: 0; padding: 8px 12px; }
+.stages li { padding: 3px 0; }
+.stages li + li { border-top: 1px dashed var(--line); margin-top: 3px; padding-top: 6px; }
+.stages .argv {
+  display: block;
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.stages .resolved {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+  overflow-wrap: anywhere;
+}
+
+/* Remembering answers every later question about these programs, so it is drawn as the
+   weightier of the two approvals rather than the easier one. */
+.confirm-actions .approve.always { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+
 .confirm-head {
   display: flex;
   gap: 8px;

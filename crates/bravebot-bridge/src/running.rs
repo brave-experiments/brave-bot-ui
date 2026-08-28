@@ -9,7 +9,8 @@
 //! thread holds only what it needs to answer a question or stop the work.
 
 use bravebot_agent::Conversation;
-use bravebot_agent::confirm::Decision;
+use crate::turn::{Kind, Reply};
+use bravebot_agent::confirm::{Decision, RunDecision};
 use bravebot_core::cancel::Cancel;
 use bravebot_core::programs::TrustedPrograms;
 use bravebot_core::todo::Row;
@@ -99,8 +100,8 @@ pub struct Running {
     pub cancel: Cancel,
     /// Where an approval goes. Dropping this end is what turns a departed front-end into
     /// a refusal, so it must not outlive the session.
-    pub answers: Sender<Decision>,
-    /// Which write is waiting, if any.
+    pub answers: Sender<Reply>,
+    /// Which question is waiting, if any.
     pub pending: crate::turn::Pending,
     pub turn: usize,
     /// Set by the worker on its way out.
@@ -112,22 +113,30 @@ pub struct Running {
 }
 
 impl Running {
-    /// Answer the write that is waiting, if the id given is the one that is waiting.
+    /// Answer the question that is waiting, if this is an answer to that question.
+    ///
+    /// Both halves have to match. The id makes an approval single-use, and the kind makes
+    /// it an approval of the thing that was actually shown: a front-end answering a write
+    /// while a run is outstanding would otherwise have its yes applied to the run, since
+    /// the ids agree and nothing else is looking.
     ///
     /// Returns whether the answer was applied. A `false` is not a retryable failure: the
-    /// id is unknown or has already been used, and an approval is single-use.
-    pub fn answer(&self, request: u64, decision: Decision) -> bool {
+    /// question is unknown, already answered, or of another kind entirely.
+    pub fn answer(&self, request: u64, reply: Reply) -> bool {
         let Ok(mut pending) = self.pending.lock() else {
             return false;
         };
-        if *pending != Some(request) {
+        let Some(question) = *pending else {
+            return false;
+        };
+        if question.id != request || question.kind != reply.kind() {
             return false;
         }
         // Cleared here as well as in the confirmer, so a second reply racing the first
         // finds nothing to answer whichever of them gets the lock first.
         *pending = None;
         drop(pending);
-        self.answers.send(decision).is_ok()
+        self.answers.send(reply).is_ok()
     }
 
     /// Whether the work has ended.
@@ -142,10 +151,17 @@ impl Running {
     /// saying it outright does not depend on when a drop happens to run.
     pub fn refuse_pending(&self) {
         if let Ok(mut pending) = self.pending.lock()
-            && pending.is_some()
+            && let Some(question) = pending.take()
         {
-            *pending = None;
-            let _ = self.answers.send(Decision::Reject);
+            // Refused in the shape of the question that was asked, so the worker's own
+            // match arm accepts it. A `Write` sent at a waiting run would be discarded as
+            // a mismatch and the turn would block until the channel dropped instead.
+            let _ = self.answers.send(match question.kind {
+                Kind::Write => Reply::Write(Decision::Reject),
+                Kind::Run => Reply::Run(RunDecision::reject()),
+                Kind::Output => Reply::Output(Decision::Reject),
+                Kind::Vouch => Reply::Vouch(Decision::Reject),
+            });
         }
     }
 }

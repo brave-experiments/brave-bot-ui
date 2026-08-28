@@ -32,8 +32,12 @@ Three columns, each side one resizable and foldable:
 - **Sessions** — everything under `~/.bravebot/sessions`, newest first, and a button to start a
   new one against any directory.
 - **Transcript** — the conversation, with the turn's tool calls gathered into runs that
-  fold away, diffs for writes awaiting approval, and confined content shown as what it is
-  rather than as text the model read.
+  fold away, and confined content shown as what it is rather than as text the model read.
+  Four kinds of question are put here and answered here: a **write** (as a diff), a
+  **command** to run (as the argv, plus the binary each name resolved to), whether the
+  planner may **read what a command printed** (as the bytes in full), and whether to
+  **vouch** for a quarantined path. The turn blocks until one is answered, and every
+  failure to answer — a closed window, a crash, a dropped pipe — is a refusal.
 - **Context** — what the session has touched: the plan, files read, writes and how far each
   got, and anything quarantined.
 
@@ -143,11 +147,12 @@ at, that a control keeps keyboard focus through an animation.
 | `npm run drive:columns` | Folding each side column, and what is remembered |
 | `npm run drive:panels` | The context panels and the transcript's tool runs |
 | `npm run drive:markdown` | Markdown rendering, light and dark |
+| `npm run drive:run` | Approving a command from the window, end to end through a live turn |
 | `node scripts/drive-turn.mjs` | A live inference request through the window, to prove the binary carries its credentials rather than inheriting them |
 | `scripts/smoke-turn.sh` | A live turn straight through `bravebot-rpc`, no app |
 
 Each driver launches the app, prints a line per assertion and leaves screenshots in
-`/tmp/bravebot-ui/`. Three of them cost real tokens: `drive:markdown`, `drive-turn.mjs` and
+`/tmp/bravebot-ui/`. Four of them cost real tokens: `drive:markdown`, `drive:run`, `drive-turn.mjs` and
 `smoke-turn.sh` send an actual prompt, and `smoke-turn.sh` needs a shell where `direnv` has
 loaded the agent's `.envrc`.
 
@@ -187,6 +192,13 @@ that decides. A renderer with filesystem access would undo that from the outside
   renderer, a malformed reply — all refuse.
 - Confined content is labelled as confined wherever it appears, and the interface
   distinguishes what the planner actually read from what it was only told the name of.
+- An answer must be an answer to the question that was asked. Each of the four has its own
+  reply method, and the bridge checks the request id **and** the kind against what is
+  actually outstanding — so an approval cannot land on something nobody was shown.
+- A command's output reaches the window in full, because the person deciding whether the
+  planner may read it has to be reading it themselves. It is released for a screen and
+  stops there: approving is what puts it in the model's context, and that path runs
+  through the agent.
 
 ## Further reading
 

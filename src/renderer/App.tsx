@@ -33,6 +33,23 @@ interface Live {
 /** Raised for the one failure that needs its own screen rather than a line of text. */
 class Unconfigurable extends Error {}
 
+/** Which kinds of question a person can be put. */
+export type Asked = 'confirm' | 'run' | 'output' | 'vouch'
+
+/**
+ * Which method answers which question.
+ *
+ * Four methods rather than one taking a kind, so an answer cannot be delivered to the
+ * wrong question by getting a field wrong: the agent derives the kind from the method it
+ * was called on and checks it against what is actually waiting.
+ */
+const METHOD: Record<Asked, string> = {
+  confirm: 'confirm.reply',
+  run: 'run.reply',
+  output: 'output.reply',
+  vouch: 'vouch.reply',
+}
+
 async function call<T>(method: string, params?: Record<string, unknown>): Promise<T> {
   const answer = await window.bravebot.request<T>(method, params)
   if (answer.error) {
@@ -174,19 +191,35 @@ export function App(): React.JSX.Element {
     if (handle) await call('turn.cancel', { session: handle }).catch(() => undefined)
   }, [])
 
-  const answerWrite = useCallback(async (request: number, approve: boolean) => {
-    const handle = handleRef.current
-    if (!handle) return
-    const decision = approve ? 'approve' : 'reject'
-    try {
-      await call('confirm.reply', { session: handle, request, decision })
-      setLive((old) =>
-        old ? { ...old, entries: t.decide(old.entries, request, decision) } : old,
-      )
-    } catch (error) {
-      setProblem(String(error))
-    }
-  }, [])
+  /**
+   * Answer whichever question is on screen.
+   *
+   * One callback for all four, because the shape of the exchange is identical and the
+   * differences are entirely in which method carries it. `remember` is only ever sent for
+   * a run — it is the second answer that question has and the others do not.
+   *
+   * The card is only marked once the agent has accepted the answer. Marking it first would
+   * draw an approval the turn never received if the call failed, which is the one direction
+   * this must not be wrong in.
+   */
+  const answer = useCallback(
+    async (kind: Asked, request: number, approve: boolean, remember = false) => {
+      const handle = handleRef.current
+      if (!handle) return
+      const decision = approve ? 'approve' : 'reject'
+      try {
+        await call(METHOD[kind], { session: handle, request, decision, remember })
+        setLive((old) =>
+          old
+            ? { ...old, entries: t.decide(old.entries, kind, request, decision, remember) }
+            : old,
+        )
+      } catch (error) {
+        setProblem(String(error))
+      }
+    },
+    [],
+  )
 
   const pending = useMemo(
     () => (live ? t.outstanding(live.entries) : null),
@@ -243,7 +276,7 @@ export function App(): React.JSX.Element {
         onToggle={toggle}
         onSend={send}
         onCancel={cancel}
-        onDecide={answerWrite}
+        onDecide={answer}
       />
       <Gutter
         side="right"
@@ -302,6 +335,12 @@ function apply(
         return { ...old, todos: message.data.rows }
       case 'confirm.request':
         return { ...old, entries: [...old.entries, t.asked(message.data)] }
+      case 'run.request':
+        return { ...old, entries: [...old.entries, t.askedRun(message.data)] }
+      case 'output.request':
+        return { ...old, entries: [...old.entries, t.askedOutput(message.data)] }
+      case 'vouch.request':
+        return { ...old, entries: [...old.entries, t.askedVouch(message.data)] }
       case 'turn.done': {
         refresh()
         return {

@@ -134,6 +134,15 @@ impl Request {
     }
 
     /// A required unsigned parameter.
+    /// One parameter, or `Null` when it is absent.
+    ///
+    /// No error case, because every caller is a decision reader and those are total by
+    /// design: an absent answer and an unreadable one are both refusals, and `Null` is how
+    /// they arrive at the same place. See [`crate::wire::decision`].
+    pub fn param(&self, name: &str) -> &Value {
+        self.params.get(name).unwrap_or(&Value::Null)
+    }
+
     pub fn number(&self, name: &str) -> Result<u64, Failure> {
         self.params
             .get(name)

@@ -10,7 +10,17 @@
  * again, so a call occupies one row for its whole life.
  */
 
-import type { Activity, Change, ConfirmRequest, Landing, Said, Shown } from '../shared/protocol'
+import type {
+  Activity,
+  Change,
+  ConfirmRequest,
+  Landing,
+  OutputRequest,
+  RunRequest,
+  Said,
+  Shown,
+  VouchRequest,
+} from '../shared/protocol'
 
 export type Entry =
   | { kind: 'user'; id: string; text: string }
@@ -24,6 +34,34 @@ export type Entry =
       kind: 'confirm'
       id: string
       request: ConfirmRequest
+      decision: 'approve' | 'reject' | null
+    }
+  /**
+   * A pipeline awaiting a decision, or the record of one already made.
+   *
+   * `remember` is kept next to the decision because the two together are the answer: it
+   * says an approval also vouched for the programs, which is why a run already decided
+   * still reads differently from one merely allowed once.
+   */
+  | {
+      kind: 'run'
+      id: string
+      request: RunRequest
+      decision: 'approve' | 'reject' | null
+      remember: boolean
+    }
+  /** A command's output awaiting a decision about whether the planner may read it. */
+  | {
+      kind: 'output'
+      id: string
+      request: OutputRequest
+      decision: 'approve' | 'reject' | null
+    }
+  /** A quarantined path awaiting a decision about vouching for it. */
+  | {
+      kind: 'vouch'
+      id: string
+      request: VouchRequest
       decision: 'approve' | 'reject' | null
     }
   | { kind: 'error'; id: string; text: string }
@@ -65,6 +103,25 @@ export const asked = (request: ConfirmRequest): Entry => ({
   request,
   decision: null,
 })
+export const askedRun = (request: RunRequest): Entry => ({
+  kind: 'run',
+  id: nextId(),
+  request,
+  decision: null,
+  remember: false,
+})
+export const askedOutput = (request: OutputRequest): Entry => ({
+  kind: 'output',
+  id: nextId(),
+  request,
+  decision: null,
+})
+export const askedVouch = (request: VouchRequest): Entry => ({
+  kind: 'vouch',
+  id: nextId(),
+  request,
+  decision: null,
+})
 export const replied = (text: string): Entry => ({ kind: 'assistant', id: nextId(), text })
 
 /**
@@ -101,23 +158,50 @@ export function land(entries: Entry[], landing: Landing): Entry[] {
 }
 
 /** Record what the user decided about a write. */
+/** Every entry kind that puts a question to the person. */
+export type Asking = Extract<Entry, { decision: 'approve' | 'reject' | null }>
+
+/** Whether an entry is one of the four questions. */
+const isAsking = (entry: Entry): entry is Asking =>
+  entry.kind === 'confirm' ||
+  entry.kind === 'run' ||
+  entry.kind === 'output' ||
+  entry.kind === 'vouch'
+
+/**
+ * Record what was answered.
+ *
+ * Matched on kind as well as id. The agent numbers its questions in one sequence per turn,
+ * so ids do not collide — but a mismatch here would draw the answer on the wrong card, and
+ * a card that says a person approved something they did not is the worst kind of wrong this
+ * interface can be.
+ */
 export function decide(
   entries: Entry[],
+  kind: Asking['kind'],
   request: number,
   decision: 'approve' | 'reject',
+  remember = false,
 ): Entry[] {
   return entries.map((entry) =>
-    entry.kind === 'confirm' && entry.request.request === request
-      ? { ...entry, decision }
+    isAsking(entry) && entry.kind === kind && entry.request.request === request
+      ? entry.kind === 'run'
+        ? { ...entry, decision, remember }
+        : { ...entry, decision }
       : entry,
   )
 }
 
-/** The write still waiting on somebody, if there is one. */
-export function outstanding(entries: Entry[]): ConfirmRequest | null {
+/**
+ * The question still waiting on somebody, if there is one.
+ *
+ * At most one is ever outstanding: the turn blocks on the answer, so it cannot get as far
+ * as asking a second thing. Searched from the end anyway, because that is where it is.
+ */
+export function outstanding(entries: Entry[]): Asking | null {
   for (let index = entries.length - 1; index >= 0; index--) {
     const entry = entries[index]
-    if (entry?.kind === 'confirm' && entry.decision === null) return entry.request
+    if (entry && isAsking(entry) && entry.decision === null) return entry
   }
   return null
 }

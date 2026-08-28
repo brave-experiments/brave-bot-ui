@@ -15,7 +15,7 @@
 use crate::emit::{Emitter, Listener};
 use crate::protocol::{ErrorCode, Event, Failure, Request};
 use crate::running::{Running, State};
-use crate::turn::{BridgeConfirmer, BridgeReporter, BridgeSink};
+use crate::turn::{BridgeConfirmer, BridgeReporter, BridgeSink, Reply};
 use crate::{store, wire};
 use bravebot_agent::Workspace;
 use bravebot_agent::turn::{self as agent_turn, Task, TurnError};
@@ -84,6 +84,9 @@ impl Bridge {
             "turn.send" => self.send_turn(request),
             "turn.cancel" => self.cancel_turn(request),
             "confirm.reply" => self.reply_confirm(request),
+            "run.reply" => self.reply_run(request),
+            "output.reply" => self.reply_output(request),
+            "vouch.reply" => self.reply_vouch(request),
             "trust.reply" => self.reply_trust(request),
             "doctor" => Ok(Self::doctor()),
             other => Err(Failure::bad_request(format!("unknown method `{other}`"))),
@@ -386,14 +389,41 @@ impl Bridge {
 
     /// Carry an answer back to the write that is waiting for it.
     fn reply_confirm(&mut self, request: &Request) -> Result<Value, Failure> {
+        let reply = Reply::Write(wire::decision(request.param("decision")));
+        self.deliver(request, reply)
+    }
+
+    /// Answer a run, which is the one question with two answers.
+    fn reply_run(&mut self, request: &Request) -> Result<Value, Failure> {
+        let reply = Reply::Run(wire::run_decision(
+            request.param("decision"),
+            request.param("remember"),
+        ));
+        self.deliver(request, reply)
+    }
+
+    /// Answer whether the planner may read a command's output.
+    fn reply_output(&mut self, request: &Request) -> Result<Value, Failure> {
+        let reply = Reply::Output(wire::decision(request.param("decision")));
+        self.deliver(request, reply)
+    }
+
+    /// Answer whether to vouch for a quarantined path.
+    fn reply_vouch(&mut self, request: &Request) -> Result<Value, Failure> {
+        let reply = Reply::Vouch(wire::decision(request.param("decision")));
+        self.deliver(request, reply)
+    }
+
+    /// Carry one answer to the turn that is waiting for it.
+    ///
+    /// Shared by all four, because everything after "which question is this" is identical
+    /// and the differences are all in the reading of the answer, above. Note what is *not*
+    /// here: no check that the front-end sent the kind of reply matching what is
+    /// outstanding. That is [`Running::answer`]'s job, and it is left there so there is one
+    /// place where an id and a kind are compared against the question that was asked.
+    fn deliver(&mut self, request: &Request, reply: Reply) -> Result<Value, Failure> {
         let handle = request.string("session")?;
         let id = request.number("request")?;
-        let decision = wire::decision(
-            request
-                .params
-                .get("decision")
-                .unwrap_or(&Value::Null),
-        );
 
         let open = self.open.get(&handle).ok_or_else(Failure::no_such_session)?;
         let Some(running) = &open.running else {
@@ -403,7 +433,7 @@ impl Bridge {
             ));
         };
 
-        if running.answer(id, decision) {
+        if running.answer(id, reply) {
             Ok(json!({}))
         } else {
             // Unknown, or already used. An approval is single-use and bound to the one
@@ -508,7 +538,7 @@ struct Work {
     turn: usize,
     cancel: Cancel,
     pending: crate::turn::Pending,
-    answers: mpsc::Receiver<bravebot_agent::Decision>,
+    answers: mpsc::Receiver<crate::turn::Reply>,
     finished: Arc<std::sync::atomic::AtomicBool>,
 }
 

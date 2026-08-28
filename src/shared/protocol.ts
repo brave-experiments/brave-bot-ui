@@ -120,6 +120,68 @@ export interface TurnError {
   message: string
 }
 
+/** One stage of a pipeline awaiting a decision. */
+export interface Stage {
+  /** The name as the planner wrote it. */
+  program: string
+  /**
+   * What that name resolved to on this machine, or `null` if it did not resolve.
+   *
+   * Shown *alongside* the name, never instead of it: `$PATH` decides what `grep` means, so
+   * the binary and the word for it are two different claims and a reviewer needs both.
+   */
+  resolved: string | null
+  args: string[]
+  /** The agent's own rendering of the argv, so both front-ends show the same characters. */
+  display: string
+}
+
+/** A pipeline the planner wants to run. */
+export interface RunRequest {
+  request: number
+  stages: Stage[]
+  directory: string
+  /**
+   * Whether approving would hand the user's own data to a program.
+   *
+   * A second and independent reason to be careful, on confidentiality rather than
+   * integrity: bytes going into a program are released somewhere the policy stops
+   * governing.
+   */
+  releasesPrivate: boolean
+  /** What approving *and remembering* would cover — the thing the second answer is about. */
+  vouches: { program: string; args: string[]; display: string }[]
+  summary: string
+}
+
+/**
+ * A command's output the planner has asked to read.
+ *
+ * `output` is the full bytes, and that is the point of the question rather than a leak:
+ * somebody deciding whether the model may read something has to be reading it themselves.
+ * A front-end that truncates this is asking for an approval of what nobody saw. It is
+ * released for a screen and stops there — approving is how it reaches the planner, and
+ * that path runs through the agent, never through here.
+ */
+export interface OutputRequest {
+  request: number
+  command: string
+  reference: string
+  lines: number
+  output: string
+  summary: string
+}
+
+/** A quarantined file the planner would like to read. */
+export interface VouchRequest {
+  request: number
+  path: string
+  preview: string
+  /** Whether the preview is only part of the file. Load-bearing: a preview that stops
+   *  without saying so reads as the whole thing. */
+  truncated: boolean
+}
+
 /** Every event the bridge emits, keyed by name. */
 export interface EventMap {
   'agent.ready': { build: string; version: string; home: string | null }
@@ -135,6 +197,9 @@ export interface EventMap {
   tokens: { written: number }
   audit: { turn: number; event: Record<string, unknown> }
   'confirm.request': ConfirmRequest
+  'run.request': RunRequest
+  'output.request': OutputRequest
+  'vouch.request': VouchRequest
   'turn.done': TurnDone
   'turn.error': TurnError
 }

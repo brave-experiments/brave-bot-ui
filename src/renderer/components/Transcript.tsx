@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ConfirmRequest, Phase, Shown, TodoRow } from '../../shared/protocol'
+import type { Phase, Shown, TodoRow } from '../../shared/protocol'
 import * as t from '../transcript'
 import type { Side } from '../columns'
+import type { Asked } from '../App'
 import { Diff } from './Diff'
 import { Fold } from './Fold'
 import { Markdown } from './Markdown'
@@ -18,15 +19,28 @@ interface Live {
   askingTrust: string | null
 }
 
+/**
+ * How an answer travels back up.
+ *
+ * The kind rides along with the id: the reply goes to a different method per question, and
+ * the card that drew the question is the only thing that knows which one it was.
+ */
+export type Answer = (
+  kind: Asked,
+  request: number,
+  approve: boolean,
+  remember?: boolean,
+) => void
+
 interface Props {
   live: Live | null
-  pending: ConfirmRequest | null
+  pending: t.Asking | null
   problem: string | null
   collapsed: Record<Side, boolean>
   onToggle: (side: Side) => void
   onSend: (prompt: string) => void
   onCancel: () => void
-  onDecide: (request: number, approve: boolean) => void
+  onDecide: Answer
 }
 
 /**
@@ -167,7 +181,7 @@ export function Transcript({
       <footer className="composer">
         <textarea
           value={draft}
-          placeholder={pending ? 'Answer the write above first…' : 'Ask something…'}
+          placeholder={pending ? `${waitingOn(pending.kind)} above first…` : 'Ask something…'}
           disabled={live.running && !pending}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
@@ -253,7 +267,7 @@ function Row({
   onDecide,
 }: {
   entry: t.Entry
-  onDecide: (request: number, approve: boolean) => void
+  onDecide: Answer
 }): React.JSX.Element {
   switch (entry.kind) {
     case 'user':
@@ -349,10 +363,10 @@ function Row({
 
           {decision === null ? (
             <div className="confirm-actions">
-              <button className="reject" onClick={() => onDecide(request.request, false)}>
+              <button className="reject" onClick={() => onDecide('confirm', request.request, false)}>
                 Don’t write
               </button>
-              <button className="approve" onClick={() => onDecide(request.request, true)}>
+              <button className="approve" onClick={() => onDecide('confirm', request.request, true)}>
                 {request.existing ? 'Apply this change' : 'Create this file'}
               </button>
             </div>
@@ -364,6 +378,184 @@ function Row({
         </div>
       )
     }
+
+    case 'run': {
+      const { request, decision, remember } = entry
+      return (
+        <div className={`confirm run ${request.releasesPrivate ? 'releases' : ''}`}>
+          <div className="confirm-head">
+            <span className="intent">run</span>
+            <code className="path">{request.directory}</code>
+          </div>
+
+          {/* The argv, one stage per line, with what each name resolved to underneath.
+              Both are shown because they are two different claims: $PATH decides what
+              `grep` means, and a person vouching for a program should be looking at the
+              binary rather than the word. */}
+          <ol className="stages">
+            {request.stages.map((stage, index) => (
+              <li key={index}>
+                <code className="argv">{stage.display}</code>
+                <span className="resolved">
+                  {stage.resolved ?? 'not found on PATH'}
+                </span>
+              </li>
+            ))}
+          </ol>
+
+          {request.releasesPrivate && (
+            <p className="warn">
+              This hands your own data to the program. Whatever it does with those bytes
+              happens somewhere the agent stops governing them.
+            </p>
+          )}
+
+          {decision === null ? (
+            <div className="confirm-actions">
+              <button className="reject" onClick={() => onDecide('run', request.request, false)}>
+                Don’t run
+              </button>
+              <button className="approve" onClick={() => onDecide('run', request.request, true)}>
+                Run once
+              </button>
+              {/* Separate from "Run once" rather than a checkbox beside it: remembering
+                  answers every later question about these programs, so it should take its
+                  own deliberate press. The title says exactly what it would cover. */}
+              <button
+                className="approve always"
+                title={`Stop asking about: ${request.vouches.map((v) => v.display).join(', ')}`}
+                onClick={() => onDecide('run', request.request, true, true)}
+              >
+                Run and don’t ask again
+              </button>
+            </div>
+          ) : (
+            <div className={`decided ${decision}`}>
+              {decision === 'reject'
+                ? 'You refused this command'
+                : remember
+                  ? 'You ran this and vouched for the programs'
+                  : 'You ran this once'}
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    case 'output': {
+      const { request, decision } = entry
+      return (
+        <div className="confirm output">
+          <div className="confirm-head">
+            <span className="intent">read output</span>
+            <code className="path">{request.command}</code>
+            <span className="counts">
+              {request.lines} line{request.lines === 1 ? '' : 's'}
+            </span>
+          </div>
+
+          <p className="warn">
+            The planner has not seen this. Read it yourself before deciding: approving is
+            what puts it into the model’s context, and anything in here that reads like an
+            instruction will be read there as one.
+          </p>
+
+          {/* In full, never truncated. The answer to this question rests on the bytes, so
+              a preview would be asking for an approval of what nobody saw. */}
+          <pre className="preview">{request.output}</pre>
+
+          {decision === null ? (
+            <div className="confirm-actions">
+              <button
+                className="reject"
+                onClick={() => onDecide('output', request.request, false)}
+              >
+                Keep it out
+              </button>
+              <button
+                className="approve"
+                onClick={() => onDecide('output', request.request, true)}
+              >
+                Let the planner read it
+              </button>
+            </div>
+          ) : (
+            <div className={`decided ${decision}`}>
+              {decision === 'approve'
+                ? 'You let the planner read this'
+                : 'You kept this out of the planner’s context'}
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    case 'vouch': {
+      const { request, decision } = entry
+      return (
+        <div className="confirm vouch">
+          <div className="confirm-head">
+            <span className="intent">vouch</span>
+            <code className="path">{request.path}</code>
+          </div>
+
+          <p className="warn">
+            Vouching records a standing rule for this path, so it applies to later reads as
+            well as this one. Only do it for content you know the origin of.
+          </p>
+
+          <pre className="preview">{request.preview}</pre>
+          {request.truncated && (
+            <div className="quarantine-foot">
+              This is the beginning of the file, not all of it.
+            </div>
+          )}
+
+          {decision === null ? (
+            <div className="confirm-actions">
+              <button
+                className="reject"
+                onClick={() => onDecide('vouch', request.request, false)}
+              >
+                Leave it confined
+              </button>
+              <button
+                className="approve"
+                onClick={() => onDecide('vouch', request.request, true)}
+              >
+                Vouch for this path
+              </button>
+            </div>
+          ) : (
+            <div className={`decided ${decision}`}>
+              {decision === 'approve'
+                ? 'You vouched for this path'
+                : 'You left it confined'}
+            </div>
+          )}
+        </div>
+      )
+    }
+  }
+}
+
+/**
+ * What the composer says while a question is outstanding.
+ *
+ * Named for the question rather than a generic "answer the prompt", because the four are
+ * not interchangeable and somebody who has scrolled away needs to know what they are
+ * being asked before they scroll back.
+ */
+function waitingOn(kind: t.Asking['kind']): string {
+  switch (kind) {
+    case 'confirm':
+      return 'Answer the write'
+    case 'run':
+      return 'Answer the command'
+    case 'output':
+      return 'Answer the output'
+    case 'vouch':
+      return 'Answer the vouch'
   }
 }
 

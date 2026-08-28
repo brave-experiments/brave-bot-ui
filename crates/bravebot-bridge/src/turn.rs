@@ -22,16 +22,62 @@ use bravebot_core::ask::{Answer, Asking};
 use bravebot_agent::report::{Activity, Landing, Phase, Reporter, Shown};
 use bravebot_core::event::Sink;
 use bravebot_core::todo::Row;
-use serde_json::json;
+use serde_json::{Value, json};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 
-/// Which write, if any, is waiting on a person right now.
+/// Which of the four questions this is.
+///
+/// Recorded alongside the id so an answer has to be an answer to the question that was
+/// actually asked. Without it, a front-end that replied to a write while a run was
+/// outstanding would have its approval applied to the run — the ids match, and nothing
+/// else would notice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    Write,
+    Run,
+    Output,
+    Vouch,
+}
+
+/// The question waiting on a person right now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Question {
+    pub id: u64,
+    pub kind: Kind,
+}
+
+/// What is waiting, if anything.
 ///
 /// Shared between the worker that asked and the dispatch thread that will be told the
 /// answer. `None` means nothing is outstanding, so a reply that names a request cannot be
 /// applied — which is what makes an approval single-use rather than replayable.
-pub type Pending = Arc<Mutex<Option<u64>>>;
+pub type Pending = Arc<Mutex<Option<Question>>>;
+
+/// What a front-end answered.
+///
+/// One variant per question rather than a bare [`Decision`] for all four, so a reply
+/// carries which question it is answering and the kernel's own types come back intact —
+/// [`RunDecision`] in particular, whose `remember` is a second answer that a `Decision`
+/// has nowhere to put.
+#[derive(Debug, Clone, Copy)]
+pub enum Reply {
+    Write(Decision),
+    Run(RunDecision),
+    Output(Decision),
+    Vouch(Decision),
+}
+
+impl Reply {
+    pub fn kind(&self) -> Kind {
+        match self {
+            Reply::Write(_) => Kind::Write,
+            Reply::Run(_) => Kind::Run,
+            Reply::Output(_) => Kind::Output,
+            Reply::Vouch(_) => Kind::Vouch,
+        }
+    }
+}
 
 // ---------------------------------------------------------------- announcing
 
@@ -169,7 +215,7 @@ pub struct BridgeConfirmer {
     emitter: Emitter,
     session: String,
     pending: Pending,
-    answers: Receiver<Decision>,
+    answers: Receiver<Reply>,
     next: u64,
 }
 
@@ -178,7 +224,7 @@ impl BridgeConfirmer {
         emitter: Emitter,
         session: impl Into<String>,
         pending: Pending,
-        answers: Receiver<Decision>,
+        answers: Receiver<Reply>,
     ) -> Self {
         Self {
             emitter,
@@ -189,30 +235,16 @@ impl BridgeConfirmer {
         }
     }
 
-    /// Say that something was refused for want of anywhere to ask.
+    /// Put one question to whoever is watching, and block until it is answered.
     ///
-    /// A silent refusal is the worst of the options here: the turn stops doing something
-    /// and the transcript gives no reason, so the model looks broken rather than governed.
-    /// Announced rather than asked — the answer is already decided by the time this is
-    /// called, and this only explains it.
+    /// The whole of the asking is here, once, because every one of the four questions has
+    /// the same failure modes and each of them must resolve to refusal. Writing that four
+    /// times would be four chances to get it wrong in a way no test distinguishes.
     ///
-    /// The summaries come from the request types, which name the command and how much
-    /// output there was without quoting any of it. Nothing a program printed reaches here.
-    fn refused(&self, what: &str) {
-        let text = format!(
-            "Refused: nothing in this window can ask whether to {what}. \
-             Use the terminal client for this turn."
-        );
-        self.emitter.send(Event::new(
-            "narration",
-            &self.session,
-            json!({ "text": text }),
-        ));
-    }
-}
-
-impl Confirmer for BridgeConfirmer {
-    fn confirm_write(&mut self, request: &WriteRequest) -> Decision {
+    /// `None` means nobody answered — a poisoned lock, a departed front-end, a closed
+    /// session, a shutting-down process, or a reply to a different question. Every caller
+    /// turns that into its own flavour of no.
+    fn ask(&mut self, kind: Kind, event: &'static str, data: impl FnOnce(u64) -> Value) -> Option<Reply> {
         self.next += 1;
         let id = self.next;
 
@@ -221,57 +253,81 @@ impl Confirmer for BridgeConfirmer {
         let Ok(mut pending) = self.pending.lock() else {
             // Another thread panicked while holding this. Nothing can be registered, so
             // nothing can be answered, so nothing is approved.
-            return Decision::Reject;
+            return None;
         };
-        *pending = Some(id);
+        *pending = Some(Question { id, kind });
         drop(pending);
 
-        self.emitter.send(Event::new(
-            "confirm.request",
-            &self.session,
-            wire::write_request(id, request),
-        ));
+        self.emitter
+            .send(Event::new(event, &self.session, data(id)));
 
         // Blocks until the dispatch thread sends an answer, or until the sending end is
         // dropped — which is what a departed front-end, a closed session, or a shutting
         // down process looks like from here. All of them are refusals.
-        let decision = self.answers.recv().unwrap_or(Decision::Reject);
+        let reply = self.answers.recv().ok();
 
         // Consumed either way. An id that is no longer pending cannot be answered again,
-        // so an approval cannot be replayed against a second write.
+        // so an approval cannot be replayed against a second question.
         if let Ok(mut pending) = self.pending.lock() {
             *pending = None;
         }
 
-        decision
+        // Belt and braces. `Running::answer` already refuses a reply whose kind does not
+        // match the outstanding question, so this should be unreachable — and it is
+        // checked anyway, because the cost of being wrong is an approval landing on a
+        // question nobody was shown.
+        reply.filter(|reply| reply.kind() == kind)
+    }
+}
+
+impl Confirmer for BridgeConfirmer {
+    fn confirm_write(&mut self, request: &WriteRequest) -> Decision {
+        match self.ask(Kind::Write, "confirm.request", |id| {
+            wire::write_request(id, request)
+        }) {
+            Some(Reply::Write(decision)) => decision,
+            _ => Decision::Reject,
+        }
     }
 
-    /// Refuses, because the protocol has no way to ask this yet.
+    /// Ask whether to run a pipeline.
     ///
-    /// A refusal that does not remember, which the trait asks for explicitly and is the
-    /// more important half: a single unasked "no" costs one command, where a remembered
-    /// one would quietly vouch for a program on the strength of a question nobody saw.
+    /// The refusal is the interesting path, and it refuses **without** remembering:
+    /// a single unanswered "no" costs one command, where a remembered one would vouch for
+    /// a program on the strength of a question nobody saw. `RunDecision::reject()` is that
+    /// pair, and it is what every failure here resolves to.
     fn confirm_run(&mut self, request: &RunRequest) -> RunDecision {
-        self.refused(&request.summary());
-        RunDecision::reject()
+        match self.ask(Kind::Run, "run.request", |id| wire::run_request(id, request)) {
+            Some(Reply::Run(decision)) => decision,
+            _ => RunDecision::reject(),
+        }
     }
 
-    /// Refuses, because the protocol has no way to show the output this asks about.
+    /// Ask whether the planner may read what a command printed.
     ///
-    /// The one question in the trait whose answer rests on bytes rather than on a
-    /// prediction, so an implementation that cannot show them has only one honest answer.
+    /// The one question here whose answer rests on bytes rather than on a prediction, so
+    /// the bytes go on the wire — see [`wire::output_request`] for why that is the point of
+    /// the question rather than a leak, and what it means for a front-end.
     fn confirm_read_output(&mut self, request: &OutputRequest) -> Decision {
-        self.refused(&request.summary());
-        Decision::Reject
+        match self.ask(Kind::Output, "output.request", |id| {
+            wire::output_request(id, request)
+        }) {
+            Some(Reply::Output(decision)) => decision,
+            _ => Decision::Reject,
+        }
     }
 
-    /// Refuses, because the protocol has no way to ask this yet.
+    /// Ask whether to vouch for a quarantined file the model wants to read.
     ///
-    /// A yes here writes a standing rule into the trust map, so an unasked one would
-    /// outlive the turn that invented it.
+    /// A yes writes a standing rule into the trust map, so it outlives the turn that asked
+    /// — which is exactly why an unanswered one must not be read as one.
     fn confirm_vouch(&mut self, request: &VouchRequest) -> Decision {
-        self.refused(&format!("vouch for {}", request.path));
-        Decision::Reject
+        match self.ask(Kind::Vouch, "vouch.request", |id| {
+            wire::vouch_request(id, request)
+        }) {
+            Some(Reply::Vouch(decision)) => decision,
+            _ => Decision::Reject,
+        }
     }
 
     /// Answers nothing, because this protocol has no way to put a question to the person.

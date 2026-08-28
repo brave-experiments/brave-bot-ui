@@ -10,7 +10,7 @@ use bravebot_agent::diff::Change;
 use bravebot_agent::report::{Activity, Landing, Phase, Reach, Shown};
 use bravebot_bridge::wire;
 use bravebot_core::todo::{Row, Status};
-use serde_json::json;
+use serde_json::{Value, json};
 
 #[test]
 fn every_enum_has_the_tag_the_protocol_promises() {
@@ -198,4 +198,42 @@ fn a_created_file_says_nothing_would_be_lost() {
         value["untrusted"], json!(true),
         "a front-end must be able to draw this differently"
     );
+}
+
+// ---------------------------------------------------------------- answering a run
+
+/// A run has two answers, and the second one is the consequential half.
+#[test]
+fn only_an_approval_can_remember() {
+    let approve = json!("approve");
+    let reject = json!("reject");
+    let yes = json!(true);
+    let no = json!(false);
+    let absent = Value::Null;
+
+    let once = wire::run_decision(&approve, &no);
+    assert_eq!(once.decision, Decision::Approve);
+    assert!(!once.remember, "approving once must not vouch for anything");
+
+    let always = wire::run_decision(&approve, &yes);
+    assert_eq!(always.decision, Decision::Approve);
+    assert!(always.remember, "approve-and-remember is the second answer");
+
+    // The incoherent case: a client saying no and also saying stop asking. Forgetting
+    // costs one question later; remembering would be a standing permission arrived at
+    // through a refusal.
+    let refused = wire::run_decision(&reject, &yes);
+    assert_eq!(refused.decision, Decision::Reject);
+    assert!(!refused.remember, "a refusal must never remember");
+
+    // Absent, and every shape that is not a literal `true`. Remembering answers every
+    // later question about the same command, so it gets no benefit of the doubt either.
+    for value in [absent, json!("true"), json!(1), json!({}), json!([])] {
+        let decision = wire::run_decision(&approve, &value);
+        assert_eq!(decision.decision, Decision::Approve);
+        assert!(
+            !decision.remember,
+            "only a literal true remembers, not {value}"
+        );
+    }
 }

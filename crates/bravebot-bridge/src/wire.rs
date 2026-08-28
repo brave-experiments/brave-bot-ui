@@ -19,7 +19,9 @@
 //! the same outcome and only one of them is honest about it.
 
 use bravebot_agent::conversation::Said;
-use bravebot_agent::confirm::{Decision, Intent, WriteRequest};
+use bravebot_agent::confirm::{
+    Decision, Intent, OutputRequest, RunDecision, RunRequest, VouchRequest, WriteRequest,
+};
 use bravebot_agent::diff::Change;
 use bravebot_agent::report::{Activity, Landing, Phase, Reach, Shown};
 use bravebot_core::todo::{Row, Status};
@@ -85,6 +87,27 @@ pub fn decision(value: &Value) -> Decision {
     match value.as_str() {
         Some("approve") => Decision::Approve,
         _ => Decision::Reject,
+    }
+}
+
+/// Read an answer to a run, which is two answers rather than one.
+///
+/// `remember` is only ever read from an approval. A refusal that remembered would be a
+/// standing "never ask me again" nobody asked for, and the kernel has no such state to
+/// put it in — but the more important reason is that a client sending
+/// `{"decision": "reject", "remember": true}` has said something incoherent, and the
+/// reading that costs least is the one that forgets.
+///
+/// Anything other than a literal `true` is a no, on the same grounds as [`decision`]:
+/// remembering is nearly as consequential as approving, since it answers every later
+/// question about the same command.
+pub fn run_decision(decision_value: &Value, remember_value: &Value) -> RunDecision {
+    match decision(decision_value) {
+        Decision::Approve if remember_value.as_bool() == Some(true) => {
+            RunDecision::approve_always()
+        }
+        Decision::Approve => RunDecision::approve(),
+        Decision::Reject => RunDecision::reject(),
     }
 }
 
@@ -181,5 +204,93 @@ pub fn write_request(id: u64, request: &WriteRequest) -> Value {
         // to know they are reading an approximation of the change.
         "exact": diff.is_exact(),
         "changes": diff.condensed(CONTEXT_LINES).iter().map(change).collect::<Vec<_>>(),
+    })
+}
+
+/// A pipeline awaiting a person's decision.
+///
+/// Every stage carries the name the model wrote **and** what it resolved to, because they
+/// are not the same claim: `$PATH` decides what `grep` means, and somebody vouching for a
+/// program should be looking at the binary they are vouching for. A front-end that shows
+/// only one of the two is showing the wrong one.
+///
+/// `display` is the agent's own rendering of the argv, so both front-ends put the same
+/// characters in front of a reviewer — argument boundaries included, which is where a
+/// space in a filename stops being cosmetic.
+///
+/// `releasesPrivate` is a second and independent reason to be careful, on confidentiality
+/// rather than integrity: bytes going into a program are released somewhere this policy
+/// stops governing. It is sent separately from the stages because it is not a property of
+/// any one of them.
+pub fn run_request(id: u64, request: &RunRequest) -> Value {
+    let stages: Vec<Value> = request
+        .pipeline
+        .stages
+        .iter()
+        .enumerate()
+        .map(|(index, stage)| {
+            json!({
+                "program": stage.program,
+                // Positional: `resolved` is in stage order. A stage with nothing opposite
+                // it sends null rather than a guess, which a front-end must draw as
+                // "unresolved" rather than as the name repeated.
+                "resolved": request.resolved.get(index),
+                "args": stage.args,
+                "display": stage.display(),
+            })
+        })
+        .collect();
+
+    json!({
+        "request": id,
+        "stages": stages,
+        "directory": request.directory,
+        "releasesPrivate": request.releases_private(),
+        // What approving-and-remembering would cover, which is the thing the second
+        // answer needs to be about. A pipeline vouches for all of its stages: one that
+        // still had to ask about a stage would not have stopped asking.
+        "vouches": request
+            .would_vouch_for()
+            .iter()
+            .map(|command| json!({ "program": command.program, "args": command.args, "display": command.display() }))
+            .collect::<Vec<_>>(),
+        "summary": request.summary(),
+    })
+}
+
+/// A command's output the planner has asked to read.
+///
+/// The bytes are here in full, and that is the point rather than an oversight: a person
+/// deciding whether the model may read something must be reading it themselves, so a
+/// front-end that truncates this is asking them to approve what they cannot see. Unlike
+/// every other question in this file the answer rests on the content, which is why
+/// [`crate::turn::BridgeConfirmer::confirm_read_output`] cannot fall back to anything
+/// except no.
+///
+/// It is released for a screen and stops there. Nothing here may be fed back to the model
+/// by the front-end; approving is how it reaches the planner, and that path runs through
+/// the kernel.
+pub fn output_request(id: u64, request: &OutputRequest) -> Value {
+    json!({
+        "request": id,
+        "command": request.command,
+        "reference": request.reference,
+        "lines": request.lines(),
+        "output": request.output,
+        "summary": request.summary(),
+    })
+}
+
+/// A quarantined file the model would like to read.
+///
+/// `truncated` is load-bearing: a preview that stops without saying so reads as the whole
+/// file, and a person vouching for a path on the strength of its first few lines should
+/// know that is what they are doing.
+pub fn vouch_request(id: u64, request: &VouchRequest) -> Value {
+    json!({
+        "request": id,
+        "path": request.path,
+        "preview": request.preview,
+        "truncated": request.truncated,
     })
 }
