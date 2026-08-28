@@ -81,6 +81,7 @@ const ALLOWED = new Set([
   'run.reply',
   'output.reply',
   'vouch.reply',
+  'ask.reply',
   'trust.reply',
   'doctor',
 ])

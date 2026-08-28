@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Phase, Shown, TodoRow } from '../../shared/protocol'
+import type { AskAnswer, AskPrompt, Phase, Shown, TodoRow } from '../../shared/protocol'
 import * as t from '../transcript'
 import type { Side } from '../columns'
 import type { Asked } from '../App'
@@ -32,6 +32,9 @@ export type Answer = (
   remember?: boolean,
 ) => void
 
+/** How a series of answers travels back up. */
+export type AnswerQuestions = (request: number, answers: AskAnswer[]) => void
+
 interface Props {
   live: Live | null
   pending: t.Asking | null
@@ -41,6 +44,7 @@ interface Props {
   onSend: (prompt: string) => void
   onCancel: () => void
   onDecide: Answer
+  onAnswer: AnswerQuestions
 }
 
 /**
@@ -95,6 +99,7 @@ export function Transcript({
   onSend,
   onCancel,
   onDecide,
+  onAnswer,
 }: Props): React.JSX.Element {
   const [draft, setDraft] = useState('')
   const bottom = useRef<HTMLDivElement>(null)
@@ -161,7 +166,7 @@ export function Transcript({
           run.kind === 'run' ? (
             <ToolRun key={run.id} entries={run.entries} />
           ) : (
-            <Row key={run.entry.id} entry={run.entry} onDecide={onDecide} />
+            <Row key={run.entry.id} entry={run.entry} onDecide={onDecide} onAnswer={onAnswer} />
           ),
         )}
 
@@ -255,19 +260,164 @@ function ToolRun({ entries }: { entries: t.Entry[] }): React.JSX.Element {
       </button>
       <Fold open={open}>
         {entries.map((entry) => (
-          <Row key={entry.id} entry={entry} onDecide={() => undefined} />
+          <Row
+            key={entry.id}
+            entry={entry}
+            onDecide={() => undefined}
+            onAnswer={() => undefined}
+          />
         ))}
       </Fold>
     </section>
   )
 }
 
+/**
+ * A series of questions the planner is putting to the person.
+ *
+ * The one question in the interface that is not a yes or a no, so it holds its own state
+ * until it is sent: several questions arrive together and are answered together, in one
+ * reply, because the turn is blocked on the series rather than on any one of them.
+ *
+ * A question with no rows is not a mistake — it can only be answered in the person's own
+ * words — and every question keeps a free-text box for the same reason: the model's options
+ * may all be wrong, and forcing a choice between them would put words in somebody's mouth.
+ */
+function Questions({
+  request,
+  answers,
+  onAnswer,
+}: {
+  request: t.Entry & { kind: 'ask' }
+  answers: AskAnswer[] | null
+  onAnswer: AnswerQuestions
+}): React.JSX.Element {
+  const prompts = request.request.prompts
+  const [picked, setPicked] = useState<number[][]>(() => prompts.map(() => []))
+  const [typed, setTyped] = useState<string[]>(() => prompts.map(() => ''))
+
+  const choose = (question: number, index: number, multiple: boolean): void => {
+    setPicked((old) =>
+      old.map((chosen, at) => {
+        if (at !== question) return chosen
+        if (!multiple) return chosen.includes(index) ? [] : [index]
+        return chosen.includes(index)
+          ? chosen.filter((one) => one !== index)
+          : [...chosen, index].sort((a, b) => a - b)
+      }),
+    )
+  }
+
+  /**
+   * What each question would be answered with.
+   *
+   * Typed words win over a selection, matching what the agent does with a reply that
+   * carries both: they are the more specific thing to have done. An empty answer is sent as
+   * an empty object, which is how declining is said.
+   */
+  const collected = (): AskAnswer[] =>
+    prompts.map((_, at) => {
+      const words = typed[at]?.trim() ?? ''
+      if (words) return { typed: words }
+      const chosen = picked[at] ?? []
+      return chosen.length > 0 ? { chosen } : {}
+    })
+
+  if (answers) {
+    return (
+      <div className="confirm ask">
+        <div className="confirm-head">
+          <span className="intent">asked</span>
+          <span className="path">
+            {prompts.length} question{prompts.length === 1 ? '' : 's'}
+          </span>
+        </div>
+        {prompts.map((prompt, at) => (
+          <div className="asked-answer" key={prompt.key}>
+            <div className="question">{prompt.question}</div>
+            <div className="given">{describe(prompt, answers[at])}</div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  return (
+    <div className="confirm ask">
+      <div className="confirm-head">
+        <span className="intent">asked</span>
+        <span className="path">
+          {prompts.length} question{prompts.length === 1 ? '' : 's'}
+        </span>
+      </div>
+
+      {prompts.map((prompt, at) => (
+        <fieldset className="ask-question" key={prompt.key}>
+          <legend>
+            <span className="header">{prompt.header}</span>
+            {prompt.multiple && <span className="any">pick any</span>}
+          </legend>
+          <div className="question">{prompt.question}</div>
+
+          <ul className="choices">
+            {prompt.rows.map((row) => (
+              <li key={row.index}>
+                <button
+                  className={`choice ${(picked[at] ?? []).includes(row.index) ? 'picked' : ''}`}
+                  aria-pressed={(picked[at] ?? []).includes(row.index)}
+                  onClick={() => choose(at, row.index, prompt.multiple)}
+                >
+                  <span className="label">{row.label}</span>
+                  {row.detail && <span className="detail">{row.detail}</span>}
+                </button>
+              </li>
+            ))}
+          </ul>
+
+          <input
+            className="typed"
+            value={typed[at] ?? ''}
+            placeholder={prompt.rows.length > 0 ? 'or say something else…' : 'your answer…'}
+            onChange={(event) =>
+              setTyped((old) => old.map((text, index) => (index === at ? event.target.value : text)))
+            }
+          />
+        </fieldset>
+      ))}
+
+      <div className="confirm-actions">
+        {/* Declining every question is a real answer and the turn continues, so it is a
+            button here rather than something a person has to leave blank and guess at. */}
+        <button className="reject" onClick={() => onAnswer(request.request.request, prompts.map(() => ({})))}>
+          Decline
+        </button>
+        <button className="approve" onClick={() => onAnswer(request.request.request, collected())}>
+          Answer
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/** What somebody answered, in words, for the record left in the transcript. */
+function describe(prompt: AskPrompt, answer: AskAnswer | undefined): string {
+  if (!answer) return 'Declined'
+  if (answer.typed) return answer.typed
+  const chosen = answer.chosen ?? []
+  if (chosen.length === 0) return 'Declined'
+  return chosen
+    .map((index) => prompt.rows.find((row) => row.index === index)?.label ?? `#${index}`)
+    .join(', ')
+}
+
 function Row({
   entry,
   onDecide,
+  onAnswer,
 }: {
   entry: t.Entry
   onDecide: Answer
+  onAnswer: AnswerQuestions
 }): React.JSX.Element {
   switch (entry.kind) {
     case 'user':
@@ -490,6 +640,9 @@ function Row({
       )
     }
 
+    case 'ask':
+      return <Questions request={entry} answers={entry.answers} onAnswer={onAnswer} />
+
     case 'vouch': {
       const { request, decision } = entry
       return (
@@ -542,7 +695,7 @@ function Row({
 /**
  * What the composer says while a question is outstanding.
  *
- * Named for the question rather than a generic "answer the prompt", because the four are
+ * Named for the question rather than a generic "answer the prompt", because the five are
  * not interchangeable and somebody who has scrolled away needs to know what they are
  * being asked before they scroll back.
  */
@@ -556,6 +709,8 @@ function waitingOn(kind: t.Asking['kind']): string {
       return 'Answer the output'
     case 'vouch':
       return 'Answer the vouch'
+    case 'ask':
+      return 'Answer the questions'
   }
 }
 

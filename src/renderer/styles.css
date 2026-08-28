@@ -559,6 +559,65 @@ button { font: inherit; color: inherit; cursor: pointer; }
   overflow-wrap: anywhere;
 }
 
+/* A series of questions. Drawn in the accent rather than the confine purple: unlike the
+   output and vouch cards, nothing here is untrusted — the planner may only ask at all when
+   it has not been shown untrusted content, so these are the model's own words. */
+.confirm.ask .confirm-head .intent { color: var(--accent); }
+.confirm.ask .confirm-head .path { font-family: inherit; color: var(--ink-dim); }
+
+.ask-question { margin: 0; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--line); }
+.ask-question legend { display: flex; align-items: baseline; gap: 6px; padding: 0; }
+.ask-question .header {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+}
+/* Said once, next to the question it applies to. A person picking a second option should
+   not have to discover from the interface's behaviour that they were allowed to. */
+.ask-question .any {
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgba(127, 127, 127, 0.16);
+  color: var(--ink-dim);
+}
+.ask-question .question { margin: 4px 0 8px; }
+
+.choices { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 5px; }
+.choice {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: transparent;
+}
+.choice:hover { border-color: var(--ink-faint); }
+.choice.picked { border-color: var(--accent); background: var(--warn-bg); }
+.choice .label { display: block; font-size: 12px; }
+.choice .detail { display: block; font-size: 11px; color: var(--ink-faint); }
+
+/* Every question keeps one, including those with choices: the options may all be wrong, and
+   a person who has to pick anyway has been put words into their mouth. */
+.typed {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+}
+
+.asked-answer { padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.asked-answer .question { font-size: 12px; color: var(--ink-dim); }
+.asked-answer .given { font-size: 12px; margin-top: 2px; }
+.asked-answer .given::before { content: '→ '; color: var(--ink-faint); }
+
 /* Remembering answers every later question about these programs, so it is drawn as the
    weightier of the two approvals rather than the easier one. */
 .confirm-actions .approve.always { background: transparent; color: var(--accent); border: 1px solid var(--accent); }

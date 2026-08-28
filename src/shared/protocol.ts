@@ -182,6 +182,49 @@ export interface VouchRequest {
   truncated: boolean
 }
 
+/** One option the person may pick. `index` is what a selection reports back. */
+export interface AskRow {
+  index: number
+  label: string
+  detail: string | null
+}
+
+/**
+ * One question, already shaped for a screen by the agent.
+ *
+ * Every choice became exactly one row, in order — nothing filtered, reordered or
+ * truncated. A front-end draws what it was handed: building rows itself would put the
+ * decision about which options exist back where the model's words could reach it.
+ *
+ * A question with no rows is not an error. It is one that can only be answered in the
+ * person's own words.
+ */
+export interface AskPrompt {
+  /** A few words naming what this asks about, for telling several questions apart. */
+  header: string
+  question: string
+  rows: AskRow[]
+  /** Whether more than one row may be picked. */
+  multiple: boolean
+  /** A stable string standing for the whole question. */
+  key: string
+}
+
+/** A series of questions the planner is putting to the person. */
+export interface AskRequest {
+  request: number
+  prompts: AskPrompt[]
+}
+
+/**
+ * One answer.
+ *
+ * Declining is a first-class answer rather than an error: a question nobody wants to answer
+ * is still answered, and the turn continues. Sending neither `chosen` nor `typed` is how
+ * that is said.
+ */
+export type AskAnswer = { chosen?: number[]; typed?: string }
+
 /** Every event the bridge emits, keyed by name. */
 export interface EventMap {
   'agent.ready': { build: string; version: string; home: string | null }
@@ -200,6 +243,7 @@ export interface EventMap {
   'run.request': RunRequest
   'output.request': OutputRequest
   'vouch.request': VouchRequest
+  'ask.request': AskRequest
   'turn.done': TurnDone
   'turn.error': TurnError
 }

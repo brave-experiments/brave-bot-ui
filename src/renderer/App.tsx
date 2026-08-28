@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
+  AskAnswer,
   BridgeEvent,
   OpenedSession,
   Phase,
@@ -221,6 +222,23 @@ export function App(): React.JSX.Element {
     [],
   )
 
+  /**
+   * Answer a series of questions.
+   *
+   * Separate from [`answer`] because this reply is not a decision: it carries one answer per
+   * question, and there is no approve/reject for it to be a flavour of.
+   */
+  const answerQuestions = useCallback(async (request: number, answers: AskAnswer[]) => {
+    const handle = handleRef.current
+    if (!handle) return
+    try {
+      await call('ask.reply', { session: handle, request, answers })
+      setLive((old) => (old ? { ...old, entries: t.answered(old.entries, request, answers) } : old))
+    } catch (error) {
+      setProblem(String(error))
+    }
+  }, [])
+
   const pending = useMemo(
     () => (live ? t.outstanding(live.entries) : null),
     [live],
@@ -277,6 +295,7 @@ export function App(): React.JSX.Element {
         onSend={send}
         onCancel={cancel}
         onDecide={answer}
+        onAnswer={answerQuestions}
       />
       <Gutter
         side="right"
@@ -341,6 +360,8 @@ function apply(
         return { ...old, entries: [...old.entries, t.askedOutput(message.data)] }
       case 'vouch.request':
         return { ...old, entries: [...old.entries, t.askedVouch(message.data)] }
+      case 'ask.request':
+        return { ...old, entries: [...old.entries, t.askedQuestions(message.data)] }
       case 'turn.done': {
         refresh()
         return {

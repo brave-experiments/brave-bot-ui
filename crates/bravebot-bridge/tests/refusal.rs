@@ -11,6 +11,9 @@ use bravebot_agent::confirm::{
     Confirmer, Decision, Intent, OutputRequest, RunDecision, RunRequest, VouchRequest,
     WriteRequest,
 };
+// `Question` is also the bridge's name for an outstanding request, so this one stays
+// qualified as `ask::Question` rather than shadowing it.
+use bravebot_core::ask::{self, Choice, Series};
 use bravebot_core::command::{Pipeline, Stage};
 use bravebot_bridge::emit::Emitter;
 use bravebot_bridge::protocol::Event;
@@ -353,4 +356,27 @@ fn refusing_a_pending_run_reaches_the_turn_as_a_run() {
 
     assert_eq!(decision.decision, Decision::Reject);
     assert!(!decision.remember);
+}
+
+/// The one question whose "nobody could be asked" is an empty reply rather than a no.
+///
+/// A decline per question would be the same outcome dressed as a person's choice. The
+/// kernel reads a missing answer as a decline either way, so saying nothing costs nothing
+/// and claims nothing.
+#[test]
+fn an_unanswerable_series_claims_no_answers() {
+    let mut harness = harness();
+    drop(harness.running);
+
+    let asking = ask::asking(&Series::new(vec![ask::Question::new(
+        "Approach",
+        "Which way?",
+        vec![Choice::new("rebase", None)],
+        false,
+    )]));
+
+    assert!(
+        harness.confirmer.ask_user(&asking).is_empty(),
+        "no answers at all, rather than a decline nobody made"
+    );
 }

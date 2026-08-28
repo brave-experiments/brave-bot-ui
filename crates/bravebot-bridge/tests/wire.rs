@@ -9,6 +9,7 @@ use bravebot_agent::conversation::Said;
 use bravebot_agent::diff::Change;
 use bravebot_agent::report::{Activity, Landing, Phase, Reach, Shown};
 use bravebot_bridge::wire;
+use bravebot_core::ask::{self, Answer, Asking, Choice, Question, Series};
 use bravebot_core::todo::{Row, Status};
 use serde_json::{Value, json};
 
@@ -236,4 +237,114 @@ fn only_an_approval_can_remember() {
             "only a literal true remembers, not {value}"
         );
     }
+}
+
+// ---------------------------------------------------------------- answering questions
+
+fn a_series() -> Asking {
+    ask::asking(&Series::new(vec![
+        Question::new(
+            "Approach",
+            "Which way?",
+            vec![Choice::new("rebase", None), Choice::new("merge", None)],
+            false,
+        ),
+        Question::new(
+            "Files",
+            "Which of these?",
+            vec![Choice::new("a.rs", None), Choice::new("b.rs", None), Choice::new("c.rs", None)],
+            true,
+        ),
+    ]))
+}
+
+/// Nothing readable means nobody answered, which is not the same as declining.
+#[test]
+fn an_unreadable_reply_claims_no_answers() {
+    assert!(wire::answers(&Value::Null).is_empty());
+    assert!(wire::answers(&json!("approve")).is_empty());
+    assert!(wire::answers(&json!({})).is_empty());
+
+    // A list of nonsense is a different thing: the client did say one answer per question,
+    // and each of those answers is unreadable. Declining is a real answer.
+    assert_eq!(
+        wire::answers(&json!([null, 7])),
+        vec![Answer::Declined, Answer::Declined]
+    );
+}
+
+#[test]
+fn a_typed_answer_wins_over_choices_sent_alongside_it() {
+    assert_eq!(
+        wire::answers(&json!([{ "typed": "neither, do it by hand", "chosen": [0] }])),
+        vec![Answer::Typed("neither, do it by hand".into())],
+        "a client that sent both has been ambiguous; the words are the more specific thing"
+    );
+}
+
+/// An index has to name a choice that exists, and one question means one answer.
+#[test]
+fn answers_are_held_to_the_questions_they_answer() {
+    let asking = a_series();
+
+    // Out of range for a two-choice question, and there is nothing left after dropping it.
+    assert_eq!(
+        wire::fitted(vec![Answer::Chosen(vec![9])], &asking),
+        vec![Answer::Declined],
+        "picking only options that do not exist is not picking anything"
+    );
+
+    // The first question does not take several.
+    assert_eq!(
+        wire::fitted(vec![Answer::Chosen(vec![1, 0])], &asking),
+        vec![Answer::Chosen(vec![1])],
+        "a single-choice question must not come back with two"
+    );
+
+    // The second one does, and out-of-range entries are still dropped from it.
+    assert_eq!(
+        wire::fitted(
+            vec![Answer::Declined, Answer::Chosen(vec![0, 2, 5])],
+            &asking
+        ),
+        vec![Answer::Declined, Answer::Chosen(vec![0, 2])],
+    );
+
+    // More answers than questions: the extra ones answer nothing and are dropped.
+    assert_eq!(
+        wire::fitted(
+            vec![
+                Answer::Chosen(vec![0]),
+                Answer::Chosen(vec![0]),
+                Answer::Typed("and another thing".into())
+            ],
+            &asking
+        )
+        .len(),
+        2,
+    );
+
+    // Fewer is left short rather than padded. The kernel reads a missing answer as a
+    // decline; padding here would be this code answering on somebody's behalf.
+    assert_eq!(wire::fitted(vec![Answer::Typed("just this".into())], &asking).len(), 1);
+}
+
+/// Every choice becomes exactly one row, in order, with its index carried as data.
+#[test]
+fn the_prompts_are_sent_as_the_kernel_shaped_them() {
+    let sent = wire::ask_request(3, &a_series());
+
+    assert_eq!(sent["request"], 3);
+    let prompts = sent["prompts"].as_array().expect("prompts");
+    assert_eq!(prompts.len(), 2);
+    assert_eq!(prompts[0]["header"], "Approach");
+    assert_eq!(prompts[0]["multiple"], false);
+    assert_eq!(prompts[1]["multiple"], true);
+    assert_eq!(prompts[1]["rows"].as_array().expect("rows").len(), 3);
+    assert_eq!(prompts[1]["rows"][2]["index"], 2);
+    assert_eq!(prompts[1]["rows"][2]["label"], "c.rs");
+    assert!(
+        !prompts[0]["key"].as_str().unwrap_or_default().is_empty(),
+        "the key travels so a front-end can tell two questions apart"
+    );
 }

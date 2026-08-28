@@ -24,6 +24,7 @@ use bravebot_agent::confirm::{
 };
 use bravebot_agent::diff::Change;
 use bravebot_agent::report::{Activity, Landing, Phase, Reach, Shown};
+use bravebot_core::ask::{Answer, Asking};
 use bravebot_core::todo::{Row, Status};
 use serde_json::{Value, json};
 
@@ -293,4 +294,124 @@ pub fn vouch_request(id: u64, request: &VouchRequest) -> Value {
         "preview": request.preview,
         "truncated": request.truncated,
     })
+}
+
+// ---------------------------------------------------------------- asking
+
+/// A series of questions, released for display.
+///
+/// The prompts are already shaped by the kernel — one row per choice, in order, nothing
+/// filtered or reordered — so this copies rather than formats. That is the point of the
+/// shaping happening up there: what the model wrote must not be able to decide which
+/// options a person is shown the existence of, and a front-end that built rows itself would
+/// be the place that decision crept back in.
+///
+/// `index` travels with every row so a selection can be reported back as data rather than
+/// by matching label text, and `key` travels with every prompt so a front-end can tell two
+/// questions apart without reimplementing the rule for what makes them different.
+pub fn ask_request(id: u64, asking: &Asking) -> Value {
+    json!({
+        "request": id,
+        "prompts": asking
+            .prompts
+            .iter()
+            .map(|prompt| {
+                json!({
+                    "header": prompt.header,
+                    "question": prompt.question,
+                    "multiple": prompt.multiple,
+                    "key": prompt.key,
+                    "rows": prompt
+                        .rows
+                        .iter()
+                        .map(|row| json!({
+                            "index": row.index,
+                            "label": row.label,
+                            "detail": row.detail,
+                        }))
+                        .collect::<Vec<_>>(),
+                })
+            })
+            .collect::<Vec<_>>(),
+    })
+}
+
+/// Read the answers a front-end sent.
+///
+/// Total, like every other reader here. Anything unreadable is [`Answer::Declined`] — which
+/// is a real answer rather than an error, and the one that assumes least about what somebody
+/// meant.
+///
+/// A typed answer wins over choices when both are present. It is the more specific thing to
+/// have done, and a client that sends both has said something ambiguous that should not
+/// resolve into a selection nobody made.
+pub fn answers(value: &Value) -> Vec<Answer> {
+    let Some(list) = value.as_array() else {
+        // Not a list at all. Nothing here claims a person answered anything, which is
+        // exactly what the empty reply means.
+        return Vec::new();
+    };
+    list.iter().map(answer).collect()
+}
+
+fn answer(value: &Value) -> Answer {
+    let Some(object) = value.as_object() else {
+        return Answer::Declined;
+    };
+
+    if let Some(text) = object.get("typed").and_then(Value::as_str) {
+        return Answer::Typed(text.to_string());
+    }
+
+    match object.get("chosen").and_then(Value::as_array) {
+        Some(chosen) => Answer::Chosen(
+            chosen
+                .iter()
+                .filter_map(Value::as_u64)
+                .map(|index| index as usize)
+                .collect(),
+        ),
+        None => Answer::Declined,
+    }
+}
+
+/// Hold answers to the questions they answer.
+///
+/// Three things are checked, and each of them is a way a front-end could otherwise put words
+/// in a person's mouth:
+///
+/// - **An index must name a choice that exists.** An out-of-range one is dropped rather than
+///   passed on, because what it would select is undefined and "undefined" must not become a
+///   selection.
+/// - **A single-choice question gets at most one.** The model asked for one; a reply with
+///   three has not answered *that* question, and taking the first is the reading that adds
+///   nothing.
+/// - **A selection with nothing left in it is a decline**, not an empty choice. Somebody who
+///   picked only options that do not exist has not picked anything.
+///
+/// Extra answers beyond the questions asked are dropped. Missing ones are simply absent: the
+/// kernel reads a short list as declines for the rest, so there is nothing to pad with and
+/// padding would be this code answering on somebody's behalf.
+pub fn fitted(answers: Vec<Answer>, asking: &Asking) -> Vec<Answer> {
+    answers
+        .into_iter()
+        .zip(&asking.prompts)
+        .map(|(answer, prompt)| match answer {
+            Answer::Chosen(indices) => {
+                let mut kept: Vec<usize> = indices
+                    .into_iter()
+                    .filter(|index| *index < prompt.rows.len())
+                    .collect();
+                if !prompt.multiple {
+                    kept.truncate(1);
+                }
+                if kept.is_empty() {
+                    Answer::Declined
+                } else {
+                    Answer::Chosen(kept)
+                }
+            }
+            other => other,
+        })
+        .collect()
 }

@@ -12,6 +12,8 @@
 
 import type {
   Activity,
+  AskAnswer,
+  AskRequest,
   Change,
   ConfirmRequest,
   Landing,
@@ -64,6 +66,14 @@ export type Entry =
       request: VouchRequest
       decision: 'approve' | 'reject' | null
     }
+  /**
+   * A series of questions awaiting answers, or the record of ones already given.
+   *
+   * `answers` rather than a decision, because this is the one question that is not a yes or
+   * a no. `null` means it still stands; an empty array is a real reply that declined
+   * everything.
+   */
+  | { kind: 'ask'; id: string; request: AskRequest; answers: AskAnswer[] | null }
   | { kind: 'error'; id: string; text: string }
   /** A replayed tool line from a stored session: no outcome, because none was kept. */
   | { kind: 'replayed-tool'; id: string; text: string }
@@ -122,6 +132,12 @@ export const askedVouch = (request: VouchRequest): Entry => ({
   request,
   decision: null,
 })
+export const askedQuestions = (request: AskRequest): Entry => ({
+  kind: 'ask',
+  id: nextId(),
+  request,
+  answers: null,
+})
 export const replied = (text: string): Entry => ({ kind: 'assistant', id: nextId(), text })
 
 /**
@@ -158,15 +174,32 @@ export function land(entries: Entry[], landing: Landing): Entry[] {
 }
 
 /** Record what the user decided about a write. */
-/** Every entry kind that puts a question to the person. */
-export type Asking = Extract<Entry, { decision: 'approve' | 'reject' | null }>
+/** Every entry kind that puts something to the person. */
+export type Asking = Extract<
+  Entry,
+  { kind: 'confirm' | 'run' | 'output' | 'vouch' | 'ask' }
+>
 
-/** Whether an entry is one of the four questions. */
+/** Whether an entry is one of the five questions. */
 const isAsking = (entry: Entry): entry is Asking =>
   entry.kind === 'confirm' ||
   entry.kind === 'run' ||
   entry.kind === 'output' ||
-  entry.kind === 'vouch'
+  entry.kind === 'vouch' ||
+  entry.kind === 'ask'
+
+/**
+ * Whether it is still waiting.
+ *
+ * Four of the five carry a decision and the fifth carries answers, so "unanswered" is not
+ * one field. Note the asymmetry that matters: `answers: []` is *answered* — somebody
+ * declined every question — where `null` means nobody has replied at all.
+ */
+const unanswered = (entry: Asking): boolean =>
+  entry.kind === 'ask' ? entry.answers === null : entry.decision === null
+
+/** A decision-carrying question, which is every kind but `ask`. */
+type Decided = Exclude<Asking, { kind: 'ask' }>
 
 /**
  * Record what was answered.
@@ -178,7 +211,7 @@ const isAsking = (entry: Entry): entry is Asking =>
  */
 export function decide(
   entries: Entry[],
-  kind: Asking['kind'],
+  kind: Decided['kind'],
   request: number,
   decision: 'approve' | 'reject',
   remember = false,
@@ -201,9 +234,20 @@ export function decide(
 export function outstanding(entries: Entry[]): Asking | null {
   for (let index = entries.length - 1; index >= 0; index--) {
     const entry = entries[index]
-    if (entry && isAsking(entry) && entry.decision === null) return entry
+    if (entry && isAsking(entry) && unanswered(entry)) return entry
   }
   return null
+}
+
+/** Record the answers somebody gave to a series of questions. */
+export function answered(
+  entries: Entry[],
+  request: number,
+  answers: AskAnswer[],
+): Entry[] {
+  return entries.map((entry) =>
+    entry.kind === 'ask' && entry.request.request === request ? { ...entry, answers } : entry,
+  )
 }
 
 /** A diff, condensed, as lines a reader can scan. */

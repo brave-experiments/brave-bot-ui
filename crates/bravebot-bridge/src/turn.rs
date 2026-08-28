@@ -38,6 +38,7 @@ pub enum Kind {
     Run,
     Output,
     Vouch,
+    Ask,
 }
 
 /// The question waiting on a person right now.
@@ -60,12 +61,17 @@ pub type Pending = Arc<Mutex<Option<Question>>>;
 /// carries which question it is answering and the kernel's own types come back intact —
 /// [`RunDecision`] in particular, whose `remember` is a second answer that a `Decision`
 /// has nowhere to put.
-#[derive(Debug, Clone, Copy)]
+///
+/// Not `Copy`, because [`Reply::Ask`] carries one answer per question.
+#[derive(Debug, Clone)]
 pub enum Reply {
     Write(Decision),
     Run(RunDecision),
     Output(Decision),
     Vouch(Decision),
+    /// One answer per question, in the order they were asked. Empty means nobody could be
+    /// asked — see [`Confirmer::ask_user`].
+    Ask(Vec<Answer>),
 }
 
 impl Reply {
@@ -75,6 +81,7 @@ impl Reply {
             Reply::Run(_) => Kind::Run,
             Reply::Output(_) => Kind::Output,
             Reply::Vouch(_) => Kind::Vouch,
+            Reply::Ask(_) => Kind::Ask,
         }
     }
 }
@@ -330,15 +337,23 @@ impl Confirmer for BridgeConfirmer {
         }
     }
 
-    /// Answers nothing, because this protocol has no way to put a question to the person.
+    /// Put a series of questions to the person.
     ///
-    /// The empty vector is the contract's own way of saying "nobody could be asked" — the
-    /// kernel reads a missing answer as a decline, and saying nothing is the one reply that
-    /// cannot be wrong about how many questions there were. Returning a decline per question
-    /// would be the same outcome dressed up as a person's choice, which is exactly the
-    /// mistake `confirm_write` is arranged to avoid. When the protocol grows an `ask`
-    /// request/response pair, this becomes the same blocking round trip as the one above.
-    fn ask_user(&mut self, _asking: &Asking) -> Vec<Answer> {
-        Vec::new()
+    /// The only one of the five that is not a yes or a no, and the only one where the empty
+    /// reply is the right way to say nothing: the contract asks for **no answers at all**
+    /// when nobody could be asked, rather than a decline for each question. The kernel reads
+    /// a missing answer as a decline anyway, and saying nothing is the one reply that cannot
+    /// be wrong about how many questions there were.
+    ///
+    /// So a decline the person actually made and a question that never reached them arrive
+    /// at the same place by different routes, and only one of them claims a person chose it.
+    ///
+    /// Answers are read against the prompts they answer, which is what stops a front-end
+    /// returning an index for a choice that does not exist.
+    fn ask_user(&mut self, asking: &Asking) -> Vec<Answer> {
+        match self.ask(Kind::Ask, "ask.request", |id| wire::ask_request(id, asking)) {
+            Some(Reply::Ask(answers)) => wire::fitted(answers, asking),
+            _ => Vec::new(),
+        }
     }
 }

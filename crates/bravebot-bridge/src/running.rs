@@ -161,6 +161,8 @@ impl Running {
                 Kind::Run => Reply::Run(RunDecision::reject()),
                 Kind::Output => Reply::Output(Decision::Reject),
                 Kind::Vouch => Reply::Vouch(Decision::Reject),
+                // No answers at all, which is how this question says nobody was asked.
+                Kind::Ask => Reply::Ask(Vec::new()),
             });
         }
     }

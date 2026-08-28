@@ -87,6 +87,7 @@ impl Bridge {
             "run.reply" => self.reply_run(request),
             "output.reply" => self.reply_output(request),
             "vouch.reply" => self.reply_vouch(request),
+            "ask.reply" => self.reply_ask(request),
             "trust.reply" => self.reply_trust(request),
             "doctor" => Ok(Self::doctor()),
             other => Err(Failure::bad_request(format!("unknown method `{other}`"))),
@@ -411,6 +412,12 @@ impl Bridge {
     /// Answer whether to vouch for a quarantined path.
     fn reply_vouch(&mut self, request: &Request) -> Result<Value, Failure> {
         let reply = Reply::Vouch(wire::decision(request.param("decision")));
+        self.deliver(request, reply)
+    }
+
+    /// Answer a series of questions, one answer per question.
+    fn reply_ask(&mut self, request: &Request) -> Result<Value, Failure> {
+        let reply = Reply::Ask(wire::answers(request.param("answers")));
         self.deliver(request, reply)
     }
 
