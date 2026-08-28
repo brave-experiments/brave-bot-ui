@@ -73,11 +73,15 @@ was no way to find out that ⌘↵ sent a prompt.
 | `⌘.` | Cancel the running turn |
 | `⌥⌘←` / `⌥⌘→` | Fold the session list / the context panel |
 | right-click | A session row, or anything in the transcript |
-| `Esc` | Cancel, from the composer |
+| `Esc` | Cancel, from the composer — or clear the session filter, from the filter box |
 
 `Esc` is the one that is not in a menu. As an accelerator it would fire with no session open
 and would fight every other use of the key, so it stays where it was: a convenience local to
-the composer.
+whichever field has it, meaning the composer and the filter box above the session list.
+
+The filter box itself has no key of its own. It is always on screen under **New session**, so
+there is nothing to reveal, and a ⌘F that only ever moved focus one field would be a shortcut
+for something already in view.
 
 **No key answers a question.** The five the agent can ask — a write, a command, whether the
 planner may read output, whether to vouch, and a series of questions — are answered in the
@@ -207,7 +211,7 @@ at, that a control keeps keyboard focus through an animation.
 
 | Command | Covers |
 | --- | --- |
-| `npm run drive` | Launch, list sessions, open one |
+| `npm run drive` | Launch, list sessions, filter them by title and project, open one |
 | `npm run drive:resize` | Divider drags, the clamps, keyboard resizing, persistence |
 | `npm run drive:columns` | Folding each side column, and what is remembered |
 | `npm run drive:panels` | The context panels and the transcript's tool runs |
