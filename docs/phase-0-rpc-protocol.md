@@ -1,19 +1,19 @@
-# Phase 0 — `bua-bridge`: the library and its protocol
+# Phase 0 — `bravebot-bridge`: the library and its protocol
 
 The Electron app does not drive a terminal and does not parse one. It talks to a Rust
-**library**, `bua-bridge`, which lives in this repository and depends on
-`brave-user-agent` as an ordinary Cargo dependency.
+**library**, `bravebot-bridge`, which lives in this repository and depends on
+`bravebot` as an ordinary Cargo dependency.
 
-**`brave-user-agent` is not modified. Zero files, zero new crates, zero refactors.**
+**`bravebot` is not modified. Zero files, zero new crates, zero refactors.**
 That is a hard constraint on this design, not an aspiration, and §2.3 says what would
 violate it.
 
-In v1 the library is reached through a thin binary, `bua-rpc`, that speaks
+In v1 the library is reached through a thin binary, `bravebot-rpc`, that speaks
 newline-delimited JSON on stdin and stdout. The protocol in §4–§9 is the library's
 surface expressed as messages; it would be the same set of calls across an FFI boundary,
 so the transport is a detail this document deliberately keeps replaceable (§2.2).
 
-Everything here is derived from types that already exist in `brave-user-agent`. Where a
+Everything here is derived from types that already exist in `bravebot`. Where a
 message field maps to a Rust field, the Rust type is named. Where the protocol invents
 something, it says so.
 
@@ -21,11 +21,11 @@ something, it says so.
 
 ## 1. Why this shape
 
-`bua_agent::turn::resume` already takes its user interface as three traits — a
+`bravebot_agent::turn::resume` already takes its user interface as three traits — a
 `Confirmer` for approvals, a `Reporter` for progress, and an `event::Sink` for the audit
 trail — plus a `Cancel` token. Nothing in the turn engine knows about a terminal.
 
-`bua_tui::remote_confirm` has already exercised that seam for a different reason: a turn
+`bravebot_tui::remote_confirm` has already exercised that seam for a different reason: a turn
 runs on a worker thread, so it cannot touch the terminal, and it talks to the thread that
 can over one `mpsc` channel carrying a `ToMain` enum. That enum is, in substance, the
 protocol below. This phase moves the far end of that channel out of the process.
@@ -35,8 +35,8 @@ Three consequences follow, and they are the reasons for doing it this way:
 - **The GUI cannot weaken the security model.** It is a `Confirmer` implementation like
   any other, subject to the same rule that every failure resolves to refusal.
 - **Sessions stay one thing.** The bridge reads and writes the same records under
-  `~/.bua/sessions` as the TUI, so a session begun in the app resumes with
-  `bua --resume`, and one begun in a terminal appears in the app.
+  `~/.bravebot/sessions` as the TUI, so a session begun in the app resumes with
+  `bravebot --resume`, and one begun in a terminal appears in the app.
 - **Crashes stay on one side.** A renderer bug cannot corrupt a turn; a panic in the
   agent surfaces as a closed pipe, which the protocol already defines as refusal.
 
@@ -77,62 +77,62 @@ Entirely in this repository:
 
 ```
 bravebot-ui/
-  crates/bua-bridge/
+  crates/bravebot-bridge/
     Cargo.toml
     src/lib.rs            all of it: session store access, turn driving,
     src/session.rs        the Confirmer / Reporter / Sink implementations,
     src/wire.rs           the JSON projections of §6
-    src/bin/bua-rpc.rs    ~100 lines: read stdin, frame stdout, nothing else
+    src/bin/bravebot-rpc.rs    ~100 lines: read stdin, frame stdout, nothing else
 ```
 
-`crates/bua-bridge/Cargo.toml` depends on the agent as a normal Cargo dependency — a
+`crates/bravebot-bridge/Cargo.toml` depends on the agent as a normal Cargo dependency — a
 path dependency against a sibling checkout for development, pinned to a git rev for
 release builds:
 
 ```toml
 [dependencies]
-bua-agent = { path = "../../../brave-user-agent/crates/agent" }
-bua-tui   = { path = "../../../brave-user-agent/crates/tui" }
-bua-core  = { path = "../../../brave-user-agent/crates/core" }
-bua-config = { path = "../../../brave-user-agent/crates/config" }
+bravebot-agent = { path = "../../../bravebot/crates/agent" }
+bravebot-tui   = { path = "../../../bravebot/crates/tui" }
+bravebot-core  = { path = "../../../bravebot/crates/core" }
+bravebot-config = { path = "../../../bravebot/crates/config" }
 ```
 
 This works today, unmodified, and it was checked rather than assumed:
 
 - All four are ordinary packages with workspace-inherited metadata and no `publish = false`.
-- **Every module the bridge needs is already `pub`**: `bua_tui::{sessions, store, audit}`,
-  every module of `bua_agent`, and `bua_core::{event, label, todo, trust}`.
-- `crates/tui/build.rs` shells out to git to stamp `BUA_BUILD` and degrades to
+- **Every module the bridge needs is already `pub`**: `bravebot_tui::{sessions, store, audit}`,
+  every module of `bravebot_agent`, and `bravebot_core::{event, label, todo, trust}`.
+- `crates/tui/build.rs` shells out to git to stamp `BRAVEBOT_BUILD` and degrades to
   `"0.1.0 (no git)"` when there is none, so it compiles as a git or vendored dependency.
 
-### 2.1 Depend on `bua-tui`, and do not extract from it
+### 2.1 Depend on `bravebot-tui`, and do not extract from it
 
-The bridge needs `bua_tui::sessions` (the on-disk `Record`), `bua_tui::store` (the
-`~/.bua` location and prompt history), and `bua_tui::audit::as_json`. All three are `pub`.
+The bridge needs `bravebot_tui::sessions` (the on-disk `Record`), `bravebot_tui::store` (the
+`~/.bravebot` location and prompt history), and `bravebot_tui::audit::as_json`. All three are `pub`.
 
 An earlier draft of this document proposed lifting them into a new `crates/session` in
-the agent workspace, on the grounds that depending on `bua-tui` drags `ratatui` into a
+the agent workspace, on the grounds that depending on `bravebot-tui` drags `ratatui` into a
 binary that draws nothing. **Do not do this.** The cost of the extra dependency is a few
 seconds of compile time and some dead code the linker discards; `ratatui` is pure Rust
 with no C dependencies. The cost of the extraction is a refactor of a repository we do
 not own, touching the crate that holds the session format. That trade is not close.
 
-The one real wart is that `bua_tui::audit` mixes structured JSON (`as_json`, which the
+The one real wart is that `bravebot_tui::audit` mixes structured JSON (`as_json`, which the
 bridge wants) with terminal wording (`TrailLine`, `as_line`, which it does not). Ignore
 the latter. Reuse `as_json` **verbatim** rather than re-deriving the event projection —
 two spellings of one trail is exactly the drift the agent's own comments warn about.
 
-`BUILD` comes from `bua_tui::BUILD`, so both front-ends stamp records with the same
+`BUILD` comes from `bravebot_tui::BUILD`, so both front-ends stamp records with the same
 string with no coordination needed.
 
 ### 2.2 Keeping the linkage replaceable
 
-Everything above the transport lives in `lib.rs` and knows nothing about stdio. `bua-rpc`
+Everything above the transport lives in `lib.rs` and knows nothing about stdio. `bravebot-rpc`
 is a framing shim: read a line, call a library method, serialise the result. The library
 API mirrors §7 one-to-one — `list_sessions`, `open_session`, `send_turn`, `reply_confirm`
 — and takes a callback for events rather than writing them anywhere.
 
-If in-process linkage is wanted later, it is a second front-end beside `bua-rpc`, and the
+If in-process linkage is wanted later, it is a second front-end beside `bravebot-rpc`, and the
 library does not change. Two rules preserve that, and reviewers should enforce them:
 
 1. **No `println!`, no stdout, no process exit below `src/bin/`.** The kernel never
@@ -145,7 +145,7 @@ library does not change. Two rules preserve that, and reviewers should enforce t
 Honest limits. Two things could eventually want an upstream change, and neither blocks v1:
 
 - **Structured `doctor` output.** The checks live in `crates/cli/src/main.rs`, a binary,
-  so they cannot be called as a library. v1 shells out to `bua doctor` and shows its text
+  so they cannot be called as a library. v1 shells out to `bravebot doctor` and shows its text
   (§7.3). A small upstream extraction would be nicer and is optional.
 - **Command approval.** When an exec tool lands it adds a `Confirmer` method, which the
   bridge must implement. That is upstream changing under us, not us changing upstream.
@@ -159,7 +159,7 @@ reaching for something it should not, and it should be raised rather than patche
 
 - **Framing.** One JSON object per line, UTF-8, `\n`-terminated. No embedded raw
   newlines: `serde_json`'s compact form never emits one, and the client must not either.
-- **Direction.** Client → agent on `bua-rpc`'s **stdin**. Agent → client on its
+- **Direction.** Client → agent on `bravebot-rpc`'s **stdin**. Agent → client on its
   **stdout**. Nothing else is written to stdout, ever.
 - **stderr** carries human-readable diagnostics only. The client should capture it for
   bug reports and must never parse it.
@@ -168,24 +168,24 @@ reaching for something it should not, and it should be raised rather than patche
   answered with a protocol error (§7.3) if an `id` can be recovered, logged to stderr if
   not, and otherwise ignored. It never terminates the process, because a client that can
   produce one bad line will produce another and a dead agent loses in-flight work.
-- **Exit.** `bua-rpc` exits 0 on clean EOF of stdin, having first refused every pending
+- **Exit.** `bravebot-rpc` exits 0 on clean EOF of stdin, having first refused every pending
   confirmation (§8.4). Any other exit is a bug and should be reported as such.
 
 ### 3.1 Invocation
 
 ```
-bua-rpc
+bravebot-rpc
 ```
 
 No arguments in v1. Configuration comes from the environment via `Config::from_env`,
-exactly as the CLI does, so `bua-rpc` sees credentials on the same terms `bua` does and
-the app inherits whatever the user's shell already set up. `bua-rpc --version` prints the
-same `BUILD` string as `bua --version` — the same constant, since both read
-`bua_tui::BUILD` — and the client should surface it, because a transcript read after the
+exactly as the CLI does, so `bravebot-rpc` sees credentials on the same terms `bravebot` does and
+the app inherits whatever the user's shell already set up. `bravebot-rpc --version` prints the
+same `BUILD` string as `bravebot --version` — the same constant, since both read
+`bravebot_tui::BUILD` — and the client should surface it, because a transcript read after the
 fact is read to find out what went wrong and the first question is which build produced
 it.
 
-`bua-rpc` is a self-contained binary. It does not shell out to `bua` and does not need
+`bravebot-rpc` is a self-contained binary. It does not shell out to `bravebot` and does not need
 one on `PATH`, with the single exception of `doctor` (§7.3, §2.3).
 
 ### 3.2 Credentials are a build-time input
@@ -196,7 +196,7 @@ is built where the secrets are and used anywhere, so it does not demand them aga
 every directory it is started in.
 
 This matters more for a window than for a terminal, and the difference is what makes it a
-trap. `bua` is run from a shell that usually has direnv loaded, so even an unconfigured
+trap. `bravebot` is run from a shell that usually has direnv loaded, so even an unconfigured
 binary finds what it needs in the environment. **An app launched from Finder, or by
 `npm run dev`, has no such environment.** An unconfigured build therefore starts cleanly,
 lists sessions, opens them, and fails only at the first inference request with
@@ -206,11 +206,11 @@ thing that matters.
 Two things follow, and both are needed:
 
 - **Build through direnv.** `scripts/build-bridge.sh` (what `npm run bridge` runs) finds
-  the agent checkout — `$BUA_AGENT_DIR`, defaulting to `~/repos/brave-user-agent` — and
+  the agent checkout — `$BRAVEBOT_DIR`, defaulting to `~/repos/bravebot` — and
   builds via `direnv exec` when its `.envrc` is allowed, so the credentials are captured.
   It warns loudly rather than silently producing a binary that cannot infer. Verified: a
   turn runs from a shell with all three variables explicitly unset.
-- **`BUA_ALLOW_UNCONFIGURED_BUILD=1` stays set** in `.cargo/config.toml`, so a checkout
+- **`BRAVEBOT_ALLOW_UNCONFIGURED_BUILD=1` stays set** in `.cargo/config.toml`, so a checkout
   with no secrets still compiles and the 47 tests still run. It only suppresses the
   build failure; it does not prevent baking, so it costs nothing when credentials are
   present.
@@ -257,7 +257,7 @@ events and may arrive out of order relative to one another; the client correlate
 ## 5. Handles and identity
 
 A session's `id` (from `Record::id`) is unique only **within its project directory** —
-`~/.bua/sessions/<mangled-directory>/`. Rather than make every call carry a
+`~/.bravebot/sessions/<mangled-directory>/`. Rather than make every call carry a
 `(directory, id)` pair, `session.open` and `session.new` mint an opaque **session
 handle**: a short string, unique for the life of the process, used by every subsequent
 call and stamped on every event.
@@ -313,10 +313,10 @@ output; it is safe to send as-is and safe to switch on.
 ```
 
 `directory` absent or `null` lists sessions across **every** project directory under
-`~/.bua/sessions`, newest `updated` first. A string lists only that project's.
+`~/.bravebot/sessions`, newest `updated` first. A string lists only that project's.
 
 Note that `sessions::list(project)` is per-project today. The cross-project listing is
-new: enumerate the child directories of `~/.bua/sessions`, call the existing `list` for
+new: enumerate the child directories of `~/.bravebot/sessions`, call the existing `list` for
 each, and merge. `Record::directory` holds the real path (the directory-name mangling is
 not reversible), so it is read out of the record rather than un-mangled.
 
@@ -387,7 +387,7 @@ Returns `{ "session": "s2", "directory": "…", "branch": "main" }`. The `Record
 written until the first turn, matching `Session::begin` + `save`, so an opened-and-
 abandoned window leaves nothing behind.
 
-Errors with `not_a_directory` if the path is not one, or `no_home` if `~/.bua` cannot be
+Errors with `not_a_directory` if the path is not one, or `no_home` if `~/.bravebot` cannot be
 located.
 
 #### `session.close`
@@ -417,7 +417,7 @@ RPC `Confirmer`, an RPC `Reporter`, and a `Trail` sink — the same call shape a
 Returns immediately: `{ "turn": 5 }`, the turn number within the session. Progress
 arrives as events; completion as `turn.done` or `turn.error`.
 
-The prompt is appended to `~/.bua/history` (via the moved `store::append_history`), so
+The prompt is appended to `~/.bravebot/history` (via the moved `store::append_history`), so
 recall works across both front-ends.
 
 **One turn at a time per session.** A second `turn.send` on a session with a turn in
@@ -469,7 +469,7 @@ The app will otherwise fail opaquely on a machine with no credentials, which is 
 machine anyone will try it on.
 
 **v1 shells out.** The checks live in `crates/cli/src/main.rs`, a binary, so they cannot
-be called as a library without an upstream change (§2.3). The bridge runs `bua doctor`,
+be called as a library without an upstream change (§2.3). The bridge runs `bravebot doctor`,
 captures stdout, and returns it whole:
 
 ```json
@@ -477,7 +477,7 @@ captures stdout, and returns it whole:
                    "found": true } }
 ```
 
-`found: false` when no `bua` is on `PATH` — the app should say so plainly and stay
+`found: false` when no `bravebot` is on `PATH` — the app should say so plainly and stay
 usable, since `doctor` is a diagnostic and nothing else depends on it. This is the one
 place the bridge needs the CLI installed.
 
@@ -487,7 +487,7 @@ instead. The flag exists so the client can be written once against both.
 
 #### `agent.info`
 
-`{ "build": "…", "version": "0.1.0", "home": "/Users/me/.bua" }`. Sent as the
+`{ "build": "…", "version": "0.1.0", "home": "/Users/me/.bravebot" }`. Sent as the
 `agent.ready` event at startup and also available as a request.
 
 ### 7.4 Error codes
@@ -499,7 +499,7 @@ instead. The flag exists so the client can be written once against both.
 | `no_such_request` | unknown or already-answered confirmation id |
 | `turn_in_flight` | a turn is already running on that session |
 | `not_a_directory` | the path given to `session.new` is not a directory |
-| `no_home` | `~/.bua` could not be located or created |
+| `no_home` | `~/.bravebot` could not be located or created |
 | `config` | `Config::from_env` failed; `message` carries the detail |
 | `internal` | a bug; `message` is for a report, not for a user |
 
@@ -692,7 +692,7 @@ default: defaulting either way is the mistake this design exists to avoid.
   in the turn engine and is not worth it for v1.
 - **MCP configuration**, subscription import (`import-leo-creds`), skills authoring, and
   workspace file browsing. All are reachable from the CLI; the app can shell out or wait.
-- **Multiple clients on one `bua-rpc`.** One process, one client.
+- **Multiple clients on one `bravebot-rpc`.** One process, one client.
 
 ---
 
@@ -711,8 +711,8 @@ someone later makes the obvious "simplification".
    request is served.
 8. Every type in §6 round-trips, and an unrecognised enum tag deserialises to the
    less-trusted variant.
-9. A session written by `bua-rpc` is listed and resumed by the TUI, and one written by
-   the TUI is listed and opened by `bua-rpc`. This is the whole point of §1 and should be
+9. A session written by `bravebot-rpc` is listed and resumed by the TUI, and one written by
+   the TUI is listed and opened by `bravebot-rpc`. This is the whole point of §1 and should be
    an integration test, not a claim.
 10. `Outcome::reply` never reaches stdout — only `reply_for_display()`. Assert on the
     serialiser.
@@ -731,10 +731,10 @@ someone later makes the obvious "simplification".
 
 **Built and verified live. 47 tests passing, upstream clean at `1ba33f9`.**
 
-A real turn has now run end to end through `bua-rpc` (`scripts/smoke-turn.sh`, in a shell
+A real turn has now run end to end through `bravebot-rpc` (`scripts/smoke-turn.sh`, in a shell
 where direnv has loaded the agent's `.envrc`): five tool rounds, a gate refusal, two
 isolated processors, a quarantined read the planner never saw, and a record on disk that
-`bua --resume` lists beside the ones the terminal wrote. The confinement behaved as
+`bravebot --resume` lists beside the ones the terminal wrote. The confinement behaved as
 designed with the directory declined — the file went to a slot, the planner worked from a
 processor's summary, and `clean=false` recorded that a gate had refused something.
 
@@ -748,14 +748,14 @@ Two things the live run changed, neither of them visible from the design:
   Dropped rather than forwarded, so an interface does not draw a row of blank messages.
 
 
-0. `crates/bua-bridge` builds against a sibling `brave-user-agent` checkout and a test
-   prints `bua_tui::BUILD`. This is the step that proves §2's zero-change claim, it takes
+0. `crates/bravebot-bridge` builds against a sibling `bravebot` checkout and a test
+   prints `bravebot_tui::BUILD`. This is the step that proves §2's zero-change claim, it takes
    an hour, and everything else assumes it. Do it first and stop if it fails.
 1. `wire.rs`: the §6 projections and their round-trip tests. Pure functions, no I/O.
-2. `bua-rpc` skeleton: envelope, dispatch loop, `agent.info`, `agent.ready`, error codes.
-   No turns yet. Drive it by hand with `echo … | bua-rpc`.
+2. `bravebot-rpc` skeleton: envelope, dispatch loop, `agent.info`, `agent.ready`, error codes.
+   No turns yet. Drive it by hand with `echo … | bravebot-rpc`.
 3. `session.list` / `session.open` / `session.new` / `session.close`, read-only. Only the
-   cross-project listing is new code; the rest wraps `bua_tui::sessions`. **The Electron
+   cross-project listing is new code; the rest wraps `bravebot_tui::sessions`. **The Electron
    left column can be built against this alone.**
 4. `BridgeReporter` + the `Sink`, then `send_turn` with a `Confirmer` hardwired to
    `RefuseWrites`. **The centre column works, read-only, at this point** — real turns,
@@ -777,7 +777,7 @@ Settled:
 
 - **Upstream is strictly read-only.** No PRs. `doctor` shells out (§7.3) and upstream
   drift is caught by our own tests (§12).
-- **The library lives here**, as `crates/bua-bridge`, with `bua-rpc` as a thin transport
+- **The library lives here**, as `crates/bravebot-bridge`, with `bravebot-rpc` as a thin transport
   over it (§2).
 - **The left-hand column is one flat list across every project**, newest first, with the
   project name as the secondary line — so `session.list` with no `directory` is the call

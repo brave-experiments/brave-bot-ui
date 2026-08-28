@@ -18,11 +18,11 @@
 //! decision, because refusing to parse an answer and refusing the write it answers are
 //! the same outcome and only one of them is honest about it.
 
-use bua_agent::conversation::Said;
-use bua_agent::confirm::{Decision, Intent, WriteRequest};
-use bua_agent::diff::Change;
-use bua_agent::report::{Activity, Landing, Phase, Reach, Shown};
-use bua_core::todo::{Row, Status};
+use bravebot_agent::conversation::Said;
+use bravebot_agent::confirm::{Decision, Intent, WriteRequest};
+use bravebot_agent::diff::Change;
+use bravebot_agent::report::{Activity, Landing, Phase, Reach, Shown};
+use bravebot_core::todo::{Row, Status};
 use serde_json::{Value, json};
 
 /// Unchanged lines shown either side of a change, for orientation.

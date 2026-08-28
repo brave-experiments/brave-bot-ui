@@ -8,12 +8,13 @@
 //! for the duration of the turn and hands it back by releasing the lock; the dispatch
 //! thread holds only what it needs to answer a question or stop the work.
 
-use bua_agent::Conversation;
-use bua_agent::confirm::Decision;
-use bua_core::cancel::Cancel;
-use bua_core::todo::Row;
-use bua_core::trust::TrustStore;
-use bua_tui::sessions::Handle;
+use bravebot_agent::Conversation;
+use bravebot_agent::confirm::Decision;
+use bravebot_core::cancel::Cancel;
+use bravebot_core::programs::TrustedPrograms;
+use bravebot_core::todo::Row;
+use bravebot_core::trust::TrustStore;
+use bravebot_tui::sessions::Handle;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -33,6 +34,12 @@ pub struct State {
     /// data into a trusted path records that path as untrusted, and losing that would let
     /// the next turn read the same data back as trusted.
     pub trust: TrustStore,
+    /// Which programs this session's user vouched for.
+    ///
+    /// Carried forward turn to turn for the same reason as [`State::trust`], and read back
+    /// off the record when a session resumes: a vouch is a standing answer about a command,
+    /// so re-asking about one already answered — or forgetting one — would both be wrong.
+    pub programs: TrustedPrograms,
     /// How the session is written down.
     ///
     /// `None` for a fresh session until its first turn creates it, so a window somebody
@@ -51,6 +58,7 @@ impl State {
         Self {
             conversation: Conversation::new(),
             trust,
+            programs: TrustedPrograms::new(),
             handle: None,
             turns: 0,
             tokens: 0,
@@ -66,12 +74,13 @@ impl State {
     /// write the continued session to a second record, leaving the one the user opened
     /// frozen at the point they opened it. `Handle::resuming` keeps the record's id, which
     /// is what makes a turn taken here land in the session it was taken in — and what
-    /// `bua --resume` needs in order to pick the same session back up. The terminal does
+    /// `bravebot --resume` needs in order to pick the same session back up. The terminal does
     /// the same at `crates/tui/src/app.rs`.
-    pub fn resumed(project: &Path, record: &bua_tui::sessions::Record, trust: TrustStore) -> Self {
+    pub fn resumed(project: &Path, record: &bravebot_tui::sessions::Record, trust: TrustStore) -> Self {
         Self {
             conversation: Conversation::restored(record.conversation.clone()),
             trust,
+            programs: record.trusted_programs(),
             handle: Some(Handle::resuming(project, record)),
             turns: record.turns,
             tokens: record.tokens,

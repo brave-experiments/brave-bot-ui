@@ -10,7 +10,7 @@
 import { _electron as electron } from 'playwright-core'
 import { mkdirSync } from 'node:fs'
 
-mkdirSync('/tmp/bua-ui', { recursive: true })
+mkdirSync('/tmp/bravebot-ui', { recursive: true })
 
 const ASK = `Reply with exactly this markdown document and nothing else:
 
@@ -63,7 +63,7 @@ for (let i = 0; i < 90; i++) {
 const failed = await page.locator('.bubble.failed').count()
 if (failed > 0) {
   console.log('RESULT: turn failed ->', await page.locator('.bubble.failed').last().textContent())
-  await page.screenshot({ path: '/tmp/bua-ui/04-markdown-failed.png' })
+  await page.screenshot({ path: '/tmp/bravebot-ui/04-markdown-failed.png' })
   await app.close()
   process.exit(1)
 }
@@ -115,12 +115,12 @@ const overflows = await bubble.evaluate((el) => {
 })
 console.log(`code block scrolls: ${overflows === null ? '(no pre found)' : overflows}`)
 
-await page.screenshot({ path: '/tmp/bua-ui/04-markdown.png', fullPage: false })
+await page.screenshot({ path: '/tmp/bravebot-ui/04-markdown.png', fullPage: false })
 
 // The dark palette is a separate set of tokens and is otherwise never looked at.
 await page.emulateMedia({ colorScheme: 'dark' })
 await page.waitForTimeout(400)
-await page.screenshot({ path: '/tmp/bua-ui/05-markdown-dark.png', fullPage: false })
+await page.screenshot({ path: '/tmp/bravebot-ui/05-markdown-dark.png', fullPage: false })
 
 await app.close()
 
@@ -129,4 +129,4 @@ if (problems.length > 0) {
   problems.forEach((p) => console.log('  - ' + p))
   process.exit(1)
 }
-console.log('\nRESULT: ok — shots in /tmp/bua-ui/04-markdown.png and 05-markdown-dark.png')
+console.log('\nRESULT: ok — shots in /tmp/bravebot-ui/04-markdown.png and 05-markdown-dark.png')

@@ -9,7 +9,7 @@ import { _electron as electron } from 'playwright-core'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-mkdirSync('/tmp/bua-ui', { recursive: true })
+mkdirSync('/tmp/bravebot-ui', { recursive: true })
 
 const problems = []
 const check = (ok, what) => {
@@ -128,7 +128,7 @@ check(
 // widths: a folded column is zeroed, never unmounted.
 check((await page.locator('.sessions, .transcript, .context').count()) === 3, 'all three columns are still rendered')
 check((await page.locator('.gutter').count()) === 2, 'both dividers are still rendered')
-await page.screenshot({ path: '/tmp/bua-ui/09-left-folded.png' })
+await page.screenshot({ path: '/tmp/bravebot-ui/09-left-folded.png' })
 
 // --- the seam beside a folded column does nothing -------------------------------------
 const seam = page.locator('.gutter').first()
@@ -220,7 +220,7 @@ check(
   Math.abs(old.left - 300) <= 2 && Math.abs(old.right - 300) <= 2,
   `a layout file with no folds in it still opens both columns (${Math.round(old.left)}, ${Math.round(old.right)})`,
 )
-await page.screenshot({ path: '/tmp/bua-ui/10-columns.png' })
+await page.screenshot({ path: '/tmp/bravebot-ui/10-columns.png' })
 
 // The layout file is shared with the other drivers, so this one puts it back the way it
 // found it. A column left folded here would make their opening measurements nonsense.
@@ -233,4 +233,4 @@ if (problems.length > 0) {
   console.log(`\nRESULT: ${problems.length} failed`)
   process.exit(1)
 }
-console.log('\nRESULT: ok — shots in /tmp/bua-ui/09-left-folded.png, 10-columns.png')
+console.log('\nRESULT: ok — shots in /tmp/bravebot-ui/09-left-folded.png, 10-columns.png')

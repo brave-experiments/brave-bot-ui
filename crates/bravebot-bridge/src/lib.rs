@@ -1,4 +1,4 @@
-//! Driving brave-user-agent from a graphical front-end.
+//! Driving bravebot from a graphical front-end.
 //!
 //! Everything in this crate is transport-agnostic. It knows how to list and open the
 //! sessions the agent already keeps, how to run a turn and report what it is doing, and
@@ -27,9 +27,9 @@ pub mod wire;
 /// Which build of the agent this bridge is linked against.
 ///
 /// Read from the agent rather than computed here, so a record written by the app and one
-/// written by `bua` carry the same string with no coordination. A transcript is read
+/// written by `bravebot` carry the same string with no coordination. A transcript is read
 /// after the fact, usually because something went wrong, and the first question is which
 /// code produced it.
 pub fn agent_build() -> &'static str {
-    bua_tui::BUILD
+    bravebot_tui::BUILD
 }

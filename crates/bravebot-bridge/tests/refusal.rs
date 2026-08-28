@@ -7,11 +7,11 @@
 //! Each of these guards against a change that would look like a tidy-up. If one starts
 //! failing, the question is not how to make it pass.
 
-use bua_agent::confirm::{Confirmer, Decision, Intent, WriteRequest};
-use bua_bridge::emit::Emitter;
-use bua_bridge::protocol::Event;
-use bua_bridge::running::Running;
-use bua_bridge::turn::{BridgeConfirmer, Pending};
+use bravebot_agent::confirm::{Confirmer, Decision, Intent, WriteRequest};
+use bravebot_bridge::emit::Emitter;
+use bravebot_bridge::protocol::Event;
+use bravebot_bridge::running::Running;
+use bravebot_bridge::turn::{BridgeConfirmer, Pending};
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -47,7 +47,7 @@ fn harness() -> Harness {
         confirmer: BridgeConfirmer::new(emitter, "s1", Arc::clone(&pending), answers_rx),
         events,
         running: Running {
-            cancel: bua_core::cancel::Cancel::new(),
+            cancel: bravebot_core::cancel::Cancel::new(),
             answers: answers_tx,
             pending,
             turn: 1,
@@ -157,7 +157,7 @@ fn refusing_nothing_queues_nothing() {
     let running = std::mem::replace(
         &mut harness.running,
         Running {
-            cancel: bua_core::cancel::Cancel::new(),
+            cancel: bravebot_core::cancel::Cancel::new(),
             answers: mpsc::channel().0,
             pending: Arc::new(Mutex::new(None)),
             turn: 1,

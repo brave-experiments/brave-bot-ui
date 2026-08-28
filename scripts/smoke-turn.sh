@@ -1,36 +1,36 @@
 #!/usr/bin/env bash
-# A live turn through bua-rpc, end to end.
+# A live turn through bravebot-rpc, end to end.
 #
 # Needs the agent's credentials, so it must run in a shell where direnv has loaded
-# brave-user-agent's .envrc. It drives a real model: expect it to cost a few tokens and
+# bravebot's .envrc. It drives a real model: expect it to cost a few tokens and
 # take a few seconds.
 #
 # Usage, from anywhere:
 #     ~/repos/bravebot-ui/scripts/smoke-turn.sh [working-directory]
 #
-# The working directory defaults to brave-user-agent itself, so the agent has something
+# The working directory defaults to bravebot itself, so the agent has something
 # real to read. Nothing is written: the prompt only asks a question, and this session
 # declines to trust the directory anyway, so any write would be shown rather than applied.
 
 set -uo pipefail
 
 UI="$HOME/repos/bravebot-ui"
-AGENT="$HOME/repos/brave-user-agent"
+AGENT="$HOME/repos/bravebot"
 WORKDIR="${1:-$AGENT}"
-RPC="$UI/target/debug/bua-rpc"
+RPC="$UI/target/debug/bravebot-rpc"
 
 if [ ! -x "$RPC" ]; then
-  echo "building bua-rpc..." >&2
-  ( cd "$UI" && cargo build -p bua-bridge ) || exit 1
+  echo "building bravebot-rpc..." >&2
+  ( cd "$UI" && cargo build -p bravebot-bridge ) || exit 1
 fi
 
 if [ -z "${SERVICES_KEY_AICHAT:-}" ]; then
   cat >&2 <<'MSG'
-No credentials in this shell. bua-rpc is built unconfigured, so it reads them from the
+No credentials in this shell. bravebot-rpc is built unconfigured, so it reads them from the
 environment at run time. Run this from a shell where direnv has loaded the agent's
 .envrc, or wrap it:
 
-    direnv exec ~/repos/brave-user-agent ~/repos/bravebot-ui/scripts/smoke-turn.sh
+    direnv exec ~/repos/bravebot ~/repos/bravebot-ui/scripts/smoke-turn.sh
 
 MSG
   exit 1
@@ -82,4 +82,4 @@ PY
 done
 
 echo "# ---- end ----" >&2
-echo "# the session should now appear in: bua --resume  (run in $WORKDIR)" >&2
+echo "# the session should now appear in: bravebot --resume  (run in $WORKDIR)" >&2

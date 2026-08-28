@@ -17,13 +17,13 @@ use crate::protocol::{ErrorCode, Event, Failure, Request};
 use crate::running::{Running, State};
 use crate::turn::{BridgeConfirmer, BridgeReporter, BridgeSink};
 use crate::{store, wire};
-use bua_agent::Workspace;
-use bua_agent::turn::{self as agent_turn, Task, TurnError};
-use bua_config::Config;
-use bua_core::cancel::Cancel;
-use bua_core::trust::TrustStore;
-use bua_net::Egress;
-use bua_tui::sessions::{Handle, Record, Standing};
+use bravebot_agent::Workspace;
+use bravebot_agent::turn::{self as agent_turn, Task, TurnError};
+use bravebot_config::Config;
+use bravebot_core::cancel::Cancel;
+use bravebot_core::trust::TrustStore;
+use bravebot_net::Egress;
+use bravebot_tui::sessions::{Handle, Record, Standing};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -99,7 +99,7 @@ impl Bridge {
         json!({
             "build": crate::agent_build(),
             "version": env!("CARGO_PKG_VERSION"),
-            "home": bua_tui::store::directory().map(|d| d.display().to_string()),
+            "home": bravebot_tui::store::directory().map(|d| d.display().to_string()),
         })
     }
 
@@ -172,7 +172,7 @@ impl Bridge {
         // adds the note saying the quarantine's references no longer name anything — and
         // `recounted` filters that note back out. Going around it would show a transcript
         // subtly unlike the one a resume produces.
-        let conversation = bua_agent::Conversation::restored(record.conversation.clone());
+        let conversation = bravebot_agent::Conversation::restored(record.conversation.clone());
         let said: Vec<Value> = conversation.recounted().iter().map(wire::said).collect();
 
         let todos: HashMap<String, Vec<Value>> = record
@@ -206,11 +206,11 @@ impl Bridge {
                     })).collect::<Vec<_>>()
                 }),
             },
-            "branchNote": bua_tui::sessions::branch_note(
+            "branchNote": bravebot_tui::sessions::branch_note(
                 record.branch.as_deref(),
-                bua_tui::sessions::branch_of(directory).as_deref(),
+                bravebot_tui::sessions::branch_of(directory).as_deref(),
             ),
-            "buildNote": bua_tui::sessions::build_note(
+            "buildNote": bravebot_tui::sessions::build_note(
                 record.build.as_deref(),
                 crate::agent_build(),
             ),
@@ -226,11 +226,11 @@ impl Bridge {
                 format!("{} is not a directory", directory.display()),
             ));
         }
-        if bua_tui::store::directory().is_none() {
+        if bravebot_tui::store::directory().is_none() {
             return Err(Failure::new(ErrorCode::NoHome, "no home directory to store sessions in"));
         }
 
-        let branch = bua_tui::sessions::branch_of(&directory);
+        let branch = bravebot_tui::sessions::branch_of(&directory);
         let handle = self.mint(Open {
             project: directory.clone(),
             // An empty map until the user answers. Nothing runs before then, so this is
@@ -241,7 +241,7 @@ impl Bridge {
         });
 
         // Nothing is written until the first turn. An opened-and-abandoned window should
-        // leave no trace, which is also how `bua` behaves.
+        // leave no trace, which is also how `bravebot` behaves.
         self.emitter.send(Event::new(
             "trust.request",
             &handle,
@@ -445,10 +445,10 @@ impl Bridge {
     ///
     /// Shelled out to, because these checks live in the CLI's own binary upstream and
     /// cannot be called as a library without a change we do not make. `found: false` when
-    /// no `bua` is on PATH: a diagnostic that is unavailable should say so and leave the
+    /// no `bravebot` is on PATH: a diagnostic that is unavailable should say so and leave the
     /// rest of the app working.
     fn doctor() -> Value {
-        match std::process::Command::new("bua").arg("doctor").output() {
+        match std::process::Command::new("bravebot").arg("doctor").output() {
             Ok(output) => {
                 let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
                 text.push_str(&String::from_utf8_lossy(&output.stderr));
@@ -462,7 +462,7 @@ impl Bridge {
             Err(error) => json!({
                 "found": false,
                 "structured": false,
-                "text": format!("could not run `bua doctor`: {error}"),
+                "text": format!("could not run `bravebot doctor`: {error}"),
                 "exitCode": null,
             }),
         }
@@ -508,7 +508,7 @@ struct Work {
     turn: usize,
     cancel: Cancel,
     pending: crate::turn::Pending,
-    answers: mpsc::Receiver<bua_agent::Decision>,
+    answers: mpsc::Receiver<bravebot_agent::Decision>,
     finished: Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -541,7 +541,7 @@ fn work(work: Work) {
         return;
     };
 
-    let mut task = Task::new(&prompt).with_home(bua_agent::home::directory());
+    let mut task = Task::new(&prompt).with_home(bravebot_agent::home::directory());
     for file in &files {
         task = task.with_file(file);
     }
@@ -552,8 +552,9 @@ fn work(work: Work) {
     let egress = Egress::new();
 
     // Cloned out before the call, because the conversation is borrowed mutably for the
-    // duration and the map is passed by value.
+    // duration and both of these are passed by value.
     let trust = state.trust.clone();
+    let programs = state.programs.clone();
     let outcome = agent_turn::resume(
         &config,
         &egress,
@@ -564,12 +565,13 @@ fn work(work: Work) {
         &mut reporter,
         &mut sink,
         trust,
+        programs,
         &cancel,
     );
 
     // The prompt joins the history the terminal also reads, so recall works across both
     // front-ends. Best-effort by design upstream, and nothing here depends on it.
-    bua_tui::store::append_history(&prompt);
+    bravebot_tui::store::append_history(&prompt);
 
     state.turns = turn;
     if state.first_prompt.is_none() {
@@ -583,6 +585,10 @@ fn work(work: Work) {
             // untrusted, and the next turn must inherit that or it would read the data
             // back as trusted.
             state.trust = outcome.trust.clone();
+            // Taken from the outcome rather than from whatever asked, so there is one copy
+            // of the answer. Nothing is added while this front-end refuses every vouch, but
+            // a set that came back smaller than it went in would be a lost permission.
+            state.programs = outcome.programs.clone();
             state.tokens += outcome.tokens;
 
             save(&project, &mut state, turn, sink.trail());
@@ -594,8 +600,8 @@ fn work(work: Work) {
                     // The same two words the record is written with, so a rule reads the
                     // same whether it came off disk or out of a finished turn.
                     let integrity = match integrity {
-                        bua_core::label::Integrity::Trusted => "trusted",
-                        bua_core::label::Integrity::Untrusted => "untrusted",
+                        bravebot_core::label::Integrity::Trusted => "trusted",
+                        bravebot_core::label::Integrity::Untrusted => "untrusted",
                     };
                     json!({ "path": path, "integrity": integrity })
                 })
@@ -643,10 +649,10 @@ fn work(work: Work) {
 
 /// Write the session down, in the agent's own format.
 ///
-/// The same `Handle` the terminal uses, so a session written here is one `bua --resume`
+/// The same `Handle` the terminal uses, so a session written here is one `bravebot --resume`
 /// can pick up. Created on the first turn rather than when the window opened: an
 /// abandoned window should leave nothing behind.
-fn save(project: &std::path::Path, state: &mut State, turn: usize, trail: &bua_tui::audit::Trail) {
+fn save(project: &std::path::Path, state: &mut State, turn: usize, trail: &bravebot_tui::audit::Trail) {
     let handle = state
         .handle
         .get_or_insert_with(|| Handle::begin(project));
@@ -660,6 +666,7 @@ fn save(project: &std::path::Path, state: &mut State, turn: usize, trail: &bua_t
             tokens: state.tokens,
             todos: &state.todos,
             trust: &state.trust,
+            programs: &state.programs,
         },
     );
     handle.append_audit(turn, trail.events());

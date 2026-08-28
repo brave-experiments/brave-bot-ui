@@ -1,11 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["crates/bua-bridge"]
+members = ["crates/bravebot-bridge"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-# Matches brave-user-agent's own floor. Building against its crates with an older
+# Matches bravebot's own floor. Building against its crates with an older
 # toolchain than it requires would fail in its sources, not ours, which is a confusing
 # place to discover a version problem.
 rust-version = "1.88"

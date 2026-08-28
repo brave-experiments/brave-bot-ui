@@ -3,7 +3,7 @@
 import { _electron as electron } from 'playwright-core'
 import { mkdirSync } from 'node:fs'
 
-const shots = '/tmp/bua-ui'
+const shots = '/tmp/bravebot-ui'
 mkdirSync(shots, { recursive: true })
 
 const app = await electron.launch({
@@ -19,7 +19,7 @@ await page.waitForLoadState('domcontentloaded')
 page.on('console', (m) => m.type() === 'error' && console.log('CONSOLE ERROR:', m.text()))
 page.on('pageerror', (e) => console.log('PAGE ERROR:', e.message))
 
-// The session list is populated by an async round-trip to bua-rpc.
+// The session list is populated by an async round-trip to bravebot-rpc.
 await page.waitForTimeout(2500)
 
 const sessions = await page.locator('.session').count()

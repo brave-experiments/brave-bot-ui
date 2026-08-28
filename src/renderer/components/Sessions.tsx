@@ -28,7 +28,7 @@ export function Sessions({ sessions, openId, onOpen, onNew, build }: Props): Rea
         {sessions.length === 0 && (
           <p className="empty">
             No sessions yet. Open a project to begin — or start one in a terminal with{' '}
-            <code>bua</code> and it will appear here.
+            <code>bravebot</code> and it will appear here.
           </p>
         )}
         {sessions.map((session) => (

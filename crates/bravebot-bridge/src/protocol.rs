@@ -26,7 +26,7 @@ pub enum ErrorCode {
     TurnInFlight,
     /// The path given to `session.new` is not a directory.
     NotADirectory,
-    /// `~/.bua` could not be located or created.
+    /// `~/.bravebot` could not be located or created.
     NoHome,
     /// The agent's configuration could not be read.
     Config,

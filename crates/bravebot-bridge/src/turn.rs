@@ -15,11 +15,13 @@
 use crate::emit::Emitter;
 use crate::protocol::Event;
 use crate::wire;
-use bua_agent::confirm::{Confirmer, Decision, WriteRequest};
-use bua_core::ask::{Answer, Asking};
-use bua_agent::report::{Activity, Landing, Phase, Reporter, Shown};
-use bua_core::event::Sink;
-use bua_core::todo::Row;
+use bravebot_agent::confirm::{
+    Confirmer, Decision, OutputRequest, RunDecision, RunRequest, VouchRequest, WriteRequest,
+};
+use bravebot_core::ask::{Answer, Asking};
+use bravebot_agent::report::{Activity, Landing, Phase, Reporter, Shown};
+use bravebot_core::event::Sink;
+use bravebot_core::todo::Row;
 use serde_json::json;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
@@ -114,7 +116,7 @@ impl Reporter for BridgeReporter {
 /// Collects the audit trail, and streams it as it arrives.
 ///
 /// Both, deliberately. The collected copy is what gets written beside the record at the
-/// end of the turn, in the agent's own format, so `bua --resume` reads a complete trail.
+/// end of the turn, in the agent's own format, so `bravebot --resume` reads a complete trail.
 /// The stream is for the interface, which should not have to wait for a turn to end
 /// before it can show what the gates decided.
 ///
@@ -124,7 +126,7 @@ pub struct BridgeSink {
     emitter: Emitter,
     session: String,
     turn: usize,
-    trail: bua_tui::audit::Trail,
+    trail: bravebot_tui::audit::Trail,
 }
 
 impl BridgeSink {
@@ -133,23 +135,23 @@ impl BridgeSink {
             emitter,
             session: session.into(),
             turn,
-            trail: bua_tui::audit::Trail::new(),
+            trail: bravebot_tui::audit::Trail::new(),
         }
     }
 
     /// The trail as the agent writes it down.
-    pub fn trail(&self) -> &bua_tui::audit::Trail {
+    pub fn trail(&self) -> &bravebot_tui::audit::Trail {
         &self.trail
     }
 }
 
 impl Sink for BridgeSink {
-    fn emit(&mut self, event: bua_core::event::Event) {
+    fn emit(&mut self, event: bravebot_core::event::Event) {
         // Projected with the agent's own function rather than a second spelling of it:
         // two renderings of one trail would drift the moment either changed.
         let data = json!({
             "turn": self.turn,
-            "event": bua_tui::audit::as_json(&event),
+            "event": bravebot_tui::audit::as_json(&event),
         });
         self.emitter.send(Event::new("audit", &self.session, data));
         self.trail.emit(event);
@@ -186,6 +188,27 @@ impl BridgeConfirmer {
             next: 0,
         }
     }
+
+    /// Say that something was refused for want of anywhere to ask.
+    ///
+    /// A silent refusal is the worst of the options here: the turn stops doing something
+    /// and the transcript gives no reason, so the model looks broken rather than governed.
+    /// Announced rather than asked — the answer is already decided by the time this is
+    /// called, and this only explains it.
+    ///
+    /// The summaries come from the request types, which name the command and how much
+    /// output there was without quoting any of it. Nothing a program printed reaches here.
+    fn refused(&self, what: &str) {
+        let text = format!(
+            "Refused: nothing in this window can ask whether to {what}. \
+             Use the terminal client for this turn."
+        );
+        self.emitter.send(Event::new(
+            "narration",
+            &self.session,
+            json!({ "text": text }),
+        ));
+    }
 }
 
 impl Confirmer for BridgeConfirmer {
@@ -221,6 +244,34 @@ impl Confirmer for BridgeConfirmer {
         }
 
         decision
+    }
+
+    /// Refuses, because the protocol has no way to ask this yet.
+    ///
+    /// A refusal that does not remember, which the trait asks for explicitly and is the
+    /// more important half: a single unasked "no" costs one command, where a remembered
+    /// one would quietly vouch for a program on the strength of a question nobody saw.
+    fn confirm_run(&mut self, request: &RunRequest) -> RunDecision {
+        self.refused(&request.summary());
+        RunDecision::reject()
+    }
+
+    /// Refuses, because the protocol has no way to show the output this asks about.
+    ///
+    /// The one question in the trait whose answer rests on bytes rather than on a
+    /// prediction, so an implementation that cannot show them has only one honest answer.
+    fn confirm_read_output(&mut self, request: &OutputRequest) -> Decision {
+        self.refused(&request.summary());
+        Decision::Reject
+    }
+
+    /// Refuses, because the protocol has no way to ask this yet.
+    ///
+    /// A yes here writes a standing rule into the trust map, so an unasked one would
+    /// outlive the turn that invented it.
+    fn confirm_vouch(&mut self, request: &VouchRequest) -> Decision {
+        self.refused(&format!("vouch for {}", request.path));
+        Decision::Reject
     }
 
     /// Answers nothing, because this protocol has no way to put a question to the person.

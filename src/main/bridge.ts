@@ -1,5 +1,5 @@
 /**
- * Talking to `bua-rpc`.
+ * Talking to `bravebot-rpc`.
  *
  * One child process for the whole app. It is spawned on demand, supervised, and its
  * stdout is framed back into messages; requests are correlated by id and events are
@@ -47,9 +47,9 @@ export class Bridge {
    * cannot reach the backend.
    */
   private binaryPath(): string {
-    const packaged = join(process.resourcesPath ?? '', 'bua-rpc')
+    const packaged = join(process.resourcesPath ?? '', 'bravebot-rpc')
     if (app.isPackaged && existsSync(packaged)) return packaged
-    return join(app.getAppPath(), 'target', 'debug', 'bua-rpc')
+    return join(app.getAppPath(), 'target', 'debug', 'bravebot-rpc')
   }
 
   private ensure(): ChildProcessWithoutNullStreams {
@@ -59,7 +59,7 @@ export class Bridge {
     if (!existsSync(path)) {
       throw new BridgeError(
         'no_binary',
-        `bua-rpc is not built. Run \`npm run bridge\`. Looked in ${path}`,
+        `bravebot-rpc is not built. Run \`npm run bridge\`. Looked in ${path}`,
       )
     }
 
@@ -100,7 +100,7 @@ export class Bridge {
     try {
       message = JSON.parse(line) as Record<string, unknown>
     } catch {
-      this.diagnostics.push(`unparseable line from bua-rpc: ${line.slice(0, 200)}`)
+      this.diagnostics.push(`unparseable line from bravebot-rpc: ${line.slice(0, 200)}`)
       return
     }
 
@@ -133,7 +133,7 @@ export class Bridge {
   private died(code: number | null, signal: string | null): void {
     const detail = signal ? `killed by ${signal}` : `exited with code ${code}`
     for (const [, waiting] of this.waiting) {
-      waiting.reject(new BridgeError('agent_gone', `bua-rpc ${detail}`))
+      waiting.reject(new BridgeError('agent_gone', `bravebot-rpc ${detail}`))
     }
     this.waiting.clear()
     this.child = null

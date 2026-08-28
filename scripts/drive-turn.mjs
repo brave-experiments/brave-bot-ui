@@ -4,7 +4,7 @@
 import { _electron as electron } from 'playwright-core'
 import { mkdirSync } from 'node:fs'
 
-mkdirSync('/tmp/bua-ui', { recursive: true })
+mkdirSync('/tmp/bravebot-ui', { recursive: true })
 
 const app = await electron.launch({ args: ['.'], cwd: process.cwd(), timeout: 40000 })
 const page = await app.firstWindow()
@@ -25,7 +25,7 @@ const blocked = page.locator('.unconfigured')
 for (let i = 0; i < 60; i++) {
   if (await blocked.isVisible().catch(() => false)) {
     console.log('RESULT: unconfigured screen shown')
-    await page.screenshot({ path: '/tmp/bua-ui/03-unconfigured.png' })
+    await page.screenshot({ path: '/tmp/bravebot-ui/03-unconfigured.png' })
     await app.close()
     process.exit(1)
   }
@@ -40,5 +40,5 @@ if (failed > 0) {
 } else {
   console.log('RESULT: replied ->', (await answered.textContent())?.slice(0, 120))
 }
-await page.screenshot({ path: '/tmp/bua-ui/03-turn.png' })
+await page.screenshot({ path: '/tmp/bravebot-ui/03-turn.png' })
 await app.close()

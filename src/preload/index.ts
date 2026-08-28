@@ -20,7 +20,7 @@ export interface Answer<T> {
 const api = {
   /** Call one of the agent's methods. Never throws; failures come back in `error`. */
   request<T>(method: string, params?: Record<string, unknown>): Promise<Answer<T>> {
-    return ipcRenderer.invoke('bua:request', method, params ?? {}) as Promise<Answer<T>>
+    return ipcRenderer.invoke('bravebot:request', method, params ?? {}) as Promise<Answer<T>>
   },
 
   /**
@@ -31,27 +31,27 @@ const api = {
    * `file://` origin, whose storage Chromium discards between launches.
    */
   readLayout(): Promise<StoredLayout | null> {
-    return ipcRenderer.invoke('bua:layout:read') as Promise<StoredLayout | null>
+    return ipcRenderer.invoke('bravebot:layout:read') as Promise<StoredLayout | null>
   },
 
   /** Remember where the columns were. Best-effort; the caller does not wait or check. */
   writeLayout(layout: StoredLayout): void {
-    void ipcRenderer.invoke('bua:layout:write', layout)
+    void ipcRenderer.invoke('bravebot:layout:write', layout)
   },
 
   /** Ask the user for a project directory, natively. */
   chooseDirectory(): Promise<string | null> {
-    return ipcRenderer.invoke('bua:choose-directory') as Promise<string | null>
+    return ipcRenderer.invoke('bravebot:choose-directory') as Promise<string | null>
   },
 
   /** Listen for everything the agent announces. Returns an unsubscribe. */
   onEvent(listener: (event: BridgeEvent) => void): () => void {
     const handler = (_event: IpcRendererEvent, message: BridgeEvent) => listener(message)
-    ipcRenderer.on('bua:event', handler)
-    return () => ipcRenderer.off('bua:event', handler)
+    ipcRenderer.on('bravebot:event', handler)
+    return () => ipcRenderer.off('bravebot:event', handler)
   },
 }
 
-contextBridge.exposeInMainWorld('bua', api)
+contextBridge.exposeInMainWorld('bravebot', api)
 
-export type BuaApi = typeof api
+export type BravebotApi = typeof api

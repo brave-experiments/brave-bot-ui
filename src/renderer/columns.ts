@@ -133,7 +133,7 @@ export function fit(widths: Widths, available: number, collapsed: Record<Side, b
  */
 export async function remembered(): Promise<Layout | null> {
   try {
-    const stored = await window.bua.readLayout()
+    const stored = await window.bravebot.readLayout()
     if (!stored) return null
     return { widths: { left: stored.left, right: stored.right }, collapsed: stored.collapsed }
   } catch {
@@ -144,7 +144,7 @@ export async function remembered(): Promise<Layout | null> {
 /** Best-effort. A layout that cannot be written down is not worth an error. */
 export function remember(layout: Layout): void {
   try {
-    window.bua.writeLayout({
+    window.bravebot.writeLayout({
       left: layout.widths.left,
       right: layout.widths.right,
       collapsed: layout.collapsed,

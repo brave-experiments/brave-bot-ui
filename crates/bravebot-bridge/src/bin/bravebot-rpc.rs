@@ -8,8 +8,8 @@
 //! Elsewhere a stray `println!` would interleave with the protocol and no caller could
 //! stop it, which is the same reason the agent's kernel never prints.
 
-use bua_bridge::bridge::Bridge;
-use bua_bridge::protocol::{Event, Request, Unreadable, response};
+use bravebot_bridge::bridge::Bridge;
+use bravebot_bridge::protocol::{Event, Request, Unreadable, response};
 use std::io::{BufRead, Write};
 use std::sync::{Arc, Mutex};
 
@@ -18,13 +18,13 @@ fn main() {
     if let Some(flag) = args.next() {
         match flag.as_str() {
             "--version" | "-V" => {
-                println!("bua-rpc {} (agent {})", env!("CARGO_PKG_VERSION"), bua_bridge::agent_build());
+                println!("bravebot-rpc {} (agent {})", env!("CARGO_PKG_VERSION"), bravebot_bridge::agent_build());
                 return;
             }
             other => {
                 eprintln!("unknown option: {other}");
-                eprintln!("usage: bua-rpc            speak NDJSON on stdin/stdout");
-                eprintln!("       bua-rpc --version");
+                eprintln!("usage: bravebot-rpc            speak NDJSON on stdin/stdout");
+                eprintln!("       bravebot-rpc --version");
                 std::process::exit(2);
             }
         }
@@ -48,7 +48,7 @@ fn main() {
             // Invalid UTF-8 on the wire. Nothing addressable, so it is logged and the
             // loop carries on: a front-end that produced one bad line will produce
             // another, and exiting loses whatever else it had to say.
-            eprintln!("bua-rpc: unreadable line");
+            eprintln!("bravebot-rpc: unreadable line");
             continue;
         };
         if line.trim().is_empty() {
@@ -64,7 +64,7 @@ fn main() {
                 write_line(&out, &response(id, Err(failure)));
             }
             Err(Unreadable::Unanswerable { detail }) => {
-                eprintln!("bua-rpc: {detail}");
+                eprintln!("bravebot-rpc: {detail}");
             }
         }
     }

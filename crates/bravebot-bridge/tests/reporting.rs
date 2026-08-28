@@ -3,10 +3,10 @@
 //! Both cases here came out of the first live turn rather than out of the design: the
 //! engine reports progress the way a terminal wants it, and a pipe wants it differently.
 
-use bua_agent::report::{Activity, Landing, Phase, Reporter};
-use bua_bridge::emit::Emitter;
-use bua_bridge::protocol::Event;
-use bua_bridge::turn::BridgeReporter;
+use bravebot_agent::report::{Activity, Landing, Phase, Reporter};
+use bravebot_bridge::emit::Emitter;
+use bravebot_bridge::protocol::Event;
+use bravebot_bridge::turn::BridgeReporter;
 use std::sync::{Arc, Mutex};
 
 fn harness() -> (BridgeReporter, Arc<Mutex<Vec<Event>>>) {

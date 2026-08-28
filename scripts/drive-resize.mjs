@@ -6,7 +6,7 @@
 import { _electron as electron } from 'playwright-core'
 import { mkdirSync } from 'node:fs'
 
-mkdirSync('/tmp/bua-ui', { recursive: true })
+mkdirSync('/tmp/bravebot-ui', { recursive: true })
 
 const problems = []
 const check = (ok, what) => {
@@ -82,7 +82,7 @@ check(Math.abs((await widths(page)).left - 296) <= 2, 'arrow keys move the divid
 // --- what gets remembered ------------------------------------------------------------
 await drag(page, 0, 60)
 const remembered = (await widths(page)).left
-await page.screenshot({ path: '/tmp/bua-ui/06-resize.png' })
+await page.screenshot({ path: '/tmp/bravebot-ui/06-resize.png' })
 await app.close()
 
 app = await launch()
@@ -97,4 +97,4 @@ if (problems.length > 0) {
   console.log(`\nRESULT: ${problems.length} failed`)
   process.exit(1)
 }
-console.log('\nRESULT: ok — shot in /tmp/bua-ui/06-resize.png')
+console.log('\nRESULT: ok — shot in /tmp/bravebot-ui/06-resize.png')

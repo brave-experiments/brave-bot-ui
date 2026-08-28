@@ -4,12 +4,12 @@
 //! only "approve" approves, and the one that says the prose is not the contract. Both
 //! guard against a change that would look like a tidy-up.
 
-use bua_agent::confirm::{Decision, Intent, WriteRequest};
-use bua_agent::conversation::Said;
-use bua_agent::diff::Change;
-use bua_agent::report::{Activity, Landing, Phase, Reach, Shown};
-use bua_bridge::wire;
-use bua_core::todo::{Row, Status};
+use bravebot_agent::confirm::{Decision, Intent, WriteRequest};
+use bravebot_agent::conversation::Said;
+use bravebot_agent::diff::Change;
+use bravebot_agent::report::{Activity, Landing, Phase, Reach, Shown};
+use bravebot_bridge::wire;
+use bravebot_core::todo::{Row, Status};
 use serde_json::json;
 
 #[test]

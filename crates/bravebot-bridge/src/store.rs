@@ -1,21 +1,21 @@
 //! Finding the sessions the agent already keeps.
 //!
-//! The agent stores sessions per working directory: `~/.bua/sessions/<mangled>/`, one
+//! The agent stores sessions per working directory: `~/.bravebot/sessions/<mangled>/`, one
 //! directory per checkout, because the list worth seeing when resuming in one project is
-//! not the list from another. `bua_tui::sessions` answers "what is in this project", and
+//! not the list from another. `bravebot_tui::sessions` answers "what is in this project", and
 //! a terminal only ever asks about the one it was started in.
 //!
 //! A window is not a terminal. It shows one list, the way a chat client does, so it needs
 //! "what is in all of them" — and that is the only thing this module adds. **Discovery is
 //! ours; listing is not.** Having found which projects exist, each one is handed to
 //! `sessions::list` so ordering, byte counting, and the handling of a corrupt record stay
-//! upstream's decisions and cannot drift from what `bua --resume` shows.
+//! upstream's decisions and cannot drift from what `bravebot --resume` shows.
 //!
 //! Everything here degrades to an empty list. A missing home, an unreadable directory, a
 //! record from a newer build: none of that is worth refusing to open a window over, and it
 //! matches how every other reader of this directory behaves.
 
-use bua_tui::sessions::{self, Record, Summary};
+use bravebot_tui::sessions::{self, Record, Summary};
 use std::path::{Path, PathBuf};
 
 /// Where the per-project directories live.
@@ -53,7 +53,7 @@ impl Listed {
 /// turning dashes back into separators would be a guess, and it would be wrong for every
 /// path that legitimately contains one.
 pub fn projects() -> Vec<PathBuf> {
-    let Some(root) = bua_tui::store::directory().map(|dir| dir.join(SESSIONS)) else {
+    let Some(root) = bravebot_tui::store::directory().map(|dir| dir.join(SESSIONS)) else {
         return Vec::new();
     };
     let Ok(entries) = std::fs::read_dir(&root) else {

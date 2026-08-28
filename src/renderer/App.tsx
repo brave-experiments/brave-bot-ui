@@ -34,7 +34,7 @@ interface Live {
 class Unconfigurable extends Error {}
 
 async function call<T>(method: string, params?: Record<string, unknown>): Promise<T> {
-  const answer = await window.bua.request<T>(method, params)
+  const answer = await window.bravebot.request<T>(method, params)
   if (answer.error) {
     // `config` is `Config::from_env` failing, which for a packaged or npm-launched app
     // means the credentials were not baked in at compile time. It is not recoverable
@@ -68,7 +68,7 @@ export function App(): React.JSX.Element {
 
   useEffect(() => {
     void refresh()
-    const stop = window.bua.onEvent((message: BridgeEvent) => {
+    const stop = window.bravebot.onEvent((message: BridgeEvent) => {
       // Events for a session other than the one on screen are dropped rather than
       // queued: this build shows one at a time, and holding a transcript nobody is
       // looking at would grow without bound.
@@ -110,7 +110,7 @@ export function App(): React.JSX.Element {
   }, [])
 
   const create = useCallback(async () => {
-    const directory = await window.bua.chooseDirectory()
+    const directory = await window.bravebot.chooseDirectory()
     if (!directory) return
     try {
       const made = await call<{ session: string; branch: string | null }>('session.new', {

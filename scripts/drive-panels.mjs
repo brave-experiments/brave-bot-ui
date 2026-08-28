@@ -7,7 +7,7 @@
 import { _electron as electron } from 'playwright-core'
 import { mkdirSync } from 'node:fs'
 
-mkdirSync('/tmp/bua-ui', { recursive: true })
+mkdirSync('/tmp/bravebot-ui', { recursive: true })
 
 const problems = []
 const check = (ok, what) => {
@@ -67,7 +67,7 @@ const closing = await sample()
 const middles = closing.filter((h) => h > 1 && h < open - 1)
 check(middles.length > 0, `collapse passes through part-heights (${middles.length} frames)`)
 check(closing[closing.length - 1] < 1, 'collapse ends at nothing')
-await page.screenshot({ path: '/tmp/bua-ui/07-panels-closed.png' })
+await page.screenshot({ path: '/tmp/bravebot-ui/07-panels-closed.png' })
 
 await head.click()
 const opening = await sample()
@@ -76,7 +76,7 @@ check(
   'expand passes through part-heights',
 )
 check(Math.abs(opening[opening.length - 1] - open) < 1, 'expand ends back at full height')
-await page.screenshot({ path: '/tmp/bua-ui/08-panels-open.png' })
+await page.screenshot({ path: '/tmp/bravebot-ui/08-panels-open.png' })
 
 // --- and the same fold, around a run of tool calls -------------------------------------
 if ((await page.locator('.tool-run').count()) === 0) {
@@ -113,12 +113,12 @@ if ((await page.locator('.tool-run').count()) === 0) {
     'a closed run leaves the tab order and the accessibility tree',
   )
   check(await runHead.isVisible(), 'the header stays, so the run can be brought back')
-  await page.screenshot({ path: '/tmp/bua-ui/11-run-closed.png' })
+  await page.screenshot({ path: '/tmp/bravebot-ui/11-run-closed.png' })
 
   await runHead.click()
   await page.waitForTimeout(400)
   check(Math.abs((await runHeight()) - runOpen) < 1, 'the run reopens to its full height')
-  await page.screenshot({ path: '/tmp/bua-ui/12-run-open.png' })
+  await page.screenshot({ path: '/tmp/bravebot-ui/12-run-open.png' })
 }
 
 await app.close()

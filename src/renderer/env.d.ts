@@ -1,8 +1,8 @@
 /// <reference types="vite/client" />
-import type { BuaApi } from '../preload/index'
+import type { BravebotApi } from '../preload/index'
 
 declare global {
   interface Window {
-    bua: BuaApi
+    bravebot: BravebotApi
   }
 }

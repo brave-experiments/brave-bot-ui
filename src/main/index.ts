@@ -48,7 +48,7 @@ function createWindow(): void {
   window.webContents.on('will-navigate', (event) => event.preventDefault())
 
   bridge = new Bridge((message) => {
-    window?.webContents.send('bua:event', message)
+    window?.webContents.send('bravebot:event', message)
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -83,7 +83,7 @@ const ALLOWED = new Set([
 ])
 
 app.whenReady().then(() => {
-  ipcMain.handle('bua:request', async (_event, method: unknown, params: unknown) => {
+  ipcMain.handle('bravebot:request', async (_event, method: unknown, params: unknown) => {
     if (typeof method !== 'string' || !ALLOWED.has(method)) {
       return { error: { code: 'bad_request', message: `not a permitted method: ${String(method)}` } }
     }
@@ -114,7 +114,7 @@ app.whenReady().then(() => {
   // renderer happened to pass, and a renderer bug cannot leave a fourth field in the file.
   const layoutFile = (): string => join(app.getPath('userData'), 'layout.json')
 
-  ipcMain.handle('bua:layout:read', () => {
+  ipcMain.handle('bravebot:layout:read', () => {
     try {
       return parseLayout(JSON.parse(readFileSync(layoutFile(), 'utf8')))
     } catch {
@@ -123,7 +123,7 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle('bua:layout:write', (_event, value: unknown) => {
+  ipcMain.handle('bravebot:layout:write', (_event, value: unknown) => {
     const layout = parseLayout(value)
     if (!layout) return
     try {
@@ -135,7 +135,7 @@ app.whenReady().then(() => {
 
   // Choosing a project is a native affair: the renderer cannot see the filesystem and
   // should not be handed a path it invented.
-  ipcMain.handle('bua:choose-directory', async () => {
+  ipcMain.handle('bravebot:choose-directory', async () => {
     if (!window) return null
     const result = await dialog.showOpenDialog(window, {
       title: 'Open a project',

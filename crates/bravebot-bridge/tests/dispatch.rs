@@ -3,8 +3,8 @@
 //! Events are collected into a vector instead of being written anywhere, which is the
 //! point of the callback: the library has no opinion about where they go.
 
-use bua_bridge::bridge::Bridge;
-use bua_bridge::protocol::{ErrorCode, Event, Request};
+use bravebot_bridge::bridge::Bridge;
+use bravebot_bridge::protocol::{ErrorCode, Event, Request};
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 
@@ -108,7 +108,7 @@ fn a_new_session_asks_about_trust_and_leaves_no_trace() {
     assert_eq!(asked.session.as_deref(), Some(handle));
 
     // Nothing is written until the first turn, so an abandoned window leaves nothing.
-    let after = bua_bridge::store::list_project(&directory);
+    let after = bravebot_bridge::store::list_project(&directory);
     assert!(after.is_empty(), "session.new must not write a record");
 }
 

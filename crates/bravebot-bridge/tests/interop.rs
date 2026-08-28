@@ -5,20 +5,21 @@
 //! claim about two programs agreeing is worth a test rather than a sentence.
 //!
 //! No model is involved: this writes a record the way a finished turn does and reads it
-//! back the way `bua --resume` does.
+//! back the way `bravebot --resume` does.
 
-use bua_aichat::protocol::Message;
-use bua_core::todo::{Row, Status};
-use bua_core::trust::TrustStore;
-use bua_tui::sessions::{self, Handle, Standing};
+use bravebot_aichat::protocol::Message;
+use bravebot_core::todo::{Row, Status};
+use bravebot_core::programs::TrustedPrograms;
+use bravebot_core::trust::TrustStore;
+use bravebot_tui::sessions::{self, Handle, Standing};
 use std::collections::BTreeMap;
 
 /// A directory nothing else is using, inside the real session store.
 ///
 /// Sessions are keyed by the working directory they ran in, so an unused temporary path
-/// gets its own directory under `~/.bua/sessions` and cannot disturb a real one.
+/// gets its own directory under `~/.bravebot/sessions` and cannot disturb a real one.
 fn scratch(name: &str) -> std::path::PathBuf {
-    let path = std::env::temp_dir().join(format!("bua-bridge-interop-{name}"));
+    let path = std::env::temp_dir().join(format!("bravebot-bridge-interop-{name}"));
     std::fs::create_dir_all(&path).expect("a scratch directory");
     path
 }
@@ -34,7 +35,7 @@ fn a_record_written_here_is_read_back_by_the_agents_own_reader() {
     let project = scratch("round-trip");
     clean_up(&project);
 
-    let mut conversation = bua_agent::Conversation::new();
+    let mut conversation = bravebot_agent::Conversation::new();
     conversation.push(Message::user("what does this do?"));
     conversation.push(Message::assistant("it parses commas"));
 
@@ -56,6 +57,7 @@ fn a_record_written_here_is_read_back_by_the_agents_own_reader() {
             tokens: 42,
             todos: &todos,
             trust: &trust,
+            programs: &TrustedPrograms::new(),
         },
     );
     let id = handle.id().to_string();
@@ -75,7 +77,7 @@ fn a_record_written_here_is_read_back_by_the_agents_own_reader() {
 
     // And as the bridge's own cross-project discovery does, which is the part that is
     // ours rather than upstream's.
-    let found = bua_bridge::store::list_all();
+    let found = bravebot_bridge::store::list_all();
     assert!(
         found.iter().any(|entry| entry.summary.id == id && entry.project == project),
         "a session in a new project must be discovered without being told where to look"
@@ -90,7 +92,7 @@ fn a_stored_conversation_recounts_to_what_a_person_said() {
     let project = scratch("recount");
     clean_up(&project);
 
-    let mut conversation = bua_agent::Conversation::new();
+    let mut conversation = bravebot_agent::Conversation::new();
     conversation.push(Message::user("first question"));
     conversation.push(Message::assistant("first answer"));
     conversation.push(Message::user("second question"));
@@ -105,20 +107,21 @@ fn a_stored_conversation_recounts_to_what_a_person_said() {
             tokens: 0,
             todos: &BTreeMap::new(),
             trust: &TrustStore::new(),
+            programs: &TrustedPrograms::new(),
         },
     );
     let id = handle.id().to_string();
 
     let record = sessions::load(&project, &id).expect("loads");
-    let restored = bua_agent::Conversation::restored(record.conversation.clone());
+    let restored = bravebot_agent::Conversation::restored(record.conversation.clone());
     let said = restored.recounted();
 
     let text: Vec<&str> = said
         .iter()
         .map(|entry| match entry {
-            bua_agent::conversation::Said::User(t) => t.as_str(),
-            bua_agent::conversation::Said::Assistant(t) => t.as_str(),
-            bua_agent::conversation::Said::Tool(t) => t.as_str(),
+            bravebot_agent::conversation::Said::User(t) => t.as_str(),
+            bravebot_agent::conversation::Said::Assistant(t) => t.as_str(),
+            bravebot_agent::conversation::Said::Tool(t) => t.as_str(),
         })
         .collect();
 
@@ -146,7 +149,7 @@ fn resuming_a_session_writes_back_to_it_rather_than_forking() {
     let project = scratch("resume-continues");
     clean_up(&project);
 
-    let mut conversation = bua_agent::Conversation::new();
+    let mut conversation = bravebot_agent::Conversation::new();
     conversation.push(Message::user("remember the word haddock"));
     conversation.push(Message::assistant("haddock it is"));
 
@@ -162,13 +165,14 @@ fn resuming_a_session_writes_back_to_it_rather_than_forking() {
             tokens: 10,
             todos: &todos,
             trust: &trust,
+            programs: &TrustedPrograms::new(),
         },
     );
     let original = handle.id().to_string();
 
     // What `session.open` does with what it found on disk.
     let record = sessions::load(&project, &original).expect("the record should load");
-    let mut state = bua_bridge::running::State::resumed(&project, &record, trust.clone());
+    let mut state = bravebot_bridge::running::State::resumed(&project, &record, trust.clone());
 
     // What the worker does at the end of a turn: the same call, through the same handle.
     state.turns = 2;
@@ -182,6 +186,7 @@ fn resuming_a_session_writes_back_to_it_rather_than_forking() {
             tokens: state.tokens,
             todos: &state.todos,
             trust: &state.trust,
+            programs: &state.programs,
         },
     );
 
