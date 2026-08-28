@@ -112,18 +112,36 @@ docs/                     the protocol design
   its crates with an older toolchain fails in *its* sources, which is a confusing place to
   discover a version problem.
 - **Node 22+** and npm. Electron 44, React 19.
-- **A checkout of `bravebot` as a sibling directory.** `crates/bravebot-bridge` depends
-  on it by path — `../../../bravebot/crates/*` — so by default it must live at
-  `~/repos/bravebot`. Set `BRAVEBOT_DIR` if it is elsewhere and adjust the paths
-  in `crates/bravebot-bridge/Cargo.toml` to match.
+- **A checkout of the agent as a sibling directory, named `bravebot`.**
+  [`brave-experiments/brave-bot`](https://github.com/brave-experiments/brave-bot).
+  `crates/bravebot-bridge` depends on it by path — `../../../bravebot/crates/*` — so it must
+  sit beside this checkout under the name `bravebot`.
+
+  **The repository is called `brave-bot` and the directory has to be called `bravebot`**, so
+  a plain `git clone` puts it in the wrong place and `cargo` fails on a missing path rather
+  than on anything that names the real problem. Clone it with the directory spelled out, as
+  the Setup below does. Set `BRAVEBOT_DIR` if it lives somewhere else — that is what
+  `scripts/build-bridge.sh` reads — and adjust the paths in
+  `crates/bravebot-bridge/Cargo.toml` to match.
+
+  A path dependency rather than a pinned git revision is deliberate for now: the two move
+  together, and pinning a revision while both are being written would mean a bump per
+  change. It is the wrong answer for a release build, and
+  [`docs/phase-0-rpc-protocol.md`](docs/phase-0-rpc-protocol.md) §14 is where that is
+  being decided.
 - **`direnv`**, to pick up the agent's credentials at build time. See below.
 
 ## Setup
 
-With this checkout and the agent's checkout side by side under `~/repos`:
+The two checkouts sit side by side, and both directory names matter — the agent's because
+`Cargo.toml` points at it by path, this one only for the `cd`:
 
 ```bash
-cd ~/repos/bravebot-ui
+cd ~/repos
+git clone https://github.com/brave-experiments/brave-bot.git bravebot
+git clone https://github.com/brave-experiments/brave-bot-ui.git bravebot-ui
+
+cd bravebot-ui
 npm install
 npm run dev
 ```
