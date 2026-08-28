@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import type { SessionSummary } from '../../shared/protocol'
 import { PopMenu, type PopItem } from './PopMenu'
 
@@ -29,14 +29,39 @@ function contextMenu(target: 'session' | 'entry', id: string) {
  * Flat rather than grouped by checkout, because this is a chat list and a chat list has
  * one column. The project is the secondary line, the way a group chat names itself under
  * the message.
+ *
+ * Flat also means long, so there is a filter box under the New session button. It narrows
+ * what is already here rather than asking the bridge anything: `session.list` hands over
+ * every session at once, so a query is a rendering decision and a round trip would only make
+ * it slower and able to fail.
  */
 export { contextMenu }
 
 export function Sessions({ sessions, openId, onOpen, onNew, build }: Props): React.JSX.Element {
+  // Local rather than lifted into `App`. The convention there is that state lives in `App`,
+  // but the reason given for the composer's draft is that the menu has to read it; nothing
+  // outside this column reads the query, and — more to the point — `App` looks a right-
+  // clicked session up in `sessions` by id. Filtering a copy it holds would make a menu item
+  // fail on a row that is hidden a moment later.
+  const [query, setQuery] = useState('')
+  const shown = useMemo(() => matching(sessions, query), [sessions, query])
+
   return (
     <aside className="sessions" id="sessions-column">
       <header className="sessions-head">
         <NewSession onNew={onNew} />
+        <input
+          type="search"
+          className="session-find"
+          value={query}
+          placeholder="Filter sessions"
+          aria-label="Filter sessions"
+          onChange={(event) => setQuery(event.target.value)}
+          // Escape clears rather than blurs, and is handled here rather than as a command:
+          // an accelerator would be swallowed by AppKit before the renderer saw it, and the
+          // composer already treats Escape as a local key.
+          onKeyDown={(event) => event.key === 'Escape' && setQuery('')}
+        />
       </header>
 
       <div className="session-list">
@@ -46,7 +71,12 @@ export function Sessions({ sessions, openId, onOpen, onNew, build }: Props): Rea
             <code>bravebot</code> and it will appear here.
           </p>
         )}
-        {sessions.map((session) => (
+        {/* Said separately, because the message above is a fact about the machine and would
+            be a lie about a list that is merely filtered down to nothing. */}
+        {sessions.length > 0 && shown.length === 0 && (
+          <p className="empty">No session matches “{query}”.</p>
+        )}
+        {shown.map((session) => (
           <button
             key={`${session.directory}/${session.id}`}
             className={`session ${session.id === openId ? 'current' : ''}`}
@@ -129,6 +159,27 @@ function NewSession({ onNew }: { onNew: (directory?: string) => void }): React.J
       />
     </div>
   )
+}
+
+/**
+ * The sessions a typed query leaves standing.
+ *
+ * Matched against exactly what a row shows — title, project, branch — so a person can always
+ * see why something is in the list. The directory is deliberately not in the haystack even
+ * though every session carries one: `project` is its last segment, and searching the whole
+ * path would mean every checkout under `~/repos` answered to "repos".
+ *
+ * Every whitespace-separated term has to appear somewhere, in any order. Plain substrings
+ * rather than a fuzzy score: a fuzzy match on a list this short mostly buys the right to
+ * return rows the reader cannot account for.
+ */
+function matching(sessions: SessionSummary[], query: string): SessionSummary[] {
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean)
+  if (terms.length === 0) return sessions
+  return sessions.filter((session) => {
+    const haystack = `${session.title} ${session.project} ${session.branch ?? ''}`.toLowerCase()
+    return terms.every((term) => haystack.includes(term))
+  })
 }
 
 /**
