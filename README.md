@@ -1,4 +1,4 @@
-# brave-user-agent-ui
+# bravebot-ui
 
 A macOS interface to `brave-user-agent` — the prompt-injection-resistant coding agent — in
 a window instead of a terminal.
@@ -74,7 +74,7 @@ docs/                     the protocol design
 With this checkout and the agent's checkout side by side under `~/repos`:
 
 ```bash
-cd ~/repos/brave-user-agent-ui
+cd ~/repos/bravebot-ui
 npm install
 npm run dev
 ```

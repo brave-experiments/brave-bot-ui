@@ -6,7 +6,7 @@
 # take a few seconds.
 #
 # Usage, from anywhere:
-#     ~/repos/brave-user-agent-ui/scripts/smoke-turn.sh [working-directory]
+#     ~/repos/bravebot-ui/scripts/smoke-turn.sh [working-directory]
 #
 # The working directory defaults to brave-user-agent itself, so the agent has something
 # real to read. Nothing is written: the prompt only asks a question, and this session
@@ -14,7 +14,7 @@
 
 set -uo pipefail
 
-UI="$HOME/repos/brave-user-agent-ui"
+UI="$HOME/repos/bravebot-ui"
 AGENT="$HOME/repos/brave-user-agent"
 WORKDIR="${1:-$AGENT}"
 RPC="$UI/target/debug/bua-rpc"
@@ -30,7 +30,7 @@ No credentials in this shell. bua-rpc is built unconfigured, so it reads them fr
 environment at run time. Run this from a shell where direnv has loaded the agent's
 .envrc, or wrap it:
 
-    direnv exec ~/repos/brave-user-agent ~/repos/brave-user-agent-ui/scripts/smoke-turn.sh
+    direnv exec ~/repos/brave-user-agent ~/repos/bravebot-ui/scripts/smoke-turn.sh
 
 MSG
   exit 1

@@ -76,7 +76,7 @@ None of this is permanent. §2.2 is what keeps it cheap to revisit.
 Entirely in this repository:
 
 ```
-brave-user-agent-ui/
+bravebot-ui/
   crates/bua-bridge/
     Cargo.toml
     src/lib.rs            all of it: session store access, turn driving,
