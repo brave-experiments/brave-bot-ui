@@ -109,6 +109,23 @@ thought, and one hand-edited preference should not cost you the other. The *fold
 what is written down rather than the open ones, so a checkout started since last launch
 arrives open instead of hidden behind a heading nobody has ever collapsed.
 
+### Tooltips
+
+A `title` is added where hovering says something the screen does not, and nowhere else. That
+is three cases: a control with no room for a label (the column divider, whose double-click
+reset is otherwise invisible), text the layout clipped (paths in the context panel, the
+checkout in the header, a session's title in a narrow column), and a fold's verb — the name
+stays put and `aria-expanded` carries the state, so *show* or *hide* goes in the tooltip.
+
+A link a reply wrote carries its destination, for the reason a browser puts one in the
+status bar: the link text was written by the model and need not describe where it goes.
+
+The approval buttons deliberately have none. Their labels are already whole sentences —
+`Don't run`, `Let the planner read it` — so a tooltip could only repeat them, and a popup
+over an approval card covers the diff or the argv the decision rests on. The exception is
+**Run and don't ask again**, whose tooltip lists the programs the vouch would cover, which
+is the one thing its label cannot say.
+
 **No key answers a question.** The five the agent can ask — a write, a command, whether the
 planner may read output, whether to vouch, and a series of questions — are answered in the
 transcript and nowhere else. An approval is a claim that somebody looked at the evidence,

@@ -103,6 +103,10 @@ export function Sessions({ sessions, openId, onOpen, onNew, build }: Props): Rea
             value={query}
             placeholder="Filter sessions"
             aria-label="Filter sessions"
+            // The placeholder says what the box is; the tooltip says the one thing about it
+            // that is not on screen anywhere. Escape is deliberately not in the menu — see
+            // the note on the handler below — so without this it is a key nobody finds.
+            title="Filter sessions · Escape clears it"
             onChange={(event) => setQuery(event.target.value)}
             // Escape clears rather than blurs, and is handled here rather than as a command:
             // an accelerator would be swallowed by AppKit before the renderer saw it, and the
@@ -270,7 +274,14 @@ function Session({
       onClick={() => onOpen(session)}
       onContextMenu={contextMenu('session', session.id)}
     >
-      <span className="session-title">{session.title}</span>
+      {/* What the column clipped, not the prompt it came from: the agent shortens a title
+          to 60 characters and an ellipsis of its own before it is ever stored, and this
+          cannot get back what was dropped there. It gets back what the column dropped on
+          top of that, which at this width is most of it — and two sessions in a project
+          often differ only in the part that gets cut. */}
+      <span className="session-title" title={session.title}>
+        {session.title}
+      </span>
       <span className="session-where">
         {session.project}
         {session.branch && <span className="branch"> · {session.branch}</span>}

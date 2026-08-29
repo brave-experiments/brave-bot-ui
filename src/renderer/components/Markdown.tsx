@@ -67,7 +67,11 @@ const COMPONENTS: Components = {
     // in-window navigation outright and answers a window-open by opening the user's
     // browser, so this is the only form of link that does anything at all.
     return url ? (
-      <a href={url} target="_blank" rel="noopener noreferrer nofollow">
+      // The destination in the tooltip, which matters more here than anywhere else in the
+      // window: the text of this link was written by the model, and nothing obliges it to
+      // describe where the link goes. A browser gives you the URL in a status bar before
+      // you commit to it; there is no status bar here, so this is it.
+      <a href={url} target="_blank" rel="noopener noreferrer nofollow" title={url}>
         {children}
       </a>
     ) : (
@@ -85,7 +89,15 @@ const COMPONENTS: Components = {
     const url = safeUrl(typeof src === 'string' ? src : undefined)
     const label = alt || title || 'image'
     return url ? (
-      <a className="md-image" href={url} target="_blank" rel="noopener noreferrer nofollow">
+      // Likewise, and more so: the label here is the model's own alt text, which says even
+      // less about the destination than link text usually does.
+      <a
+        className="md-image"
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer nofollow"
+        title={url}
+      >
         image · {label}
       </a>
     ) : (

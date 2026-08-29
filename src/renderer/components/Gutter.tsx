@@ -215,6 +215,12 @@ export function Gutter({
       role="separator"
       aria-orientation="vertical"
       aria-label={side === 'left' ? 'Resize the session list' : 'Resize the context panel'}
+      // The one place in the window where a tooltip is the *only* way to learn what a
+      // control does. A 1px seam has no room for a label, and the double-click that puts
+      // the column back where it shipped is invisible until somebody does it by accident.
+      // Dropped while the column is folded, along with every handler below: a seam that
+      // promised a gesture it would ignore would be worse than a silent one.
+      title={collapsed ? undefined : 'Drag to resize · double-click to reset'}
       aria-disabled={collapsed || undefined}
       aria-valuenow={width}
       aria-valuemin={SIDES[side].min}
