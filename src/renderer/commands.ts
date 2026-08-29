@@ -23,6 +23,7 @@
 import { useEffect, useRef } from 'react'
 import type { Side } from './columns'
 import type { WindowState } from '../shared/commands'
+import type { ExportFormat } from '../shared/export'
 
 export interface CommandActions {
   /** Open the folder picker, or go straight to a directory the main process named. */
@@ -42,6 +43,8 @@ export interface CommandActions {
   copyProjectPath: (id: string) => void
   /** Put a named transcript entry's text on the clipboard. */
   copyEntry: (id: string) => void
+  /** Write the open session's conversation to a file, in one of three formats. */
+  exportSession: (format: ExportFormat) => void
 }
 
 /**
@@ -77,6 +80,12 @@ export function useCommandRouter(actions: CommandActions): void {
           return act.create()
         case 'session.close':
           return act.closeSession()
+        case 'session.export-text':
+          return act.exportSession('txt')
+        case 'session.export-markdown':
+          return act.exportSession('md')
+        case 'session.export-pdf':
+          return act.exportSession('pdf')
         case 'turn.send':
           return act.send()
         case 'turn.cancel':
@@ -106,7 +115,7 @@ export function useCommandRouter(actions: CommandActions): void {
  * Derived on every render — it is made of render state — but only sent when it differs from
  * what was last sent. Without that, typing in the composer would put one message per
  * keystroke on a channel whose only reader repaints a menu bar. The comparison is a
- * `JSON.stringify` of five fields, which is cheaper than the message it avoids.
+ * `JSON.stringify` of six fields, which is cheaper than the message it avoids.
  */
 export function usePublishedState(state: WindowState): void {
   const sent = useRef<string | null>(null)

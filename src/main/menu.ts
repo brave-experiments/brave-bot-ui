@@ -160,6 +160,15 @@ export function installMenu(window: BrowserWindow): void {
         item('session.new'),
         openRecent(),
         SEPARATOR,
+        {
+          label: 'Export',
+          submenu: [
+            item('session.export-text'),
+            item('session.export-markdown'),
+            item('session.export-pdf'),
+          ],
+        },
+        SEPARATOR,
         item('session.close'),
         { role: 'close' },
       ],

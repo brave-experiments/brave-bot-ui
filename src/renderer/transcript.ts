@@ -23,6 +23,7 @@ import type {
   Shown,
   VouchRequest,
 } from '../shared/protocol'
+import type { ExportTurn } from '../shared/export'
 
 export type Entry =
   | { kind: 'user'; id: string; text: string }
@@ -295,4 +296,29 @@ export function plainText(entry: Entry): string | null {
     default:
       return null
   }
+}
+
+/**
+ * The conversation, for an export: what was asked and what came back.
+ *
+ * Filtered on `kind` first and only then passed through [`plainText`], which matters more
+ * than it looks. `plainText` answers a question about the *clipboard* — it returns text for
+ * narration, errors and replayed tool lines too — so "every entry it will speak for" is a
+ * different set from "the conversation", and defining one in terms of the other would make
+ * this quietly follow that function the next time it changes. Naming the two kinds here means
+ * a twelfth `Entry` is left out of exports until somebody decides otherwise, which is the
+ * safe direction for a file somebody keeps.
+ *
+ * What is left out is the same argument `plainText` makes about the five decision cards, one
+ * level up: a diff, an argv, a confined blob and an approval are evidence laid out to be read
+ * in place. Narration and errors go too — those are the machinery talking, not the exchange.
+ */
+export function conversation(entries: Entry[]): ExportTurn[] {
+  const turns: ExportTurn[] = []
+  for (const entry of entries) {
+    if (entry.kind !== 'user' && entry.kind !== 'assistant') continue
+    const text = plainText(entry)?.trim()
+    if (text) turns.push({ role: entry.kind, text })
+  }
+  return turns
 }

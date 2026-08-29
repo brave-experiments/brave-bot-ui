@@ -12,6 +12,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { BridgeEvent, BridgeFailure } from '../shared/protocol'
 import type { StoredLayout } from '../shared/layout'
 import type { CommandId, ContextCommandId, ContextRef, WindowState } from '../shared/commands'
+import type { ExportOutcome, ExportRequest } from '../shared/export'
 
 export interface Answer<T> {
   ok?: T
@@ -53,6 +54,22 @@ const api = {
   /** Ask the user for a project directory, natively. */
   chooseDirectory(): Promise<string | null> {
     return ipcRenderer.invoke('bravebot:choose-directory') as Promise<string | null>
+  },
+
+  /**
+   * Write the conversation to a file the user picks.
+   *
+   * The structured turns cross, not a finished document. The main process serializes them
+   * and writes the result, so what lands on disk is something it composed from a value it
+   * parsed rather than bytes this side handed over — the same discipline `writeLayout`
+   * follows, for a value that matters rather more.
+   *
+   * There is no read half and no path argument: where the file goes is decided in a native
+   * sheet, so the renderer cannot name a destination any more than it can name a project
+   * directory. Never throws; a refusal comes back in `status`.
+   */
+  exportSession(request: ExportRequest): Promise<ExportOutcome> {
+    return ipcRenderer.invoke('bravebot:export', request) as Promise<ExportOutcome>
   },
 
   /**

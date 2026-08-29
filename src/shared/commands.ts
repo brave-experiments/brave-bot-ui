@@ -25,6 +25,9 @@
 export type CommandId =
   | 'session.new'
   | 'session.close'
+  | 'session.export-text'
+  | 'session.export-markdown'
+  | 'session.export-pdf'
   | 'turn.send'
   | 'turn.cancel'
   | 'view.fold-left'
@@ -40,7 +43,7 @@ export type CommandId =
  * with the rest of the declaration: the main process greys a menu item by it, and anything
  * drawing an in-window menu can grey a row by the same tag rather than by its own opinion.
  */
-export type Requires = 'always' | 'session' | 'running' | 'sendable'
+export type Requires = 'always' | 'session' | 'running' | 'sendable' | 'exportable'
 
 export interface Command {
   id: CommandId
@@ -70,6 +73,15 @@ export interface WindowState {
    * one that is offered and then does nothing.
    */
   canSend: boolean
+  /**
+   * There is a session and somebody has said something in it.
+   *
+   * Sent rather than derived from `hasSession`, for the same reason `canSend` is: a session
+   * that has been opened but not spoken in has nothing to write to a file, and an Export
+   * item offered there would open a save sheet for a document the boundary is going to
+   * refuse. Only the renderer can tell the difference — it holds the entries.
+   */
+  canExport: boolean
   folded: { left: boolean; right: boolean }
 }
 
@@ -77,6 +89,7 @@ export const NOTHING_OPEN: WindowState = {
   hasSession: false,
   running: false,
   canSend: false,
+  canExport: false,
   folded: { left: false, right: false },
 }
 
@@ -88,6 +101,13 @@ export const COMMANDS: readonly Command[] = [
     accelerator: 'CmdOrCtrl+Shift+W',
     requires: 'session',
   },
+  // Three items rather than one "Export…" that asks afterwards: the format *is* the choice,
+  // and a menu that opened a picker somewhere else on screen would be putting the question
+  // nowhere near the pointer that asked it. No accelerators — three formats cannot share one
+  // and none of them is worth a key by itself.
+  { id: 'session.export-text', label: 'Plain Text…', requires: 'exportable' },
+  { id: 'session.export-markdown', label: 'Markdown…', requires: 'exportable' },
+  { id: 'session.export-pdf', label: 'PDF…', requires: 'exportable' },
   { id: 'turn.send', label: 'Send', accelerator: 'CmdOrCtrl+Enter', requires: 'sendable' },
   { id: 'turn.cancel', label: 'Cancel Turn', accelerator: 'CmdOrCtrl+.', requires: 'running' },
   {
@@ -127,6 +147,8 @@ export function isEnabled(requires: Requires, state: WindowState): boolean {
       return state.hasSession && state.running
     case 'sendable':
       return state.canSend
+    case 'exportable':
+      return state.canExport
   }
 }
 
@@ -143,14 +165,15 @@ export function isEnabled(requires: Requires, state: WindowState): boolean {
  */
 export function parseWindowState(value: unknown): WindowState | null {
   if (typeof value !== 'object' || value === null) return null
-  const { hasSession, running, canSend, folded } = value as Record<string, unknown>
+  const { hasSession, running, canSend, canExport, folded } = value as Record<string, unknown>
   if (typeof hasSession !== 'boolean') return null
   if (typeof running !== 'boolean') return null
   if (typeof canSend !== 'boolean') return null
+  if (typeof canExport !== 'boolean') return null
   if (typeof folded !== 'object' || folded === null) return null
   const { left, right } = folded as Record<string, unknown>
   if (typeof left !== 'boolean' || typeof right !== 'boolean') return null
-  return { hasSession, running, canSend, folded: { left, right } }
+  return { hasSession, running, canSend, canExport, folded: { left, right } }
 }
 
 /**

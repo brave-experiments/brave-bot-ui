@@ -47,6 +47,18 @@ Three columns, each side one resizable and foldable:
 The two side columns fold to nothing from a chevron at either end of the transcript's
 header, and their widths and fold states survive a relaunch.
 
+An **Export** button sits beside Send, and File › Export offers the same three formats:
+plain text, Markdown, or a PDF that keeps the window's own bubbles. What it writes is the
+*conversation* — what was asked and what came back — and not the tool lines, diffs,
+approval cards or confined blobs. That is the same argument the per-entry Copy makes: those
+things are evidence laid out to be read in place, and a document made out of one reads like
+a record of the exchange without being one. Every export ends with a line saying so.
+
+The PDF is drawn by a second renderer entry point using the same React components the window
+uses, rather than by assembling a string of HTML — so a reply's markdown is gated on the way
+to paper by exactly what gates it on screen. See `src/main/export.ts` for why that is worth a
+whole extra window.
+
 ### The name in the menu bar
 
 The bold word beside the Apple menu is the one part of the menu a template cannot set: AppKit
@@ -219,6 +231,7 @@ at, that a control keeps keyboard focus through an animation.
 | `npm run drive:run` | Approving a command from the window, end to end through a live turn |
 | `npm run drive:ask` | Answering a series of questions the planner asks, likewise live |
 | `npm run drive:menu` | The application menu: what it offers, what it greys, and what it refuses to offer |
+| `npm run drive:export` | Exporting a conversation to text, Markdown and PDF — and what the file leaves out |
 | `npm run drive:packaged` | A built `.app`: that a release hides the developer items and finds its agent |
 | `node scripts/drive-turn.mjs` | A live inference request through the window, to prove the binary carries its credentials rather than inheriting them |
 | `scripts/smoke-turn.sh` | A live turn straight through `bravebot-rpc`, no app |
