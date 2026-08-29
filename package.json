@@ -26,7 +26,8 @@
     "drive:fork": "npm run bridge && electron-vite build && node scripts/drive-fork.mjs",
     "drive:tree": "npm run bridge && electron-vite build && node scripts/drive-tree.mjs",
     "drive:theme": "npm run bridge && electron-vite build && node scripts/drive-theme.mjs",
-    "drive:packaged": "node scripts/drive-packaged.mjs"
+    "drive:packaged": "node scripts/drive-packaged.mjs",
+    "drive:astar": "npm run bridge && electron-vite build && node scripts/drive-astar.mjs"
   },
   "devDependencies": {
     "@electron/packager": "^20.3.0",
