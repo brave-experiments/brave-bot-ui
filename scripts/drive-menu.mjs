@@ -35,17 +35,25 @@ const readMenu = () =>
   app.evaluate(({ Menu }) => {
     const menu = Menu.getApplicationMenu()
     if (!menu) return null
+    // Flattened all the way down rather than one level, because File > Export puts real
+    // commands inside a submenu — and an item this function could not see would be one the
+    // assertions below silently stopped covering. A menu item that decides something must
+    // fail this run no matter how deeply somebody nested it.
+    const descend = (item) => [
+      {
+        id: item.id,
+        label: item.label,
+        role: item.role,
+        type: item.type,
+        accelerator: item.accelerator,
+        enabled: item.enabled,
+      },
+      ...(item.submenu?.items ?? []).flatMap(descend),
+    ]
     return menu.items.map((top) => ({
       label: top.label,
       role: top.role,
-      items: (top.submenu?.items ?? []).map((i) => ({
-        id: i.id,
-        label: i.label,
-        role: i.role,
-        type: i.type,
-        accelerator: i.accelerator,
-        enabled: i.enabled,
-      })),
+      items: (top.submenu?.items ?? []).flatMap(descend),
     }))
   })
 
@@ -111,6 +119,7 @@ check(
 const ALLOWED_IDS = [
   'session.new', 'session.close', 'turn.send', 'turn.cancel',
   'view.fold-left', 'view.fold-right', 'view.reset-columns', 'app.about', 'help.doctor',
+  'session.export-text', 'session.export-markdown', 'session.export-pdf',
 ]
 const ours = every.filter((i) => i.id && !i.role).map((i) => i.id)
 check(
@@ -118,7 +127,10 @@ check(
   `every non-role item is a declared command (${ours.join(', ')})`,
 )
 // The cheapest statement of the same thing: this feature reaches the agent through methods
-// that were already permitted, so the allow-list did not grow.
+// that were already permitted, so the allow-list did not grow. Export is the reason to keep
+// checking it — writing a file to disk is the largest new capability this app has taken on,
+// and it deliberately reaches no agent method at all, so this number staying at 14 is an
+// assertion about the export feature as much as about the menu.
 const allowed = (readFileSync('src/main/index.ts', 'utf8').match(/const ALLOWED = new Set\(\[([^\]]*)\]/) ?? [])[1]
 check(
   allowed !== undefined && !/approve|decide/.test(allowed) && allowed.split(',').filter((s) => s.trim()).length === 14,

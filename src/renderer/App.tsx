@@ -16,6 +16,7 @@ import { shown } from './columns'
 import { TrustPrompt } from './components/TrustPrompt'
 import { Unconfigured } from './components/Unconfigured'
 import { Notice } from './components/Notice'
+import type { ExportFormat } from '../shared/export'
 import { useCommandRouter, usePublishedState } from './commands'
 import * as t from './transcript'
 
@@ -328,6 +329,45 @@ export function App(): React.JSX.Element {
     }
   }, [])
 
+  /**
+   * The conversation, as an export would carry it.
+   *
+   * Derived rather than built at the moment somebody picks a format, because whether there
+   * is anything to export decides two things that have to agree: whether the button is grey
+   * and whether the menu item is. One list, read twice.
+   */
+  const exportable = useMemo(() => (live ? t.conversation(live.entries) : []), [live])
+
+  /**
+   * Write the conversation to a file.
+   *
+   * The turns go over structured and the main process composes the document — see
+   * `shared/export.ts`. A saved file is reported through `Notice`, whose body is a `<pre>`,
+   * so a long path wraps instead of running off the panel; a failure goes to the header note
+   * where every other recoverable failure in this component already goes.
+   */
+  const exportSession = useCallback(
+    async (format: ExportFormat) => {
+      if (!live || exportable.length === 0) return
+      const outcome = await window.bravebot.exportSession({
+        format,
+        document: {
+          title: live.summary.title,
+          directory: live.summary.directory,
+          branch: live.summary.branch,
+          turns: exportable,
+        },
+      })
+      if (outcome.status === 'saved') {
+        setNotice({ title: 'Exported', body: `Saved to\n${outcome.where}` })
+      } else if (outcome.status === 'failed') {
+        setProblem(`Could not export that: ${outcome.message}`)
+      }
+      // A cancelled sheet says nothing. Somebody changed their mind, which is not news.
+    },
+    [live, exportable],
+  )
+
   const resetColumns = useCallback(() => {
     reset('left')
     reset('right')
@@ -397,6 +437,7 @@ export function App(): React.JSX.Element {
     closeNamed,
     copyProjectPath,
     copyEntry,
+    exportSession: (format) => void exportSession(format),
   })
 
   // What the menu is allowed to offer. Assembled here because this is the only component
@@ -406,9 +447,10 @@ export function App(): React.JSX.Element {
       hasSession: live !== null,
       running: live?.running ?? false,
       canSend: live !== null && !live.running && draft.trim().length > 0,
+      canExport: exportable.length > 0,
       folded: collapsed,
     }),
-    [live, draft, collapsed],
+    [live, draft, collapsed, exportable],
   )
   usePublishedState(menuState)
 
@@ -462,6 +504,8 @@ export function App(): React.JSX.Element {
         onDraft={setDraft}
         onSubmit={submit}
         onCancel={cancel}
+        canExport={exportable.length > 0}
+        onExport={(format) => void exportSession(format)}
         onDecide={answer}
         onAnswer={answerQuestions}
       />

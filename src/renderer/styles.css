@@ -1035,3 +1035,39 @@ button { font: inherit; color: inherit; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   .popmenu { animation: none; }
 }
+
+/* ---------------------------------------------------------------- export */
+
+/* Quiet, and beside Send rather than above it: exporting is something somebody does when a
+   conversation is finished, so it sits at the end of one. Bordered rather than filled,
+   because a surface with two accent-coloured buttons on it has no primary action. */
+.export-split { align-self: flex-end; }
+.export-open {
+  display: inline-flex;
+  /* The label and the chevron are centred against each other rather than sharing a
+     baseline: `⌄` is drawn low in its em box, so a baseline would sit it visibly below the
+     middle of the word beside it. */
+  align-items: center;
+  gap: 5px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink-dim);
+  font: inherit;
+  white-space: nowrap;
+}
+/* Centring the boxes is not enough on its own, and the target is not what it first looks
+   like either. `⌄` is drawn sitting on the baseline, so a centred box still reads low; and
+   "Export" carries a descender, which drags the *word's* box centre below the middle of the
+   letters somebody actually looks at. So the mark is aligned to the label's cap centre —
+   half its ascent above the baseline — rather than to its box. `line-height: 1` trims the
+   glyph's own box to its ink, and the nudge is the measured remainder. In em, so it holds
+   if the size changes. */
+.export-chevron {
+  font-size: 10px;
+  line-height: 1;
+  transform: translateY(-0.11em);
+}
+.export-open:hover:not(:disabled) { color: var(--ink); background: var(--code-bg); }
+.export-open:disabled { opacity: 0.4; cursor: default; }

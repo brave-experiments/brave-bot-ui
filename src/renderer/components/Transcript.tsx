@@ -3,10 +3,12 @@ import type { AskAnswer, AskPrompt, Phase, Shown, TodoRow } from '../../shared/p
 import * as t from '../transcript'
 import type { Side } from '../columns'
 import type { Asked } from '../App'
+import type { ExportFormat } from '../../shared/export'
 import { Diff } from './Diff'
 import { Fold } from './Fold'
 import { contextMenu } from './Sessions'
 import { Markdown } from './Markdown'
+import { PopMenu, type PopItem } from './PopMenu'
 
 interface Live {
   handle: string
@@ -49,6 +51,9 @@ interface Props {
   onCancel: () => void
   onDecide: Answer
   onAnswer: AnswerQuestions
+  /** Whether there is any conversation to write down. */
+  canExport: boolean
+  onExport: (format: ExportFormat) => void
 }
 
 /**
@@ -106,6 +111,8 @@ export function Transcript({
   onCancel,
   onDecide,
   onAnswer,
+  canExport,
+  onExport,
 }: Props): React.JSX.Element {
   const bottom = useRef<HTMLDivElement>(null)
 
@@ -204,11 +211,71 @@ export function Transcript({
             if (event.key === 'Escape' && live.running) onCancel()
           }}
         />
+        <ExportMenu canExport={canExport} onExport={onExport} />
         <button className="send" onClick={onSubmit} disabled={live.running || !draft.trim()}>
           Send
         </button>
       </footer>
     </main>
+  )
+}
+
+/** The three files a conversation can become. Ordered plainest first. */
+const FORMATS: readonly PopItem[] = [
+  { id: 'txt', label: 'Plain Text', detail: '.txt' },
+  { id: 'md', label: 'Markdown', detail: '.md' },
+  { id: 'pdf', label: 'PDF', detail: '.pdf' },
+]
+
+/**
+ * The control that writes the conversation to a file.
+ *
+ * The whole button opens the menu rather than a split control like `NewSession`'s. That one
+ * splits because opening a folder picker is overwhelmingly the common case and the recents
+ * list is the exception; here there is no format worth guessing at, and a button that
+ * exported a `.txt` because somebody clicked slightly to the left would be worse than one
+ * that always asks.
+ *
+ * Placed before Send rather than after it, so the accent-coloured primary action stays in
+ * the corner it has always been in.
+ */
+function ExportMenu({
+  canExport,
+  onExport,
+}: {
+  canExport: boolean
+  onExport: (format: ExportFormat) => void
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const trigger = useRef<HTMLButtonElement>(null)
+
+  return (
+    <div className="export-split">
+      <button
+        ref={trigger}
+        className="export-open"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={!canExport}
+        title={canExport ? 'Export this conversation' : 'Nothing has been said yet'}
+        onClick={() => setOpen(!open)}
+      >
+        Export
+        <span className="export-chevron" aria-hidden="true">
+          ⌄
+        </span>
+      </button>
+      {/* `PopMenu` already flips above its anchor when there is no room below, which is the
+          whole reason a menu can hang off a control at the bottom of the window. */}
+      <PopMenu
+        open={open}
+        anchor={trigger}
+        items={FORMATS}
+        label="Export the conversation as"
+        onChoose={(id) => onExport(id as ExportFormat)}
+        onClose={() => setOpen(false)}
+      />
+    </div>
   )
 }
 

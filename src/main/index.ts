@@ -16,6 +16,16 @@ import { parseContextRef, parseWindowState } from '../shared/commands'
 import { installMenu, popupContext, rebuildMenu, refreshMenu } from './menu'
 import { noteProject, recents } from './recents'
 import { isProjectPath } from '../shared/recents'
+import {
+  parseExportRequest,
+  suggestedFilename,
+  toMarkdown,
+  toPlainText,
+  withExtension,
+  type ExportFormat,
+  type ExportOutcome,
+} from '../shared/export'
+import { printToPdf } from './export'
 
 let window: BrowserWindow | null = null
 let bridge: Bridge | null = null
@@ -97,6 +107,13 @@ const ALLOWED = new Set([
   'doctor',
 ])
 
+/** What the save sheet offers per format. */
+const FILTERS: Record<ExportFormat, Electron.FileFilter> = {
+  txt: { name: 'Plain Text', extensions: ['txt'] },
+  md: { name: 'Markdown', extensions: ['md', 'markdown'] },
+  pdf: { name: 'PDF', extensions: ['pdf'] },
+}
+
 app.whenReady().then(() => {
   ipcMain.handle('bravebot:request', async (_event, method: unknown, params: unknown) => {
     if (typeof method !== 'string' || !ALLOWED.has(method)) {
@@ -120,6 +137,60 @@ app.whenReady().then(() => {
         return { error: { code: error.code, message: error.message } }
       }
       return { error: { code: 'internal', message: String(error) } }
+    }
+  })
+
+  /**
+   * Write the conversation to a file the user picks.
+   *
+   * Note what this does not touch: `ALLOWED` above. An export reaches no agent method — it
+   * is made entirely of things the window already had — so the list of things the renderer
+   * may ask the agent to do is exactly as long as it was. Anyone checking whether this
+   * feature widened the app's reach should find that it did not.
+   *
+   * The renderer sends turns; this composes the file. See `shared/export.ts` for why that
+   * way round.
+   */
+  ipcMain.handle('bravebot:export', async (_event, value: unknown): Promise<ExportOutcome> => {
+    const request = parseExportRequest(value)
+    // Deliberately does not echo what arrived. A message about a malformed export is for
+    // the person, and the payload is the one thing they cannot act on.
+    if (!request) {
+      return { status: 'failed', message: 'that is not a conversation this build can export' }
+    }
+    if (!window) return { status: 'failed', message: 'there is no window to ask in' }
+
+    // Stamped here rather than sent from the renderer: one fewer value crossing, and the
+    // process that writes the file is the one with an opinion about when it was written.
+    const at = Date.now()
+    const result = await dialog.showSaveDialog(window, {
+      title: 'Export session',
+      defaultPath: join(
+        app.getPath('documents'),
+        suggestedFilename(request.document.title, request.format),
+      ),
+      filters: [FILTERS[request.format]],
+      properties: ['createDirectory'],
+    })
+    // A cancelled sheet is not a failure and says nothing on screen.
+    if (result.canceled || !result.filePath) return { status: 'cancelled' }
+
+    const target = withExtension(result.filePath, request.format)
+    try {
+      if (request.format === 'pdf') {
+        writeFileSync(target, await printToPdf(request.document, at))
+      } else {
+        const text =
+          request.format === 'md'
+            ? toMarkdown(request.document, at)
+            : toPlainText(request.document, at)
+        writeFileSync(target, text, 'utf8')
+      }
+      return { status: 'saved', where: target }
+    } catch (error) {
+      // Unlike a layout that cannot be written, this one is worth saying out loud: somebody
+      // asked for a file and does not have one.
+      return { status: 'failed', message: String(error) }
     }
   })
 
