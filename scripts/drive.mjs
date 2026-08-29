@@ -1,7 +1,7 @@
 // Launch the app and poke it, so a change can be seen rather than inferred.
 // macOS has a real display, so no xvfb: this drives the actual window.
 import { _electron as electron } from 'playwright-core'
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 
 const shots = '/tmp/bravebot-ui'
 mkdirSync(shots, { recursive: true })
@@ -138,7 +138,7 @@ if (sessions > 0) {
   const headStays = await firstHead.isVisible()
   console.log(
     `group collapsed  : ${stillVisible}/${inFirst} rows visible, heading still shown: ${headStays}` +
-      `${stillVisible === 0 && headStays && (await firstHead.getAttribute('aria-expanded')) === 'false' ? '' : '  FAIL'}`
+      `${stillVisible === 0 && headStays && (await firstHead.locator('.session-group-fold').getAttribute('aria-expanded')) === 'false' ? '' : '  FAIL'}`
   )
   // The others are untouched: folding one group is not folding the list.
   const elsewhere = await page.locator('.session:visible').count()
@@ -184,6 +184,38 @@ if (sessions > 0) {
   )
   await box.press('Escape')
   await page.waitForTimeout(200)
+
+  // The plus on a heading starts a session in that checkout, with no folder picker in the
+  // way. Safe to press: the bridge writes nothing until the first turn, so an
+  // opened-and-abandoned session leaves no record behind for the next driver to trip over.
+  //
+  // Driven against a checkout that is still on disk. The list remembers projects that have
+  // since been deleted or moved, and the bridge rightly refuses those with `not_a_directory`
+  // — a real answer, but not the one this assertion is about.
+  const paths = await page.locator('.session-group-fold').evaluateAll((heads) =>
+    heads.map((head) => head.getAttribute('title') ?? '')
+  )
+  const where = paths.find((path) => path && existsSync(path))
+  if (!where) {
+    console.log('plus starts one  : skipped, no listed checkout is still on disk')
+  } else {
+    const head = page
+      .locator('.session-group-head')
+      .filter({ has: page.locator(`.session-group-fold[title="${where}"]`) })
+    await head.locator('.session-group-new').click()
+    await page.waitForTimeout(900)
+    const asked = (await page.locator('.trust .path').textContent().catch(() => null)) ?? ''
+    console.log(
+      `plus starts one  : asks about ${asked || '(nothing)'}${asked === where ? '' : '  FAIL'}`
+    )
+  }
+  await page.screenshot({ path: `${shots}/01-group-new.png` })
+  // Declined rather than trusted: this is not a session anybody meant to keep, and saying
+  // yes here would be answering a question about somebody's real checkout on their behalf.
+  if (await page.locator('.trust').isVisible().catch(() => false)) {
+    await page.locator('.trust-actions .decline').click()
+    await page.waitForTimeout(400)
+  }
 
   // Back to flat, for the next driver as much as for this assertion.
   await toggle.click()

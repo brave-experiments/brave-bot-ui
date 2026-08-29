@@ -235,13 +235,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
   top: 0;
   z-index: 1;
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: stretch;
   width: 100%;
-  margin: 0;
-  padding: 8px 10px 6px;
-  border: 0;
-  text-align: left;
   /* `--bg-side` is translucent, and a sticky heading with a see-through background lets the
      rows scroll visibly through it. Painting it over `--bg` reproduces exactly what the
      column already shows — the same two layers the body and the aside make between them —
@@ -252,6 +247,21 @@ button { font: inherit; color: inherit; cursor: pointer; }
      the moment the pointer is on it. */
   --ground: linear-gradient(var(--bg-side), var(--bg-side)), var(--bg);
   background: var(--ground);
+}
+
+/* The fold takes the whole row bar the plus, not just the chevron: the name is the biggest
+   thing in reach, and asking for a 10px arrow instead would make folding the fiddliest
+   gesture in the column. Hover says so before the click proves it. */
+.session-group-fold {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 4px 6px 10px;
+  border: 0;
+  background: transparent;
+  text-align: left;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -263,18 +273,35 @@ button { font: inherit; color: inherit; cursor: pointer; }
      open row wear, and a dozen headings in it would drown both. */
   color: var(--accent-quiet);
 }
-/* The whole heading is the hit target, not just the chevron: the name is the biggest thing
-   in reach, and asking for a 10px arrow instead would make folding the fiddliest gesture in
-   the column. Hover says so before the click proves it. */
+/* Hovering either button lights the whole heading, so the row reads as one thing rather than
+   two that happen to be adjacent. Painted *over* the ground rather than replacing it — see
+   the note there. */
 .session-group-head:hover {
   background: linear-gradient(rgba(127, 127, 127, 0.1), rgba(127, 127, 127, 0.1)), var(--ground);
 }
-.session-group-head:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
-.session-group-head .chevron { flex: none; color: var(--ink-faint); }
+.session-group-fold:focus-visible,
+.session-group-new:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+.session-group-fold .chevron { flex: none; color: var(--ink-faint); }
+
+/* Starting a session in the checkout the heading names. Quiet by default — a dozen of these
+   at full strength would compete with the names they sit beside — and always present rather
+   than revealed on hover: a shortcut nobody can see is not much of a shortcut, and a control
+   that appears only under the pointer cannot be found by someone who never moves it there. */
+.session-group-new {
+  flex: none;
+  padding: 8px 10px 6px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-faint);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+}
+.session-group-new:hover { color: var(--accent); }
 
 /* The column narrows to 200px, which is not enough for every checkout's name. */
 .session-group-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.session-group-head .count {
+.session-group-fold .count {
   margin-left: auto;
   flex: none;
   padding: 1px 6px;

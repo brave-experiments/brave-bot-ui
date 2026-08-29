@@ -158,8 +158,11 @@ export function App(): React.JSX.Element {
   }, [])
 
   const create = useCallback(async (directory?: string) => {
-    // A directory only ever arrives here from File > Open Recent, which is a list the main
-    // process keeps and hands back — never a path the renderer composed.
+    // A directory only ever arrives here from a list somebody else handed over: File > Open
+    // Recent and the chevron beside New session, which the main process keeps, or a group
+    // heading in the session list, whose path came off a session the bridge reported. Never
+    // a path the renderer composed — which is the promise `chooseDirectory` makes, and the
+    // reason a plus on a heading needs no new way in.
     const chosen = directory ?? (await window.bravebot.chooseDirectory())
     if (!chosen) return
     try {
