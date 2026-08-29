@@ -76,6 +76,124 @@ if (sessions > 0) {
   await page.waitForTimeout(200)
   const back = await page.locator('.session').count()
   console.log(`after Escape     : ${back}/${sessions} rows${back === sessions ? '' : '  FAIL'}`)
+
+  // Grouping by checkout. The preference is remembered in a file that outlives the run, so
+  // this starts by putting the column flat rather than assuming it inherited it that way,
+  // and puts it back flat at the end — the drivers share persisted state, and one that left
+  // the list grouped would change what the next one's `.session` counts mean.
+  const toggle = page.locator('.session-group')
+  const pressed = async () => (await toggle.getAttribute('aria-pressed')) === 'true'
+  if (await pressed()) {
+    await toggle.click()
+    await page.waitForTimeout(200)
+  }
+  const flatHeads = await page.locator('.session-group-head').count()
+  console.log(`flat list        : ${flatHeads} headings${flatHeads === 0 ? '' : '  FAIL'}`)
+
+  await toggle.click()
+  await page.waitForTimeout(200)
+  const heads = await page.locator('.session-group-head').count()
+  const grouped = await page.locator('.session').count()
+  console.log(
+    `grouped          : ${heads} headings over ${grouped}/${sessions} rows` +
+      `${(await pressed()) && heads > 0 && grouped === sessions ? '' : '  FAIL'}`
+  )
+
+  // Every row is under a heading, and each heading's count is the number of rows beneath
+  // it. Counted per section rather than by walking the list, because a heading whose badge
+  // disagrees with its own contents is the failure worth catching here.
+  const tallies = await page
+    .locator('.session-group-section')
+    .evaluateAll((sections) =>
+      sections.map((section) => ({
+        said: Number(section.querySelector('.count')?.textContent ?? -1),
+        rows: section.querySelectorAll('.session').length,
+      }))
+    )
+  const honest = tallies.every((t) => t.said === t.rows)
+  const covered = tallies.reduce((sum, t) => sum + t.rows, 0)
+  console.log(
+    `headings honest  : ${tallies.filter((t) => t.said === t.rows).length}/${tallies.length}, ` +
+      `covering ${covered}/${sessions} rows${honest && covered === sessions ? '' : '  FAIL'}`
+  )
+  await page.screenshot({ path: `${shots}/01-grouped.png` })
+
+  // A heading folds its own group away. `Fold` keeps the rows mounted so the collapse has
+  // something to animate, so this counts what is *visible* rather than what is in the
+  // document — the same distinction `drive-columns.mjs` makes about a folded column.
+  // The fullest group rather than the first, which on a fresh checkout is often a group of
+  // one — a fold that hides a single row proves much less than one that hides eight.
+  const biggest = tallies.reduce((best, t, i) => (t.rows > (tallies[best]?.rows ?? 0) ? i : best), 0)
+  const firstHead = page.locator('.session-group-head').nth(biggest)
+  const inFirst = Number(await firstHead.locator('.count').textContent())
+  // Held by name, not by position: filtering drops and reorders the sections, so an `nth`
+  // taken now would be pointing at somebody else's group by the time the query is typed.
+  const groupName = (await firstHead.locator('.session-group-name').textContent()) ?? ''
+  const firstSection = page
+    .locator('.session-group-section')
+    .filter({ has: page.locator('.session-group-name', { hasText: new RegExp(`^${groupName}$`) }) })
+  await firstHead.click()
+  await page.waitForTimeout(400)
+  const stillVisible = await firstSection.locator('.session:visible').count()
+  const headStays = await firstHead.isVisible()
+  console.log(
+    `group collapsed  : ${stillVisible}/${inFirst} rows visible, heading still shown: ${headStays}` +
+      `${stillVisible === 0 && headStays && (await firstHead.getAttribute('aria-expanded')) === 'false' ? '' : '  FAIL'}`
+  )
+  // The others are untouched: folding one group is not folding the list.
+  const elsewhere = await page.locator('.session:visible').count()
+  console.log(
+    `others untouched : ${elsewhere}/${sessions - inFirst} rows still visible` +
+      `${elsewhere === sessions - inFirst ? '' : '  FAIL'}`
+  )
+  await page.screenshot({ path: `${shots}/01-collapsed.png` })
+
+  // A query reaches into a folded group. A heading with nothing under it is the opposite of
+  // what somebody who just typed a search asked for.
+  const hidden = (await firstSection.locator('.session-title').first().textContent()) ?? ''
+  const hiddenWord = hidden.split(/\s+/).find((w) => w.length > 4) ?? hidden.slice(0, 6)
+  await box.fill(hiddenWord)
+  await page.waitForTimeout(400)
+  const found = await firstSection.locator('.session:visible').count()
+  console.log(
+    `search reaches in: ${found} row${found === 1 ? '' : 's'} visible in the folded group` +
+      `${found > 0 ? '' : '  FAIL'}`
+  )
+  await box.press('Escape')
+  await page.waitForTimeout(400)
+  const refolded = await firstSection.locator('.session:visible').count()
+  console.log(
+    `fold survives it : ${refolded} rows visible after clearing${refolded === 0 ? '' : '  FAIL'}`
+  )
+
+  await firstHead.click()
+  await page.waitForTimeout(400)
+  const reopened = await page.locator('.session:visible').count()
+  console.log(
+    `group reopened   : ${reopened}/${sessions} rows visible${reopened === sessions ? '' : '  FAIL'}`
+  )
+
+  // Filtering and grouping compose: a query that names one project leaves that project's
+  // heading and no other. An empty group must not leave a heading behind.
+  await box.fill(project)
+  await page.waitForTimeout(200)
+  const narrowed = await page.locator('.session-group-head').count()
+  console.log(
+    `grouped + filter : ${narrowed} heading${narrowed === 1 ? '' : 's'} for "${project}"` +
+      `${narrowed === 1 ? '' : '  FAIL'}`
+  )
+  await box.press('Escape')
+  await page.waitForTimeout(200)
+
+  // Back to flat, for the next driver as much as for this assertion.
+  await toggle.click()
+  await page.waitForTimeout(200)
+  const restored = await page.locator('.session-group-head').count()
+  const rows = await page.locator('.session').count()
+  console.log(
+    `back to flat     : ${restored} headings, ${rows}/${sessions} rows` +
+      `${restored === 0 && rows === sessions ? '' : '  FAIL'}`
+  )
 }
 
 // Open the newest session and let the transcript fill.

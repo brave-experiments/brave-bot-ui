@@ -91,9 +91,20 @@ was no way to find out that ⌘↵ sent a prompt.
 and would fight every other use of the key, so it stays where it was: a convenience local to
 whichever field has it, meaning the composer and the filter box above the session list.
 
-The filter box itself has no key of its own. It is always on screen under **New session**, so
-there is nothing to reveal, and a ⌘F that only ever moved focus one field would be a shortcut
-for something already in view.
+The filter box itself has no key of its own, nor does the toggle beside it that groups the
+sessions under the checkout each was started in. Both are always on screen under **New
+session**, so there is nothing to reveal, and a ⌘F that only ever moved focus one field would
+be a shortcut for something already in view.
+
+Clicking a group's name folds it away and brings it back. A live filter reaches into a
+folded group regardless — a heading with nothing under it is the opposite of what somebody
+who just typed a search asked for — and the fold is still there when the box is cleared.
+
+Grouping and which groups are folded are both remembered between launches, in a file of its
+own beside the one holding the column widths: which way you like your list is not a per-run
+thought, and one hand-edited preference should not cost you the other. The *folded* ones are
+what is written down rather than the open ones, so a checkout started since last launch
+arrives open instead of hidden behind a heading nobody has ever collapsed.
 
 **No key answers a question.** The five the agent can ask — a write, a command, whether the
 planner may read output, whether to vouch, and a series of questions — are answered in the
@@ -223,7 +234,7 @@ at, that a control keeps keyboard focus through an animation.
 
 | Command | Covers |
 | --- | --- |
-| `npm run drive` | Launch, list sessions, filter them by title and project, open one |
+| `npm run drive` | Launch, list sessions, filter them by title and project, group them by checkout and fold one away, open one |
 | `npm run drive:resize` | Divider drags, the clamps, keyboard resizing, persistence |
 | `npm run drive:columns` | Folding each side column, and what is remembered |
 | `npm run drive:panels` | The context panels and the transcript's tool runs |

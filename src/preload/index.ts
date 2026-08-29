@@ -3,14 +3,15 @@
  *
  * A handful of functions and a subscription. No filesystem, no child processes, no IPC
  * surface beyond this: the renderer asks the main process to call a named method, and the
- * main process decides whether that is a method at all. The layout pair is the one thing
- * here that is not about the agent — it stores where the columns were, and the main
- * process checks that that is all it is.
+ * main process decides whether that is a method at all. The layout and view pairs are the
+ * only things here that are not about the agent — they store where the columns were and how
+ * the session list is arranged, and the main process checks that that is all they are.
  */
 
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { BridgeEvent, BridgeFailure } from '../shared/protocol'
 import type { StoredLayout } from '../shared/layout'
+import type { StoredView } from '../shared/view'
 import type { CommandId, ContextCommandId, ContextRef, WindowState } from '../shared/commands'
 import type { ExportOutcome, ExportRequest } from '../shared/export'
 
@@ -39,6 +40,22 @@ const api = {
   /** Remember where the columns were. Best-effort; the caller does not wait or check. */
   writeLayout(layout: StoredLayout): void {
     void ipcRenderer.invoke('bravebot:layout:write', layout)
+  },
+
+  /**
+   * How the session list was arranged last launch — at the moment, whether it was grouped
+   * by checkout. Never null: a column that has never been arranged is a flat one.
+   *
+   * Kept beside the layout and for the same measured reason, in a file of its own so that
+   * one bad value cannot take the other down with it.
+   */
+  readView(): Promise<StoredView> {
+    return ipcRenderer.invoke('bravebot:view:read') as Promise<StoredView>
+  },
+
+  /** Remember how the list was arranged. Best-effort; the caller does not wait or check. */
+  writeView(view: StoredView): void {
+    void ipcRenderer.invoke('bravebot:view:write', view)
   },
 
   /**

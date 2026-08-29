@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SessionSummary } from '../../shared/protocol'
+import { Fold } from './Fold'
 import { PopMenu, type PopItem } from './PopMenu'
 
 interface Props {
@@ -24,16 +25,16 @@ function contextMenu(target: 'session' | 'entry', id: string) {
 }
 
 /**
- * The left-hand column: one flat list across every project, newest first.
+ * The left-hand column: one list across every project, newest first.
  *
- * Flat rather than grouped by checkout, because this is a chat list and a chat list has
- * one column. The project is the secondary line, the way a group chat names itself under
- * the message.
+ * Flat by default, because this is a chat list and a chat list has one column. The project
+ * is the secondary line, the way a group chat names itself under the message. But a flat
+ * list cannot answer "what have I been doing in *this* checkout" without typing the project
+ * name, so the toggle beside the filter box gathers the same rows under headings instead.
  *
- * Flat also means long, so there is a filter box under the New session button. It narrows
- * what is already here rather than asking the bridge anything: `session.list` hands over
- * every session at once, so a query is a rendering decision and a round trip would only make
- * it slower and able to fail.
+ * Both are rendering decisions over what is already here rather than questions for the
+ * bridge: `session.list` hands over every session at once, with the directory on each, so a
+ * round trip would only make this slower and able to fail.
  */
 export { contextMenu }
 
@@ -46,22 +47,81 @@ export function Sessions({ sessions, openId, onOpen, onNew, build }: Props): Rea
   const [query, setQuery] = useState('')
   const shown = useMemo(() => matching(sessions, query), [sessions, query])
 
+  // Unlike the query, this is remembered between launches: which way somebody likes their
+  // list is not a per-run thought. The stored value arrives asynchronously and so cannot
+  // seed `useState` — the same dance `columns.ts` documents — which is why the column
+  // renders flat for a frame before adopting it. `ready` keeps that first frame from
+  // writing the default back over what is on disk.
+  const [grouped, setGrouped] = useState(false)
+  // Which groups are shut, by directory. The shut ones rather than the open ones, so a
+  // checkout that appears while the app is running arrives open rather than hidden.
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
+  const ready = useRef(false)
+  useEffect(() => {
+    void window.bravebot
+      .readView()
+      .then((view) => {
+        setGrouped(view.grouped)
+        setCollapsed(new Set(view.collapsed))
+      })
+      .catch(() => undefined)
+      .finally(() => (ready.current = true))
+  }, [])
+  useEffect(() => {
+    if (!ready.current) return
+    try {
+      window.bravebot.writeView({ grouped, collapsed: [...collapsed] })
+    } catch {
+      // The list is still arranged the way it was asked to be, this session.
+    }
+  }, [grouped, collapsed])
+
+  const toggleGroup = useCallback((directory: string) => {
+    setCollapsed((was) => {
+      const next = new Set(was)
+      if (!next.delete(directory)) next.add(directory)
+      return next
+    })
+  }, [])
+
+  const groups = useMemo(() => (grouped ? grouping(shown) : []), [grouped, shown])
+
+  // A live query opens every group for as long as it runs. A person who typed something and
+  // got a heading with nothing under it has been shown the opposite of what they asked for,
+  // and quietly reopening beats making them undo a fold they set days ago — which is why
+  // this reads through `collapsed` rather than clearing it.
+  const searching = query.trim().length > 0
+
   return (
     <aside className="sessions" id="sessions-column">
       <header className="sessions-head">
         <NewSession onNew={onNew} />
-        <input
-          type="search"
-          className="session-find"
-          value={query}
-          placeholder="Filter sessions"
-          aria-label="Filter sessions"
-          onChange={(event) => setQuery(event.target.value)}
-          // Escape clears rather than blurs, and is handled here rather than as a command:
-          // an accelerator would be swallowed by AppKit before the renderer saw it, and the
-          // composer already treats Escape as a local key.
-          onKeyDown={(event) => event.key === 'Escape' && setQuery('')}
-        />
+        <div className="session-tools">
+          <input
+            type="search"
+            className="session-find"
+            value={query}
+            placeholder="Filter sessions"
+            aria-label="Filter sessions"
+            onChange={(event) => setQuery(event.target.value)}
+            // Escape clears rather than blurs, and is handled here rather than as a command:
+            // an accelerator would be swallowed by AppKit before the renderer saw it, and the
+            // composer already treats Escape as a local key.
+            onKeyDown={(event) => event.key === 'Escape' && setQuery('')}
+          />
+          {/* The label stays put and `aria-pressed` carries the state, with the verb in the
+              tooltip — the same disclosure discipline the column folds follow. A control
+              that renamed itself would be one the reader has to re-find after every press. */}
+          <button
+            className="session-group"
+            aria-pressed={grouped}
+            aria-label="Group by project"
+            title={grouped ? 'Show one flat list' : 'Group by project'}
+            onClick={() => setGrouped(!grouped)}
+          >
+            <span aria-hidden="true">▤</span>
+          </button>
+        </div>
       </header>
 
       <div className="session-list">
@@ -76,21 +136,26 @@ export function Sessions({ sessions, openId, onOpen, onNew, build }: Props): Rea
         {sessions.length > 0 && shown.length === 0 && (
           <p className="empty">No session matches “{query}”.</p>
         )}
-        {shown.map((session) => (
-          <button
-            key={`${session.directory}/${session.id}`}
-            className={`session ${session.id === openId ? 'current' : ''}`}
-            onClick={() => onOpen(session)}
-            onContextMenu={contextMenu('session', session.id)}
-          >
-            <span className="session-title">{session.title}</span>
-            <span className="session-where">
-              {session.project}
-              {session.branch && <span className="branch"> · {session.branch}</span>}
-              <span className="when"> · {ago(session.updated)}</span>
-            </span>
-          </button>
-        ))}
+        {!grouped &&
+          shown.map((session) => (
+            <Session
+              key={`${session.directory}/${session.id}`}
+              session={session}
+              openId={openId}
+              onOpen={onOpen}
+            />
+          ))}
+        {grouped &&
+          groups.map((group) => (
+            <Group
+              key={group.directory}
+              group={group}
+              open={searching || !collapsed.has(group.directory)}
+              onToggle={toggleGroup}
+              openId={openId}
+              onOpen={onOpen}
+            />
+          ))}
       </div>
 
       {build && (
@@ -99,6 +164,96 @@ export function Sessions({ sessions, openId, onOpen, onNew, build }: Props): Rea
         </footer>
       )}
     </aside>
+  )
+}
+
+/**
+ * One checkout's sessions, under a heading that opens and shuts them.
+ *
+ * The heading is the control rather than carrying one beside it: the name is the biggest
+ * thing in reach, and a group that can be folded should not ask for a chevron to be hit.
+ * `aria-expanded` carries the state and the name stays put — the disclosure discipline the
+ * column folds and the context panels already follow.
+ *
+ * The rows stay mounted while shut, because that is how [`Fold`] has something to animate
+ * away from; it hides them from the reader and from the tab order in CSS once the collapse
+ * has finished.
+ */
+function Group({
+  group,
+  open,
+  onToggle,
+  openId,
+  onOpen,
+}: {
+  group: Group
+  open: boolean
+  onToggle: (directory: string) => void
+  openId: string | undefined
+  onOpen: (summary: SessionSummary) => void
+}): React.JSX.Element {
+  return (
+    <section className="session-group-section">
+      {/* The full path in the tooltip, because two checkouts of one project share a basename
+          and picking the wrong one is a mistake nothing later announces — the same trap the
+          recents menu guards against. */}
+      <button
+        className="session-group-head"
+        aria-expanded={open}
+        title={group.directory}
+        onClick={() => onToggle(group.directory)}
+      >
+        <span className={`chevron ${open ? 'open' : ''}`} aria-hidden="true">
+          ›
+        </span>
+        <span className="session-group-name">{group.project}</span>
+        <span className="count">{group.sessions.length}</span>
+      </button>
+      <Fold open={open}>
+        {group.sessions.map((session) => (
+          <Session
+            key={`${session.directory}/${session.id}`}
+            session={session}
+            openId={openId}
+            onOpen={onOpen}
+          />
+        ))}
+      </Fold>
+    </section>
+  )
+}
+
+/**
+ * One row, whichever arrangement it is standing in.
+ *
+ * The same component under a heading as in the flat list, so the two paths cannot drift into
+ * showing different things about a session. The project stays on the row even when the
+ * heading above already says it: the row is what a person reads, and a row that means
+ * something different depending on how far up the list they last looked is worse than a
+ * word repeated.
+ */
+function Session({
+  session,
+  openId,
+  onOpen,
+}: {
+  session: SessionSummary
+  openId: string | undefined
+  onOpen: (summary: SessionSummary) => void
+}): React.JSX.Element {
+  return (
+    <button
+      className={`session ${session.id === openId ? 'current' : ''}`}
+      onClick={() => onOpen(session)}
+      onContextMenu={contextMenu('session', session.id)}
+    >
+      <span className="session-title">{session.title}</span>
+      <span className="session-where">
+        {session.project}
+        {session.branch && <span className="branch"> · {session.branch}</span>}
+        <span className="when"> · {ago(session.updated)}</span>
+      </span>
+    </button>
   )
 }
 
@@ -180,6 +335,44 @@ function matching(sessions: SessionSummary[], query: string): SessionSummary[] {
     const haystack = `${session.title} ${session.project} ${session.branch ?? ''}`.toLowerCase()
     return terms.every((term) => haystack.includes(term))
   })
+}
+
+interface Group {
+  directory: string
+  project: string
+  sessions: SessionSummary[]
+}
+
+/**
+ * The same sessions, gathered under the checkout each was started in.
+ *
+ * Keyed on `directory` rather than `project`, because two checkouts of one repository share
+ * a basename and folding them together would put work from one under a heading that means
+ * the other.
+ *
+ * Nothing is sorted. The list arrives newest-first across every project, so one pass in
+ * order leaves the rows in each group newest-first and the groups themselves in the order
+ * their newest session appeared — which is the ordering we want, arrived at by not
+ * disturbing the one we were given. Imposing it separately would be a second opinion about
+ * recency, free to disagree with the bridge's.
+ *
+ * Grouping happens after filtering, so a group whose every row was filtered away has no
+ * heading left behind to say otherwise.
+ */
+function grouping(sessions: SessionSummary[]): Group[] {
+  const groups = new Map<string, Group>()
+  for (const session of sessions) {
+    const group = groups.get(session.directory)
+    if (group) group.sessions.push(session)
+    else {
+      groups.set(session.directory, {
+        directory: session.directory,
+        project: session.project,
+        sessions: [session],
+      })
+    }
+  }
+  return [...groups.values()]
 }
 
 /**

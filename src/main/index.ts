@@ -12,6 +12,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Bridge, BridgeError } from './bridge'
 import { parseLayout } from '../shared/layout'
+import { parseView } from '../shared/view'
 import { parseContextRef, parseWindowState } from '../shared/commands'
 import { installMenu, popupContext, rebuildMenu, refreshMenu } from './menu'
 import { noteProject, recents } from './recents'
@@ -223,6 +224,33 @@ app.whenReady().then(() => {
       writeFileSync(layoutFile(), JSON.stringify(layout), 'utf8')
     } catch {
       // A layout that cannot be written down is not worth an error on screen.
+    }
+  })
+
+  // Where the session list's own arrangement lives — at the moment, whether it is grouped
+  // by checkout.
+  //
+  // Its own file rather than a field in the layout, for the reason `shared/view.ts` gives:
+  // one file per shape, so a hand-edited preference here cannot cost somebody the column
+  // widths next door. The same in-and-out discipline as the layout otherwise — `parseView`
+  // is the whole of the judgement both ways, so what lands on disk is the parsed value and
+  // never the object the renderer happened to pass.
+  const viewFile = (): string => join(app.getPath('userData'), 'view.json')
+
+  ipcMain.handle('bravebot:view:read', () => {
+    try {
+      return parseView(JSON.parse(readFileSync(viewFile(), 'utf8')))
+    } catch {
+      // No file yet, or one nothing can read. Either way the flat list is correct.
+      return parseView(null)
+    }
+  })
+
+  ipcMain.handle('bravebot:view:write', (_event, value: unknown) => {
+    try {
+      writeFileSync(viewFile(), JSON.stringify(parseView(value)), 'utf8')
+    } catch {
+      // A preference that cannot be written down is not worth an error on screen.
     }
   })
 
