@@ -239,5 +239,29 @@ if (sessions > 0) {
   await page.screenshot({ path: `${shots}/02-session.png` })
 }
 
+// Tooltips. Asserted as attributes rather than seen, because the popup itself is drawn by
+// the OS and never lands in a screenshot. What is being checked is that the controls a
+// screenshot *cannot* explain — a 1px divider, an icon, a path clipped by its column — each
+// carry the sentence that explains them.
+{
+  const named = async (what, selector) => {
+    const found = page.locator(selector).first()
+    if (!(await found.count())) return console.log(`  – ${what}: not on screen, skipped`)
+    const said = await found.getAttribute('title')
+    console.log(`  ${said ? '·' : '✗'} ${what}: ${said ?? 'NO TITLE  FAIL'}`)
+  }
+  console.log('tooltips')
+  await named('divider', '.gutter:not(.inert)')
+  await named('filter box', '.session-find')
+  await named('group toggle', '.session-group')
+  await named('session title', '.session-title')
+  await named('header path', '.transcript-head .where')
+  await named('context section', '.panel-head')
+  await named('a file read', '.files code')
+  await named('a run of steps', '.tool-run-head')
+  await named('a link the model wrote', '.bubble a[href]')
+  await named('a confined origin', '.quarantine-head .origin')
+}
+
 await app.close()
 console.log(`screenshots in ${shots}`)

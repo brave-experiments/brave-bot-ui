@@ -135,7 +135,13 @@ export function Transcript({
           {live && (
             <>
               <h1>{live.summary.title}</h1>
-              <span className="where">
+              {/* The same string in the tooltip, because this line ellipsises and the
+                  half it drops is the end of the path — which is the half that says which
+                  checkout of a project this is. */}
+              <span
+                className="where"
+                title={`${live.summary.directory}${live.summary.branch ? ` · ${live.summary.branch}` : ''}`}
+              >
                 {live.summary.directory}
                 {live.summary.branch && ` · ${live.summary.branch}`}
               </span>
@@ -326,7 +332,13 @@ function ToolRun({ entries }: { entries: t.Entry[] }): React.JSX.Element {
   const [open, setOpen] = useState(true)
   return (
     <section className={`tool-run ${open ? 'open' : ''}`}>
-      <button className="tool-run-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button
+        className="tool-run-head"
+        aria-expanded={open}
+        // The verb in the title, the name staying put — the rule `ColumnToggle` states above.
+        title={open ? 'Hide these steps' : 'Show these steps'}
+        onClick={() => setOpen(!open)}
+      >
         <span className={`chevron ${open ? 'open' : ''}`} aria-hidden="true">
           ›
         </span>
@@ -556,7 +568,10 @@ function Row({
         <div className="quarantine">
           <div className="quarantine-head">
             <span className="mark">confined</span>
-            <span className="origin">{shown.origin}</span>
+            {/* Ellipsised, and it is a path: what gets cut is the part that identifies it. */}
+            <span className="origin" title={shown.origin}>
+              {shown.origin}
+            </span>
             <span className="label">{shown.label}</span>
           </div>
           <pre className="preview">{shown.preview.join('\n')}</pre>

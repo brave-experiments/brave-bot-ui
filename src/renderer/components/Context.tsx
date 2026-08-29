@@ -66,11 +66,17 @@ export function Context({ live }: { live: Live | null }): React.JSX.Element {
               From the record. It keeps what each turn did, not what came of it, so
               there is nothing to say about where these landed.
             </p>
+            {/* Every path in this list and the two below it ellipsises, and a path clipped
+                on the right loses the filename — the one part of it somebody is reading
+                for. The tooltip is the whole string back. It repeats what is already on
+                screen when the path is short enough to fit, which is the cheaper of the two
+                mistakes available: the alternative is measuring every row on every render
+                to decide whether to offer one. */}
             <ul className="files">
               {replayed.map((entry) =>
                 entry.kind === 'replayed-tool' ? (
                   <li key={entry.id} className="from-record">
-                    <code>{entry.text}</code>
+                    <code title={entry.text}>{entry.text}</code>
                   </li>
                 ) : null,
               )}
@@ -82,7 +88,7 @@ export function Context({ live }: { live: Live | null }): React.JSX.Element {
           <ul className="files">
             {files.map((file) => (
               <li key={file.target} className={file.confined ? 'confined' : ''}>
-                <code>{file.target}</code>
+                <code title={file.target}>{file.target}</code>
                 {file.confined && <span className="tag">confined</span>}
               </li>
             ))}
@@ -101,7 +107,7 @@ export function Context({ live }: { live: Live | null }): React.JSX.Element {
           <ul className="files">
             {writes.map((write) => (
               <li key={write.target} className={write.state}>
-                <code>{write.target}</code>
+                <code title={write.target}>{write.target}</code>
                 <span className="tag">{write.state}</span>
               </li>
             ))}
@@ -120,7 +126,9 @@ export function Context({ live }: { live: Live | null }): React.JSX.Element {
           <ul className="confined-list">
             {live.quarantine.map((shown, index) => (
               <li key={index}>
-                <div className="origin">{shown.origin}</div>
+                <div className="origin" title={shown.origin}>
+                  {shown.origin}
+                </div>
                 <div className="detail">
                   {shown.lines} line{shown.lines === 1 ? '' : 's'} · {shown.label}
                 </div>
@@ -145,8 +153,16 @@ function Section({
   const [open, setOpen] = useState(true)
   return (
     <section className="panel">
-      <button className="panel-head" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <span className={`chevron ${open ? 'open' : ''}`}>›</span>
+      <button
+        className="panel-head"
+        aria-expanded={open}
+        // The verb in the title and the name staying put, the rule `ColumnToggle` states.
+        title={`${open ? 'Hide' : 'Show'} ${title.toLowerCase()}`}
+        onClick={() => setOpen(!open)}
+      >
+        <span className={`chevron ${open ? 'open' : ''}`} aria-hidden="true">
+          ›
+        </span>
         {title}
         {count > 0 && <span className="count">{count}</span>}
       </button>
