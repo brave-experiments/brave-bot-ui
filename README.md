@@ -96,7 +96,10 @@ sessions under the checkout each was started in. Both are always on screen under
 session**, so there is nothing to reveal, and a ⌘F that only ever moved focus one field would
 be a shortcut for something already in view.
 
-Clicking a group's name folds it away and brings it back. A live filter reaches into a
+Clicking a group's name folds it away and brings it back, and the **+** beside its count
+starts a session in that checkout — the same thing **New session** does, minus the folder
+picker, since the heading already knows which folder. A checkout that has since been deleted
+or moved is refused by the bridge with `not_a_directory` rather than failing quietly. A live filter reaches into a
 folded group regardless — a heading with nothing under it is the opposite of what somebody
 who just typed a search asked for — and the fold is still there when the box is cleared.
 
@@ -234,7 +237,7 @@ at, that a control keeps keyboard focus through an animation.
 
 | Command | Covers |
 | --- | --- |
-| `npm run drive` | Launch, list sessions, filter them by title and project, group them by checkout and fold one away, open one |
+| `npm run drive` | Launch, list sessions, filter them by title and project, group them by checkout, fold one away, start one from a heading, open one |
 | `npm run drive:resize` | Divider drags, the clamps, keyboard resizing, persistence |
 | `npm run drive:columns` | Folding each side column, and what is remembered |
 | `npm run drive:panels` | The context panels and the transcript's tool runs |

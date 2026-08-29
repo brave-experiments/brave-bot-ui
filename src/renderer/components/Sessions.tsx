@@ -154,6 +154,7 @@ export function Sessions({ sessions, openId, onOpen, onNew, build }: Props): Rea
               onToggle={toggleGroup}
               openId={openId}
               onOpen={onOpen}
+              onNew={onNew}
             />
           ))}
       </div>
@@ -170,10 +171,15 @@ export function Sessions({ sessions, openId, onOpen, onNew, build }: Props): Rea
 /**
  * One checkout's sessions, under a heading that opens and shuts them.
  *
- * The heading is the control rather than carrying one beside it: the name is the biggest
- * thing in reach, and a group that can be folded should not ask for a chevron to be hit.
- * `aria-expanded` carries the state and the name stays put — the disclosure discipline the
- * column folds and the context panels already follow.
+ * Most of the heading is the disclosure control rather than a chevron beside it: the name is
+ * the biggest thing in reach, and a group that can be folded should not ask for a 10px arrow
+ * to be hit. `aria-expanded` carries the state and the name stays put — the disclosure
+ * discipline the column folds and the context panels already follow.
+ *
+ * The heading is a row of two buttons rather than one, because the second one starts a
+ * session here and a button cannot be nested inside a button. That is also why the fold is
+ * the *inner* control: making the row itself clickable and the plus a child would have been
+ * the nesting problem wearing a different hat.
  *
  * The rows stay mounted while shut, because that is how [`Fold`] has something to animate
  * away from; it hides them from the reader and from the tab order in CSS once the collapse
@@ -185,30 +191,47 @@ function Group({
   onToggle,
   openId,
   onOpen,
+  onNew,
 }: {
   group: Group
   open: boolean
   onToggle: (directory: string) => void
   openId: string | undefined
   onOpen: (summary: SessionSummary) => void
+  onNew: (directory: string) => void
 }): React.JSX.Element {
   return (
     <section className="session-group-section">
       {/* The full path in the tooltip, because two checkouts of one project share a basename
           and picking the wrong one is a mistake nothing later announces — the same trap the
-          recents menu guards against. */}
-      <button
-        className="session-group-head"
-        aria-expanded={open}
-        title={group.directory}
-        onClick={() => onToggle(group.directory)}
-      >
-        <span className={`chevron ${open ? 'open' : ''}`} aria-hidden="true">
-          ›
-        </span>
-        <span className="session-group-name">{group.project}</span>
-        <span className="count">{group.sessions.length}</span>
-      </button>
+          recents menu guards against. On both buttons: the one that starts a session here is
+          exactly where that mistake would cost something. */}
+      <div className="session-group-head">
+        <button
+          className="session-group-fold"
+          aria-expanded={open}
+          title={group.directory}
+          onClick={() => onToggle(group.directory)}
+        >
+          <span className={`chevron ${open ? 'open' : ''}`} aria-hidden="true">
+            ›
+          </span>
+          <span className="session-group-name">{group.project}</span>
+          <span className="count">{group.sessions.length}</span>
+        </button>
+        {/* The same thing **New session** does, minus the folder picker — the directory is
+            already known, and the picker's whole job is to find one out. Named for the
+            project rather than "New session" so that a reader of the button list is told
+            which of a dozen identical-looking pluses they have landed on. */}
+        <button
+          className="session-group-new"
+          aria-label={`New session in ${group.project}`}
+          title={`New session in ${group.directory}`}
+          onClick={() => onNew(group.directory)}
+        >
+          <span aria-hidden="true">+</span>
+        </button>
+      </div>
       <Fold open={open}>
         {group.sessions.map((session) => (
           <Session
