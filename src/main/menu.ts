@@ -44,6 +44,7 @@ import {
   CONTEXT,
   NOTHING_OPEN,
   command,
+  isChecked,
   isEnabled,
   menuLabel,
   type CommandId,
@@ -89,6 +90,12 @@ function item(id: CommandId): MenuItemConstructorOptions {
     label: menuLabel(declared, state),
     accelerator: declared.accelerator,
     enabled: isEnabled(declared.requires, state),
+    // A tick, for the commands that are settings. AppKit would happily flip it on click by
+    // itself; the state is set from `state` on every refresh instead, so the menu shows what
+    // the window believes rather than what the menu last did.
+    ...(declared.checkbox
+      ? { type: 'checkbox' as const, checked: isChecked(declared.id, state) }
+      : {}),
     click: () => choose(declared.id),
   }
 }
@@ -163,6 +170,8 @@ export function installMenu(window: BrowserWindow): void {
         {
           label: 'Export',
           submenu: [
+            item('session.export-tools'),
+            SEPARATOR,
             item('session.export-text'),
             item('session.export-markdown'),
             item('session.export-pdf'),
@@ -219,6 +228,7 @@ export function refreshMenu(next: WindowState): void {
     if (!found) continue
     found.enabled = isEnabled(declared.requires, state)
     found.label = menuLabel(declared, state)
+    if (declared.checkbox) found.checked = isChecked(declared.id, state)
   }
 }
 

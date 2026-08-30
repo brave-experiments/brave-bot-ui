@@ -120,6 +120,9 @@ const ALLOWED_IDS = [
   'session.new', 'session.close', 'turn.send', 'turn.cancel',
   'view.fold-left', 'view.fold-right', 'view.reset-columns', 'app.about', 'help.doctor',
   'session.export-text', 'session.export-markdown', 'session.export-pdf',
+  // A setting, not an action: it decides what goes in an exported file, and like everything
+  // else in this list it reaches no agent method.
+  'session.export-tools',
 ]
 const ours = every.filter((i) => i.id && !i.role).map((i) => i.id)
 check(

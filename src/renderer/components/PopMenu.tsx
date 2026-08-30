@@ -21,6 +21,16 @@ export interface PopItem {
   /** The quieter second line — a full path under a folder's name. */
   detail?: string
   enabled?: boolean
+  /**
+   * A setting rather than an action: drawn with a tick, and announced as a checkbox.
+   *
+   * Choosing one still closes the menu, which is what a native menu does with a checkable
+   * item and is the one behaviour worth copying here: a menu that stayed up would be the
+   * only surface in the app that did, and the tick is visible again the moment it reopens.
+   */
+  checked?: boolean
+  /** Drawn with a rule above it, where a group of rows is a different kind of thing. */
+  separated?: boolean
 }
 
 export function PopMenu({
@@ -44,6 +54,10 @@ export function PopMenu({
   const typed = useRef<{ buffer: string; when: number }>({ buffer: '', when: 0 })
 
   const usable = items.filter((item) => item.enabled !== false)
+  // A tick column for the whole menu as soon as one row can carry a tick, which is what a
+  // native menu does: labels stay in one line down the left whether or not the row above
+  // them is a setting, and turning one on moves nothing.
+  const checkable = items.some((item) => item.checked !== undefined)
   const first = items.findIndex((item) => item.enabled !== false)
 
   const shut = useCallback(() => {
@@ -77,7 +91,11 @@ export function PopMenu({
   // Focus follows the active row, which is what makes arrow keys announce anything.
   useEffect(() => {
     if (!open || !at) return
-    const rows = menu.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
+    // Both roles, or a checkable row would be skipped by the arrow keys — the index here is
+    // the index into `items`, and a selector that missed one would shift every row after it.
+    const rows = menu.current?.querySelectorAll<HTMLButtonElement>(
+      '[role="menuitem"], [role="menuitemcheckbox"]',
+    )
     rows?.[active]?.focus()
   }, [open, at, active])
 
@@ -148,7 +166,7 @@ export function PopMenu({
   return createPortal(
     <div
       ref={menu}
-      className="popmenu"
+      className={`popmenu ${checkable ? 'checkable' : ''}`}
       role="menu"
       aria-label={label}
       // Hidden until placed, so nothing is ever drawn in the wrong corner.
@@ -158,9 +176,19 @@ export function PopMenu({
       {items.map((entry, index) => (
         <button
           key={entry.id}
-          role="menuitem"
           type="button"
-          className={`popitem ${index === active ? 'active' : ''}`}
+          className={[
+            'popitem',
+            index === active ? 'active' : '',
+            entry.separated ? 'separated' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          // A checkable row is announced as one, so a screen reader says "on"/"off" rather
+          // than leaving the tick to be seen.
+          {...(entry.checked !== undefined
+            ? { role: 'menuitemcheckbox' as const, 'aria-checked': entry.checked }
+            : { role: 'menuitem' as const })}
           // `aria-disabled` rather than the attribute: a disabled button leaves the
           // accessibility tree, and the empty state here is a single disabled row that
           // still has to be readable.
@@ -172,6 +200,12 @@ export function PopMenu({
             shut()
           }}
         >
+          {entry.checked !== undefined && (
+            // Always rendered, ticked or not, so turning it on does not shift the label.
+            <span className="popitem-tick" aria-hidden="true">
+              {entry.checked ? '✓' : ''}
+            </span>
+          )}
           <span className="popitem-label">{entry.label}</span>
           {entry.detail && <span className="popitem-detail">{entry.detail}</span>}
         </button>

@@ -112,6 +112,28 @@ body {
   border-bottom-left-radius: var(--radius);
 }
 
+/* ---------------------------------------------------------------- the calls
+
+   A call is the machinery, not a speaker, so it is set quieter than either bubble and in
+   the mono face the transcript already uses for a target. The indent is what puts it under
+   the exchange rather than in it — the plain-text export spends four spaces on the same
+   argument.
+
+   Kept on one page: a call is one line and a broken one reads as two calls. */
+.export-tool {
+  margin: 0 0 6px 18px;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.export-tool.failed {
+  /* Paper may be printed in grey, so a failure is not left to colour alone. */
+  color: var(--ink-dim);
+  font-style: italic;
+}
+
 /* ------------------------------------------------------- code, tables, links
 
    The most important rules in this file.

@@ -88,6 +88,16 @@ export function App(): React.JSX.Element {
   // The composer's text lives here rather than in `Transcript` because the Send menu item
   // has to be grey when there is nothing to send, and only this component talks to the menu.
   const [draft, setDraft] = useState('')
+  /**
+   * Whether an export carries the tool calls as well as the conversation.
+   *
+   * Off to begin with, because the common reason to export a session is to show somebody
+   * what was asked and what came back. Held for the window rather than per session and not
+   * written to disk: it is answered next to the format, at the moment of exporting, and a
+   * setting remembered across launches would decide the contents of a file somebody is about
+   * to hand to another person without being on screen when they do.
+   */
+  const [includeTools, setIncludeTools] = useState(false)
 
   // Read inside the event handler, which is installed once and must not close over a
   // stale session handle.
@@ -339,7 +349,21 @@ export function App(): React.JSX.Element {
    * is anything to export decides two things that have to agree: whether the button is grey
    * and whether the menu item is. One list, read twice.
    */
-  const exportable = useMemo(() => (live ? t.conversation(live.entries) : []), [live])
+  const exportable = useMemo(
+    () => (live ? t.conversation(live.entries, includeTools) : []),
+    [live, includeTools],
+  )
+
+  /**
+   * Whether there is anything worth writing to a file.
+   *
+   * Counts what was *said*, not what is in `exportable`: a session that has only made tool
+   * calls would otherwise offer an export that `parseExportRequest` then refuses, because a
+   * file of nothing but calls is not a conversation. Two places decide this and they have to
+   * agree; this is the one that greys the button, and the boundary is the one that cannot be
+   * got around.
+   */
+  const canExport = useMemo(() => exportable.some((turn) => turn.role !== 'tool'), [exportable])
 
   /**
    * Write the conversation to a file.
@@ -351,7 +375,7 @@ export function App(): React.JSX.Element {
    */
   const exportSession = useCallback(
     async (format: ExportFormat) => {
-      if (!live || exportable.length === 0) return
+      if (!live || !canExport) return
       const outcome = await window.bravebot.exportSession({
         format,
         document: {
@@ -368,7 +392,7 @@ export function App(): React.JSX.Element {
       }
       // A cancelled sheet says nothing. Somebody changed their mind, which is not news.
     },
-    [live, exportable],
+    [live, canExport, exportable],
   )
 
   const resetColumns = useCallback(() => {
@@ -441,6 +465,7 @@ export function App(): React.JSX.Element {
     copyProjectPath,
     copyEntry,
     exportSession: (format) => void exportSession(format),
+    toggleExportTools: () => setIncludeTools((on) => !on),
   })
 
   // What the menu is allowed to offer. Assembled here because this is the only component
@@ -450,10 +475,11 @@ export function App(): React.JSX.Element {
       hasSession: live !== null,
       running: live?.running ?? false,
       canSend: live !== null && !live.running && draft.trim().length > 0,
-      canExport: exportable.length > 0,
+      canExport,
+      includeTools,
       folded: collapsed,
     }),
-    [live, draft, collapsed, exportable],
+    [live, draft, collapsed, canExport, includeTools],
   )
   usePublishedState(menuState)
 
@@ -507,7 +533,9 @@ export function App(): React.JSX.Element {
         onDraft={setDraft}
         onSubmit={submit}
         onCancel={cancel}
-        canExport={exportable.length > 0}
+        canExport={canExport}
+        includeTools={includeTools}
+        onToggleTools={() => setIncludeTools((on) => !on)}
         onExport={(format) => void exportSession(format)}
         onDecide={answer}
         onAnswer={answerQuestions}

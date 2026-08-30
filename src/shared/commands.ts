@@ -25,6 +25,7 @@
 export type CommandId =
   | 'session.new'
   | 'session.close'
+  | 'session.export-tools'
   | 'session.export-text'
   | 'session.export-markdown'
   | 'session.export-pdf'
@@ -52,6 +53,18 @@ export interface Command {
   /** Electron's accelerator form, e.g. `CmdOrCtrl+N`. Absent where there is no shortcut. */
   accelerator?: string
   requires: Requires
+  /**
+   * A setting rather than an action: drawn with a tick when it is on.
+   *
+   * Declared here rather than left to each menu to decide, for the reason the whole file
+   * exists — the native menu bar and the in-window menu draw the same row, and one of them
+   * showing a tick the other does not would be two answers to "is this on".
+   *
+   * Which of them is on is [`isChecked`], reading the same [`WindowState`] the greying
+   * reads. A checkbox command still dispatches on click; nothing here toggles anything, and
+   * the renderer remains the only place the setting lives.
+   */
+  checkbox?: true
 }
 
 /**
@@ -82,6 +95,15 @@ export interface WindowState {
    * refuse. Only the renderer can tell the difference — it holds the entries.
    */
   canExport: boolean
+  /**
+   * Whether an export should carry the tool calls as well as the conversation.
+   *
+   * A preference and not a capability, which makes it the one field here that does not
+   * decide whether something is grey — it decides whether a row is ticked. It is sent for
+   * the same reason the rest is: the renderer owns the setting, and a menu bar drawing its
+   * own guess at it would be a second copy that could disagree.
+   */
+  includeTools: boolean
   folded: { left: boolean; right: boolean }
 }
 
@@ -90,6 +112,7 @@ export const NOTHING_OPEN: WindowState = {
   running: false,
   canSend: false,
   canExport: false,
+  includeTools: false,
   folded: { left: false, right: false },
 }
 
@@ -105,6 +128,19 @@ export const COMMANDS: readonly Command[] = [
   // and a menu that opened a picker somewhere else on screen would be putting the question
   // nowhere near the pointer that asked it. No accelerators — three formats cannot share one
   // and none of them is worth a key by itself.
+  //
+  // What goes *in* the file is a fourth row above those three rather than three more beside
+  // them. It is not a format, and pairing it with each one would make six items where the
+  // difference between two of them is a phrase at the end of a label. It sits with the
+  // formats rather than in a preferences window because it is decided at the moment of
+  // exporting, by somebody who knows who the file is for — and the native save sheet, which
+  // is where the question really belongs, cannot be given a checkbox of our own.
+  {
+    id: 'session.export-tools',
+    label: 'Include Tool Calls',
+    requires: 'always',
+    checkbox: true,
+  },
   { id: 'session.export-text', label: 'Plain Text…', requires: 'exportable' },
   { id: 'session.export-markdown', label: 'Markdown…', requires: 'exportable' },
   { id: 'session.export-pdf', label: 'PDF…', requires: 'exportable' },
@@ -153,6 +189,17 @@ export function isEnabled(requires: Requires, state: WindowState): boolean {
 }
 
 /**
+ * Whether a checkbox command is currently on.
+ *
+ * One command, so this is a `switch` with one case and a `false` for everything else rather
+ * than a field on the declaration: a `checked` that a non-checkbox command could carry would
+ * be a state with two homes.
+ */
+export function isChecked(id: CommandId, state: WindowState): boolean {
+  return id === 'session.export-tools' ? state.includeTools : false
+}
+
+/**
  * A window state, or nothing.
  *
  * The renderer is ours, but this value decides whether a menu item can be clicked, and the
@@ -165,15 +212,19 @@ export function isEnabled(requires: Requires, state: WindowState): boolean {
  */
 export function parseWindowState(value: unknown): WindowState | null {
   if (typeof value !== 'object' || value === null) return null
-  const { hasSession, running, canSend, canExport, folded } = value as Record<string, unknown>
+  const { hasSession, running, canSend, canExport, includeTools, folded } = value as Record<
+    string,
+    unknown
+  >
   if (typeof hasSession !== 'boolean') return null
   if (typeof running !== 'boolean') return null
   if (typeof canSend !== 'boolean') return null
   if (typeof canExport !== 'boolean') return null
+  if (typeof includeTools !== 'boolean') return null
   if (typeof folded !== 'object' || folded === null) return null
   const { left, right } = folded as Record<string, unknown>
   if (typeof left !== 'boolean' || typeof right !== 'boolean') return null
-  return { hasSession, running, canSend, canExport, folded: { left, right } }
+  return { hasSession, running, canSend, canExport, includeTools, folded: { left, right } }
 }
 
 /**
