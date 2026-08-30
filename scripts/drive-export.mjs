@@ -1,10 +1,14 @@
-// That a conversation can be written to a file, and that only the conversation is.
+// That a conversation can be written to a file, and that only what was asked for is.
 //
-// The negative assertions are the interesting ones, as in `drive-markdown.mjs`. An export
-// carries what was asked and what came back — not the tool lines, not the diffs, not the
-// approval cards — and a file that quietly included one of those would read like a record of
-// the exchange without being one. So this checks what must NOT be in the file as carefully as
-// what must.
+// The negative assertions are the interesting ones, as in `drive-markdown.mjs`. By default an
+// export carries what was asked and what came back — not the tool lines, not the diffs, not
+// the approval cards — and a file that quietly included one of those would read like a record
+// of the exchange without being one. So this checks what must NOT be in the file as carefully
+// as what must.
+//
+// "Include Tool Calls" moves exactly one of those things across the line, and the second half
+// of the run holds it to that: with the setting on the calls appear and the diffs and cards
+// still do not, and the footer changes to match what the file actually carried.
 //
 // Two behaviours here are covered nowhere else in the suite: that a menu anchored to a control
 // at the bottom of the window flips *above* it, and that the offscreen window a PDF is printed
@@ -50,15 +54,24 @@ const readMenu = () =>
         id: i.id,
         label: i.label,
         enabled: i.enabled,
+        checked: i.checked,
         items: i.submenu ? walk(i.submenu) : null,
       }))
     const menu = Menu.getApplicationMenu()
     return menu ? walk(menu) : null
   })
 
+const FORMAT_IDS = ['session.export-text', 'session.export-markdown', 'session.export-pdf']
+
 const exportItems = async () => {
   const menu = await readMenu()
-  return flatten(menu ?? []).filter((i) => (i.id ?? '').startsWith('session.export-'))
+  return flatten(menu ?? []).filter((i) => FORMAT_IDS.includes(i.id))
+}
+
+/** The File menu's copy of the tool-calls setting, which carries the tick. */
+const toolsItem = async () => {
+  const menu = await readMenu()
+  return flatten(menu ?? []).find((i) => i.id === 'session.export-tools') ?? null
 }
 
 // --- with nothing open ------------------------------------------------------------------
@@ -74,6 +87,11 @@ check(
   idleItems.every((i) => !i.enabled),
   'and every one of them is grey with no session open',
 )
+const idleTools = await toolsItem()
+check(idleTools !== null, 'and a row above them for what goes in the file')
+// Enabled with nothing open, unlike the formats: it is a setting, not an action.
+check(idleTools?.enabled === true, 'which is not greyed with the formats')
+check(idleTools?.checked === false, 'and starts off, so an export carries the conversation')
 
 // --- open a stored session --------------------------------------------------------------
 const rows = page.locator('.session-list .session')
@@ -104,6 +122,8 @@ if (count === 0) {
     'and says so with aria-expanded',
   )
 
+  // `menuitem` and not `menuitemcheckbox`, so this counts the formats and not the setting
+  // sitting above them.
   const labels = await page.locator('[role="menuitem"] .popitem-label').allTextContents()
   check(
     labels.join() === 'Plain Text,Markdown,PDF',
@@ -111,6 +131,13 @@ if (count === 0) {
   )
   const details = await page.locator('[role="menuitem"] .popitem-detail').allTextContents()
   check(details.join() === '.txt,.md,.pdf', `each named by its extension (${details.join(', ')})`)
+
+  const toggle = page.locator('[role="menuitemcheckbox"]')
+  check(await toggle.count() === 1, 'above them sits the tool-calls setting')
+  check(
+    (await toggle.getAttribute('aria-checked')) === 'false',
+    'announced as a checkbox that is off',
+  )
 
   // The one behaviour a bottom-of-window menu depends on, and nothing else covers it.
   const anchorBox = await button.boundingBox()
@@ -205,6 +232,69 @@ if (count === 0) {
   await page.locator('.notice button').click()
   await page.waitForTimeout(200)
 
+  // --- the same session, with the calls in it ---------------------------------------------
+  //
+  // The setting is flipped from the in-window menu and read back off the *File* menu: those
+  // are two views of one value, and the whole reason it is published to the main process is
+  // that they must not be able to disagree.
+  const onScreenCalls = await page.locator('.tool').count()
+  await button.click()
+  await page.waitForTimeout(200)
+  await page.locator('[role="menuitemcheckbox"]').click()
+  await page.waitForTimeout(400)
+  check((await toolsItem())?.checked === true, 'ticking the row ticks the File menu item too')
+  await button.click()
+  await page.waitForTimeout(200)
+  check(
+    (await page.locator('[role="menuitemcheckbox"]').getAttribute('aria-checked')) === 'true',
+    'and the menu shows it on when it is reopened',
+  )
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(200)
+
+  const withToolsPath = join(OUT, 'export-test-tools.md')
+  written.push(withToolsPath)
+  rmSync(withToolsPath, { force: true })
+  await app.evaluate((_e, p) => { globalThis.__target = p }, withToolsPath)
+  await choose('Markdown')
+  await page.waitForTimeout(1500)
+
+  check(existsSync(withToolsPath), 'the file is written with the setting on')
+  if (existsSync(withToolsPath)) {
+    const text = readFileSync(withToolsPath, 'utf8')
+    const calls = (text.match(/^- `/gm) ?? []).length
+    check(
+      calls === onScreenCalls && onScreenCalls > 0,
+      `it carries every call and no more (${calls} lines for ${onScreenCalls} on screen)`,
+    )
+    // The conversation is untouched by the setting: the same turns, in the same places.
+    const onScreenTurns = await page.locator('.bubble.user, .bubble.assistant').count()
+    const headings = (text.match(/^\*\*(You|Brave Bot)\*\*$/gm) ?? []).length
+    check(headings === onScreenTurns, 'and still exactly the conversation besides')
+    // The footer is the file's own account of what it dropped, so it has to have changed
+    // with the contents. A file full of tool lines saying it left them out is worse than one
+    // that never offered the setting.
+    check(
+      text.includes('Diffs, approvals and confined output are not part of this export.') &&
+        !text.includes('Tool calls, diffs and approvals are not part of this export.'),
+      'and its footer no longer claims to have left the calls out',
+    )
+    // The line the setting does *not* move: the evidence is still absent.
+    check(
+      !/unchanged line/.test(text) && !text.includes('⋯'),
+      'no diff hunk crossed with the calls',
+    )
+  }
+  await page.locator('.notice button').click().catch(() => undefined)
+  await page.waitForTimeout(200)
+
+  // Back off, so the PDF below is the default document.
+  await button.click()
+  await page.waitForTimeout(200)
+  await page.locator('[role="menuitemcheckbox"]').click()
+  await page.waitForTimeout(300)
+  check((await toolsItem())?.checked === false, 'and the setting turns back off')
+
   // --- pdf ------------------------------------------------------------------------------
   const pdfPath = join(OUT, 'export-test.pdf')
   written.push(pdfPath)
@@ -245,7 +335,8 @@ if (count === 0) {
   check(await page.locator('.notice').count() === 0, 'and says nothing about it')
 }
 
-cleanup()
+// KEEP=1 leaves the exports on disk, for looking at what a change actually produced.
+if (!process.env.KEEP) cleanup()
 await app.close()
 
 if (problems.length > 0) {

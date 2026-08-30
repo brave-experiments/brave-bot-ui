@@ -45,6 +45,8 @@ export interface CommandActions {
   copyEntry: (id: string) => void
   /** Write the open session's conversation to a file, in one of three formats. */
   exportSession: (format: ExportFormat) => void
+  /** Flip whether an export carries the tool calls as well as the conversation. */
+  toggleExportTools: () => void
 }
 
 /**
@@ -80,6 +82,8 @@ export function useCommandRouter(actions: CommandActions): void {
           return act.create()
         case 'session.close':
           return act.closeSession()
+        case 'session.export-tools':
+          return act.toggleExportTools()
         case 'session.export-text':
           return act.exportSession('txt')
         case 'session.export-markdown':

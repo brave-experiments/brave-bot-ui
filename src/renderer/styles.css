@@ -1147,6 +1147,26 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .popitem.active .popitem-detail { color: var(--accent-ink); opacity: 0.75; }
 
+/* A menu with a setting in it keeps a tick column for every row, the way a native one does:
+   the labels stay in one line down the left, and turning the setting on moves nothing. */
+.popmenu.checkable .popitem {
+  display: grid;
+  grid-template-columns: 13px 1fr;
+  column-gap: 4px;
+  align-items: baseline;
+}
+.popmenu.checkable .popitem-label, .popmenu.checkable .popitem-detail { grid-column: 2; }
+.popitem-tick { font-size: 11px; line-height: 1.2; }
+
+/* A rule where a group below is a different kind of thing — a setting above, the formats
+   that read it below. Drawn on the first row of the group rather than as a row of its own,
+   which would be an item the arrow keys had to learn to skip. */
+.popitem.separated {
+  margin-top: 5px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .popmenu { animation: none; }
 }

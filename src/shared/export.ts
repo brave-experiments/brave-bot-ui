@@ -18,22 +18,54 @@
  *
  * ## What an export contains, and what it says about that
  *
- * Two kinds: what the person asked and what the planner replied. Not the tool lines, not the
- * diffs, not the five decision cards, not the confined blobs. `plainText` next door already
- * makes this argument for the clipboard — those things are evidence, laid out to be read in
- * place, and a paragraph made out of one reads like a record of the exchange without being
- * one. A whole *file* that did it would make the same false claim at document scale, so
- * every export ends with a line saying what it left out rather than trusting the reader to
- * infer it.
+ * What the person asked and what the planner replied, and — when the person asked for them —
+ * the tool lines between. Never the diffs, the five decision cards or the confined blobs.
+ * `plainText` next door makes the argument for the clipboard about those: they are evidence,
+ * laid out to be read in place, and a paragraph made out of one reads like a record of the
+ * exchange without being one. A whole *file* that did it would make the same false claim at
+ * document scale.
+ *
+ * The tool lines are on the other side of that line, which is why they are offered at all.
+ * A tool row is already a sentence — a verb, what it was pointed at, and what came of it —
+ * written by the app rather than flattened out of evidence by an export. Reading one on
+ * paper tells you the same thing reading it on screen did. It is left out by default anyway,
+ * because the common reason to export a session is to show somebody the exchange; whoever
+ * wants the work in the file says so in the Export menu, and it goes in.
+ *
+ * Either way the file ends with a line saying what it left out, rather than trusting the
+ * reader to infer it — and that line differs by what was actually carried, so a document
+ * cannot claim to have dropped something it contains.
  */
 
 export type ExportFormat = 'txt' | 'md' | 'pdf'
 
-/** One thing somebody said. The only two kinds an export carries. */
-export interface ExportTurn {
+/** One thing somebody said. */
+export interface ExportSaid {
   role: 'user' | 'assistant'
   text: string
 }
+
+/**
+ * One thing the agent did, when the export was asked to carry the work as well as the words.
+ *
+ * The fields are the tool row's own — see the `tool` case in `Transcript.tsx` — and not a
+ * sentence composed in the renderer, for the reason the top of this file gives about the
+ * conversation: what lands on disk is composed here, from values this side understood.
+ *
+ * `note` is `null` where there is no outcome to give: a call still running when the export
+ * was taken, and a call replayed out of a stored session, which does not keep what came of
+ * one. Both are written as the call alone — see [`toolLine`].
+ */
+export interface ExportTool {
+  role: 'tool'
+  verb: string
+  target: string
+  note: string | null
+  failed: boolean
+}
+
+/** One row of an export. What was said, and — optionally — what was done between. */
+export type ExportTurn = ExportSaid | ExportTool
 
 export interface ExportDocument {
   title: string
@@ -115,7 +147,20 @@ export function parseExportRequest(value: unknown): ExportRequest | null {
   let chars = 0
   for (const turn of turns) {
     if (typeof turn !== 'object' || turn === null) return null
-    const { role, text } = turn as { role?: unknown; text?: unknown }
+    const { role } = turn as { role?: unknown }
+    if (role === 'tool') {
+      const parsed = parseTool(turn)
+      if (!parsed) return null
+      // A call with no verb is dropped rather than refused, on the same argument as an empty
+      // prompt below: there is nothing to write on the line, and the rest of the session is
+      // still worth writing down.
+      if (parsed.verb.length === 0) continue
+      chars += parsed.verb.length + parsed.target.length + (parsed.note?.length ?? 0)
+      if (chars > MAX_CHARS) return null
+      kept.push(parsed)
+      continue
+    }
+    const { text } = turn as { text?: unknown }
     if (role !== 'user' && role !== 'assistant') return null
     if (typeof text !== 'string') return null
     const trimmed = text.trim()
@@ -128,23 +173,90 @@ export function parseExportRequest(value: unknown): ExportRequest | null {
     kept.push({ role, text: trimmed })
   }
   if (kept.length === 0) return null
+  // A file of nothing but tool lines is not a conversation, and the window never offers one:
+  // `conversation` only adds calls around turns it is already carrying. Refused here for the
+  // reason the empty document is — this is the copy of that judgement nothing can get around.
+  if (kept.every(isTool)) return null
 
   return { format, document: { title, directory, branch, turns: kept } }
 }
 
+/** Whether a row is a call rather than something somebody said. */
+export function isTool(turn: ExportTurn): turn is ExportTool {
+  return turn.role === 'tool'
+}
+
+/**
+ * One field of a tool row, as a single line.
+ *
+ * A verb, a target and a note are labels the interface draws on one line, never prose, so
+ * flattening the whitespace loses nothing. What it gains is that none of the three can carry
+ * a line break into a plain-text file or a backtick into a Markdown one — the `.md` file is a
+ * document rather than a trust surface, as `toMarkdown` says below, and that holds only while
+ * the app's own structural marks are the only ones in it.
+ */
+function label(value: string): string {
+  return value.replace(/\s+/g, ' ').replace(/`/g, "'").trim()
+}
+
+/** A tool row, or nothing. */
+function parseTool(value: object): ExportTool | null {
+  const { verb, target, note, failed } = value as {
+    verb?: unknown
+    target?: unknown
+    note?: unknown
+    failed?: unknown
+  }
+  if (typeof verb !== 'string') return null
+  if (typeof target !== 'string') return null
+  if (note !== null && typeof note !== 'string') return null
+  if (typeof failed !== 'boolean') return null
+  return {
+    role: 'tool',
+    verb: label(verb),
+    target: label(target),
+    note: note === null ? null : label(note),
+    failed,
+  }
+}
+
 /** What each side is called in an exported file. */
-const SPEAKER: Record<ExportTurn['role'], string> = {
+const SPEAKER: Record<ExportSaid['role'], string> = {
   user: 'You',
   assistant: 'Brave Bot',
 }
 
 /**
- * The line every export ends with.
+ * The line an export ends with.
  *
- * See the note at the top of this file: an export carries the conversation and not the
- * evidence, and saying so is cheaper than a reader discovering it.
+ * See the note at the top of this file: an export carries the conversation, optionally the
+ * calls, and never the evidence — and saying so is cheaper than a reader discovering it. Two
+ * sentences rather than one, because a document that carried the tool lines and then claimed
+ * to have dropped them would be the footer lying about the pages above it.
  */
 export const OMITTED = 'Tool calls, diffs and approvals are not part of this export.'
+export const OMITTED_WITH_TOOLS = 'Diffs, approvals and confined output are not part of this export.'
+
+/** Which of the two the footer is, for a document that has been parsed. */
+export function omitted(document: ExportDocument): string {
+  return document.turns.some(isTool) ? OMITTED_WITH_TOOLS : OMITTED
+}
+
+/**
+ * A call, as one line: what it did, to what, and what came of it.
+ *
+ * The bracket around the target is the transcript's own, and the trailing em dash is where
+ * the note sits on screen. A call with no note is written as the call alone: most of them
+ * come from a stored session, whose record keeps what a turn did and not what came of it,
+ * and the rest were still running when the export was taken. Nothing is added in place of
+ * the outcome — an ellipsis would claim the call was in flight, which is wrong for the
+ * common case, and any word at all would be an outcome nobody reported.
+ */
+export function toolLine(turn: ExportTool): string {
+  const head = turn.target ? `${turn.verb} (${turn.target})` : turn.verb
+  if (turn.note === null) return head
+  return turn.failed ? `${head} — failed: ${turn.note}` : `${head} — ${turn.note}`
+}
 
 /**
  * When it was written, in a fixed locale.
@@ -168,9 +280,13 @@ export function toPlainText(document: ExportDocument, at: number): string {
   const rule = '─'.repeat(60)
   const lines = [document.title, where(document), `Exported ${when(at)}`, '', rule, '']
   for (const turn of document.turns) {
-    lines.push(SPEAKER[turn.role], turn.text, '')
+    // A call is indented under the exchange rather than given a speaker line. It is not a
+    // third party to the conversation, it is what happened between two things that were
+    // said, and the margin is what says so on a page with no colour in it.
+    if (isTool(turn)) lines.push(`    · ${toolLine(turn)}`, '')
+    else lines.push(SPEAKER[turn.role], turn.text, '')
   }
-  lines.push(rule, OMITTED)
+  lines.push(rule, omitted(document))
   return `${lines.join('\n')}\n`
 }
 
@@ -200,10 +316,17 @@ export function toMarkdown(document: ExportDocument, at: number): string {
     '',
   ]
   for (const turn of document.turns) {
+    // A list item, because a run of calls is a list of what was done and a reader scanning
+    // for the reply should be able to skip it in one movement. Inside a code span for the
+    // same reason the target is bracketed on screen: it is a path and an outcome, not prose.
+    if (isTool(turn)) {
+      out.push(`- \`${toolLine(turn)}\``, '')
+      continue
+    }
     out.push(`**${SPEAKER[turn.role]}**`, '')
     out.push(turn.role === 'user' ? quoted(turn.text) : turn.text, '')
   }
-  out.push('---', '', `*${OMITTED}*`)
+  out.push('---', '', `*${omitted(document)}*`)
   return `${out.join('\n')}\n`
 }
 

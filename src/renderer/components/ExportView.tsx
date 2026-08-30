@@ -13,7 +13,7 @@
  */
 
 import { Markdown } from './Markdown'
-import { OMITTED, where, type ExportDocument } from '../../shared/export'
+import { isTool, omitted, toolLine, where, type ExportDocument } from '../../shared/export'
 
 /** The same fixed locale the text and markdown exports use, for the same reason. */
 function when(at: number): string {
@@ -35,25 +35,36 @@ export function ExportView({
         <p className="exported-at">Exported {when(at)}</p>
       </header>
 
-      {document.turns.map((turn, index) => (
+      {document.turns.map((turn, index) =>
         // Indexed because a turn has no id of its own here — the document that crossed is
         // the parsed one, and giving it ids in the renderer would be inventing a field the
         // boundary does not carry. The list never reorders, so the index is stable.
-        <section className="export-turn" key={index}>
-          <p className="role">{turn.role === 'user' ? 'You' : 'Brave Bot'}</p>
-          {turn.role === 'user' ? (
-            <div className="bubble user">{turn.text}</div>
-          ) : (
-            <div className="bubble assistant">
-              <Markdown text={turn.text} />
-            </div>
-          )}
-        </section>
-      ))}
+        isTool(turn) ? (
+          // No role line and no bubble. A call is not a third speaker, and drawing it as one
+          // would put the machinery on the same footing as the two people in the document.
+          // `toolLine` composes the sentence the other two formats print, so a call reads the
+          // same however the session was exported.
+          <p className={`export-tool ${turn.failed ? 'failed' : ''}`} key={index}>
+            {toolLine(turn)}
+          </p>
+        ) : (
+          <section className="export-turn" key={index}>
+            <p className="role">{turn.role === 'user' ? 'You' : 'Brave Bot'}</p>
+            {turn.role === 'user' ? (
+              <div className="bubble user">{turn.text}</div>
+            ) : (
+              <div className="bubble assistant">
+                <Markdown text={turn.text} />
+              </div>
+            )}
+          </section>
+        ),
+      )}
 
-      {/* The same sentence the other two formats end with. A reader holding the printout
-          should not have to know which parts of a session an export leaves behind. */}
-      <footer className="export-foot">{OMITTED}</footer>
+      {/* The same sentence the other two formats end with — and, like theirs, the one that
+          matches what this document actually carried. A reader holding the printout should
+          not have to know which parts of a session an export leaves behind. */}
+      <footer className="export-foot">{omitted(document)}</footer>
     </article>
   )
 }

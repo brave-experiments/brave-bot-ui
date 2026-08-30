@@ -312,13 +312,29 @@ export function plainText(entry: Entry): string | null {
  * What is left out is the same argument `plainText` makes about the five decision cards, one
  * level up: a diff, an argv, a confined blob and an approval are evidence laid out to be read
  * in place. Narration and errors go too — those are the machinery talking, not the exchange.
+ *
+ * `tools` adds the calls back, for somebody who asked for them in the Export menu. Only the
+ * tool rows, and only the line the row already draws: a verb, a target and an outcome the app
+ * wrote itself. The decision cards stay out at either setting, because widening "what was
+ * done" to "what was approved" is the step that would turn a file into a claim about what
+ * somebody looked at. A replayed call has no outcome to give — the record does not keep one —
+ * so it crosses with a null note and the export says so rather than inventing one.
  */
-export function conversation(entries: Entry[]): ExportTurn[] {
+export function conversation(entries: Entry[], tools = false): ExportTurn[] {
   const turns: ExportTurn[] = []
   for (const entry of entries) {
-    if (entry.kind !== 'user' && entry.kind !== 'assistant') continue
-    const text = plainText(entry)?.trim()
-    if (text) turns.push({ role: entry.kind, text })
+    if (entry.kind === 'user' || entry.kind === 'assistant') {
+      const text = plainText(entry)?.trim()
+      if (text) turns.push({ role: entry.kind, text })
+      continue
+    }
+    if (!tools) continue
+    if (entry.kind === 'tool') {
+      const { verb, target, note, failed } = entry.activity
+      turns.push({ role: 'tool', verb, target, note, failed })
+    } else if (entry.kind === 'replayed-tool') {
+      turns.push({ role: 'tool', verb: entry.text, target: '', note: null, failed: false })
+    }
   }
   return turns
 }

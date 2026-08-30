@@ -53,6 +53,9 @@ interface Props {
   onAnswer: AnswerQuestions
   /** Whether there is any conversation to write down. */
   canExport: boolean
+  /** Whether an export will carry the tool calls as well as the conversation. */
+  includeTools: boolean
+  onToggleTools: () => void
   onExport: (format: ExportFormat) => void
 }
 
@@ -112,6 +115,8 @@ export function Transcript({
   onDecide,
   onAnswer,
   canExport,
+  includeTools,
+  onToggleTools,
   onExport,
 }: Props): React.JSX.Element {
   const bottom = useRef<HTMLDivElement>(null)
@@ -217,7 +222,12 @@ export function Transcript({
             if (event.key === 'Escape' && live.running) onCancel()
           }}
         />
-        <ExportMenu canExport={canExport} onExport={onExport} />
+        <ExportMenu
+          canExport={canExport}
+          includeTools={includeTools}
+          onToggleTools={onToggleTools}
+          onExport={onExport}
+        />
         <button className="send" onClick={onSubmit} disabled={live.running || !draft.trim()}>
           Send
         </button>
@@ -234,6 +244,17 @@ const FORMATS: readonly PopItem[] = [
 ]
 
 /**
+ * What the file will contain, asked above what it will be called.
+ *
+ * The question really belongs in the save sheet, next to the filename — but a native save
+ * panel takes no controls of ours, and a second dialog in front of it would put a question
+ * between somebody and the thing they asked for every time they exported. So it is a row in
+ * this menu, ticked or not, and the File menu carries the same one: see the note beside
+ * `session.export-tools` in `shared/commands.ts`.
+ */
+const TOOLS = 'tools'
+
+/**
  * The control that writes the conversation to a file.
  *
  * The whole button opens the menu rather than a split control like `NewSession`'s. That one
@@ -247,13 +268,34 @@ const FORMATS: readonly PopItem[] = [
  */
 function ExportMenu({
   canExport,
+  includeTools,
+  onToggleTools,
   onExport,
 }: {
   canExport: boolean
+  includeTools: boolean
+  onToggleTools: () => void
   onExport: (format: ExportFormat) => void
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
+
+  // Rebuilt with the tick rather than held in state: the setting lives in `App`, which is
+  // also what the File menu's copy of this row is drawn from, and a second copy here could
+  // disagree with the one in the menu bar.
+  const items: readonly PopItem[] = [
+    {
+      id: TOOLS,
+      label: 'Include Tool Calls',
+      // No second line saying "on" or "off": the tick is the state, and a row that said it
+      // twice would be the only one in the app that did.
+      checked: includeTools,
+      // Never greyed, unlike the formats below and like its File-menu twin: it is a setting
+      // rather than an action, and it is worth being able to set it in a session with
+      // nothing said in it yet.
+    },
+    ...FORMATS.map((format, index) => (index === 0 ? { ...format, separated: true } : format)),
+  ]
 
   return (
     <div className="export-split">
@@ -276,9 +318,9 @@ function ExportMenu({
       <PopMenu
         open={open}
         anchor={trigger}
-        items={FORMATS}
+        items={items}
         label="Export the conversation as"
-        onChoose={(id) => onExport(id as ExportFormat)}
+        onChoose={(id) => (id === TOOLS ? onToggleTools() : onExport(id as ExportFormat))}
         onClose={() => setOpen(false)}
       />
     </div>
