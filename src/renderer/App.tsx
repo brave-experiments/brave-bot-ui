@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   AskAnswer,
   BridgeEvent,
+  ForkedSession,
   OpenedSession,
   Phase,
   SessionSummary,
@@ -18,6 +19,7 @@ import { Unconfigured } from './components/Unconfigured'
 import { Notice } from './components/Notice'
 import type { ExportFormat } from '../shared/export'
 import { useCommandRouter, usePublishedState } from './commands'
+import { type Fork, forkOf, forkedSessions } from '../shared/forks'
 import * as t from './transcript'
 
 /** What the app is doing, which decides most of what the interface offers. */
@@ -44,6 +46,49 @@ interface Live {
   running: boolean
   /** Set when a fresh session needs the trust question answered before it can run. */
   askingTrust: string | null
+  /**
+   * Where this session was cut from, for a session that was forked out of another.
+   *
+   * The title is carried because it is what the banner says, and the window may not have the
+   * parent in its list — a session with no record yet is in no list at all.
+   */
+  forkedFrom: { directory: string; id: string; title: string; prompt: number } | null
+  /**
+   * A prompt to scroll to and mark, counted over the prompts the transcript drew.
+   *
+   * An ordinal rather than an entry id, because ids are minted fresh every time a session is
+   * opened and this arrives from a session that was open a moment ago. The ordinal is the same
+   * coordinate the fork itself was cut on, so it is the one thing about a place in a transcript
+   * that two sessions can both mean.
+   */
+  focus: number | null
+}
+
+/**
+ * Where a session was cut from, ready for a banner, or `null` for one that was not.
+ *
+ * The title comes from the session list, which is the fresher of the two places it could come
+ * from — a fork's record on disk says only what the parent was called; the list says what it is
+ * called. A parent the list does not hold (one whose record has not been written yet, or one in
+ * a project since deleted) falls back to its id, which is at least a true name.
+ */
+function cameFrom(
+  forks: Fork[],
+  directory: string,
+  id: string,
+  sessions: SessionSummary[],
+): Live['forkedFrom'] {
+  const fork = forkOf(forks, directory, id)
+  if (!fork) return null
+  const parent = sessions.find(
+    (session) => session.id === fork.parent.id && session.directory === fork.parent.directory,
+  )
+  return {
+    directory: fork.parent.directory,
+    id: fork.parent.id,
+    title: parent?.title ?? fork.parent.id,
+    prompt: fork.prompt,
+  }
 }
 
 /** Raised for the one failure that needs its own screen rather than a line of text. */
@@ -99,10 +144,26 @@ export function App(): React.JSX.Element {
    */
   const [includeTools, setIncludeTools] = useState(false)
 
+  const [forks, setForks] = useState<Fork[]>([])
+
   // Read inside the event handler, which is installed once and must not close over a
   // stale session handle.
   const handleRef = useRef<string | null>(null)
   handleRef.current = live?.handle ?? null
+
+  // Read inside `open`, which is installed once for the same reason. The list lives in the
+  // main process; this is the copy on screen, refreshed when it can have changed.
+  const forksRef = useRef<Fork[]>(forks)
+  forksRef.current = forks
+
+  // The list is where a parent's *current* name lives, so a session renamed since the fork was
+  // taken is named on the banner by what it is called now.
+  const sessionsRef = useRef<SessionSummary[]>(sessions)
+  sessionsRef.current = sessions
+
+  const readForks = useCallback(async () => {
+    setForks(await window.bravebot.readForks().catch(() => []))
+  }, [])
 
   const refresh = useCallback(async () => {
     try {
@@ -115,6 +176,7 @@ export function App(): React.JSX.Element {
 
   useEffect(() => {
     void refresh()
+    void readForks()
     const stop = window.bravebot.onEvent((message: BridgeEvent) => {
       // Events for a session other than the one on screen are dropped rather than
       // queued: this build shows one at a time, and holding a transcript nobody is
@@ -123,9 +185,15 @@ export function App(): React.JSX.Element {
       apply(message, setLive, setBuild, refresh)
     })
     return stop
-  }, [refresh])
+  }, [refresh, readForks])
 
-  const open = useCallback(async (summary: SessionSummary) => {
+  /**
+   * Show a stored session, optionally scrolled to one of its prompts.
+   *
+   * `focus` is how the fork banner points back: an ordinal over the prompts, resolved to a row
+   * when the transcript draws it. See `Live.focus`.
+   */
+  const open = useCallback(async (summary: SessionSummary, focus?: number) => {
     try {
       // Let go of the one being left first. The app shows a single session and already
       // drops events for any other (see the listener below), so a turn left running behind
@@ -158,6 +226,10 @@ export function App(): React.JSX.Element {
         // A record with no stored map was written before maps were kept. Nothing
         // recorded is not the same as nothing trusted, so it is asked about again.
         askingTrust: opened.trust.known ? null : opened.record.directory,
+        // Looked up rather than carried: this session may have been forked in another launch
+        // entirely, and the file the main process keeps is where that is written down.
+        forkedFrom: cameFrom(forksRef.current, summary.directory, summary.id, sessionsRef.current),
+        focus: focus ?? null,
       })
       setDraft('')
       const notes = [opened.branchNote, opened.buildNote].filter(Boolean) as string[]
@@ -195,6 +267,8 @@ export function App(): React.JSX.Element {
         tokens: 0,
         running: false,
         askingTrust: chosen,
+        forkedFrom: null,
+        focus: null,
       })
       setProblem(null)
     } catch (error) {
@@ -291,6 +365,9 @@ export function App(): React.JSX.Element {
   )
 
   const { widths, collapsed, dragging, folding, start, reset, nudge, toggle } = useColumns()
+
+  /** Which sessions in the list came out of another one, for the mark beside their names. */
+  const forked = useMemo(() => forkedSessions(forks), [forks])
 
   /** Send whatever is in the composer, on the same terms the Send button uses. */
   const submit = useCallback(() => {
@@ -442,6 +519,95 @@ export function App(): React.JSX.Element {
     [sessions, copy],
   )
 
+  /**
+   * Begin a session from what was said before a prompt, with that prompt to edit.
+   *
+   * What crosses to the agent is the prompt's *place* — how many prompts precede it — and what
+   * it said. Not the entry's id, which means nothing outside this window, and not a slice of
+   * the transcript, which is a projection of the conversation rather than the conversation. The
+   * agent cuts its own history and hands back what the fork now holds, so what is drawn after
+   * this is what the next turn will actually be working from.
+   */
+  const forkFrom = useCallback(
+    async (id: string) => {
+      const handle = handleRef.current
+      const entries = live?.entries
+      if (!handle || !entries) return
+
+      const at = entries.findIndex((candidate) => candidate.id === id)
+      const entry = at === -1 ? null : entries[at]
+      // Only a prompt. The menu offers this on nothing else, but the id arrives from outside
+      // this component and a check here is cheaper than trusting the round trip.
+      if (!entry || entry.kind !== 'user') return
+      const prompt = entries.slice(0, at).filter((before) => before.kind === 'user').length
+
+      try {
+        const forked = await call<ForkedSession>('session.fork', {
+          session: handle,
+          prompt,
+          text: entry.text,
+        })
+
+        // The fork first and the parent second: the cut is made out of the parent's live state,
+        // so letting go of it before asking would be asking about a session that had gone.
+        await call('session.close', { session: handle }).catch(() => undefined)
+
+        setLive({
+          handle: forked.session,
+          summary: {
+            id: forked.id,
+            // What a fork is called is decided by the agent from the history it kept, and it
+            // has no record yet to read it off. Named after its parent here for the same
+            // reason: this is where it came from, and the first turn will settle it.
+            title: live.summary.title,
+            project: forked.directory.split('/').pop() ?? forked.directory,
+            branch: forked.branch,
+            directory: forked.directory,
+          },
+          entries: t.fromSaid(forked.said),
+          todos: Object.values(forked.todos).flat(),
+          quarantine: [],
+          phase: null,
+          tokens: 0,
+          running: false,
+          askingTrust: forked.trust.known ? null : forked.directory,
+          forkedFrom: {
+            directory: forked.parent.directory,
+            id: forked.parent.id,
+            title: forked.parent.title ?? live.summary.title,
+            prompt: forked.parent.prompt,
+          },
+          focus: null,
+        })
+        // From the agent rather than from `entry.text`: what the composer opens with should be
+        // the prompt that was actually cut out, not the one this window thought it clicked.
+        setDraft(forked.prefill)
+        setProblem(null)
+        void refresh()
+        void readForks()
+      } catch (error) {
+        setProblem(String(error))
+      }
+    },
+    [live, refresh, readForks],
+  )
+
+  /** Show the session this one was cut out of, at the point of the cut. */
+  const openParent = useCallback(() => {
+    const from = live?.forkedFrom
+    if (!from) return
+    const found = sessions.find(
+      (session) => session.id === from.id && session.directory === from.directory,
+    )
+    if (found) void open(found, from.prompt)
+    else setProblem('the session this was forked from is no longer in the list')
+  }, [live, sessions, open])
+
+  /** Stop marking the prompt a fork link landed on, so the transcript behaves normally again. */
+  const clearFocus = useCallback(() => {
+    setLive((old) => (old && old.focus !== null ? { ...old, focus: null } : old))
+  }, [])
+
   const copyEntry = useCallback(
     (id: string) => {
       const entry = live?.entries.find((candidate) => candidate.id === id)
@@ -464,6 +630,7 @@ export function App(): React.JSX.Element {
     closeNamed,
     copyProjectPath,
     copyEntry,
+    forkEntry: (id) => void forkFrom(id),
     exportSession: (format) => void exportSession(format),
     toggleExportTools: () => setIncludeTools((on) => !on),
   })
@@ -510,6 +677,7 @@ export function App(): React.JSX.Element {
       <Sessions
         sessions={sessions}
         openId={live?.summary.id ?? undefined}
+        forked={forked}
         onOpen={open}
         onNew={create}
         build={build}
@@ -537,6 +705,9 @@ export function App(): React.JSX.Element {
         includeTools={includeTools}
         onToggleTools={() => setIncludeTools((on) => !on)}
         onExport={(format) => void exportSession(format)}
+        onFork={(id) => void forkFrom(id)}
+        onOpenParent={openParent}
+        onFocused={clearFocus}
         onDecide={answer}
         onAnswer={answerQuestions}
       />

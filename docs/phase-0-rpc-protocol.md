@@ -390,6 +390,89 @@ abandoned window leaves nothing behind.
 Errors with `not_a_directory` if the path is not one, or `no_home` if `~/.bravebot` cannot be
 located.
 
+#### `session.fork`
+
+```json
+{ "id": 5, "method": "session.fork",
+  "params": { "session": "s1", "prompt": 2, "text": "make it handle quotes" } }
+```
+
+```json
+{ "id": 5, "ok": {
+  "session": "s7", "id": "1756300000-4711", "directory": "…", "branch": "main",
+  "said": [ { "kind": "user"|"assistant"|"tool", "text": "…" } ],
+  "prefill": "make it handle quotes",
+  "context": "trusted",
+  "turns": 2,
+  "todos": { "1": [ { "content": "…", "status": "done" } ] },
+  "trust": { "known": true, "rules": [ { "path": "…", "integrity": "trusted" } ] },
+  "parent": { "id": "…", "directory": "…", "title": "fix the parser", "prompt": 2 }
+} }
+```
+
+Begins a session holding everything the parent said *before* one of its prompts. `prefill` is
+that prompt, handed back rather than kept, because the point of forking is to ask it
+differently: the front-end puts it in the composer and the person edits it.
+
+- `prompt` is a **0-based ordinal over `Said::User`** — the prompts a transcript drew — and not
+  a turn number. `text` is what that prompt said. Both are sent because they check each other:
+  the ordinal says where to cut, and the text says the front-end's idea of where agrees with the
+  conversation's. They can disagree. The agent writes user-role messages of its own that
+  `recounted` does not filter — a context file arrives as `Contents of …`, and a turn that
+  spends its tool budget is nudged with one — so a window that never drew them counts
+  differently from the conversation that holds them. A mismatch is `bad_request`; a fork taken
+  one prompt away from where somebody pointed is worse than one that did not happen.
+- The ordinal is turned back into a message index by walking `archive ++ messages` and consuming
+  the drawn prompts in order, matching on text. That is an **alignment, not a second copy of
+  `recounted`'s rules**: those rules drop a user message on what its text starts with, so a
+  message whose text equals a prompt the transcript showed cannot have been one of the dropped
+  ones. If a later build filters on something the text does not carry, the walk runs out of
+  matches and the fork is refused rather than cut somewhere else.
+- **The cut is a well-formed request by construction.** It lands in front of a prompt, which is
+  the same boundary compaction uses, so it cannot come between a call and its result; and
+  `Conversation::with_system` answers any call left unanswered anyway. Nothing here re-implements
+  tool-call pairing, and `crates/bravebot-bridge/src/fork.rs` pins both halves of that.
+- A cut inside the archive takes the child's whole history out of it: `archive` empties into
+  `messages`, since there is no longer a request for a compaction summary to stand in for. A cut
+  after it keeps both, summary included.
+- `measured` is reset to **0** — the figure described a conversation that no longer exists, and a
+  child inheriting it would open by trying to compact a history it has not sent. `references` is
+  carried, because it exists so a name is never handed out twice. `context` is carried verbatim
+  and **never raised**: integrity is met over a session's whole life and no message records its
+  own, so it cannot be recomputed for a prefix, and the only direction it may be wrong in is
+  downwards.
+- The **trust map and the vouched programs are inherited** from the parent's live state — the
+  same person, the same directory, the same window, which is the argument `session.open` already
+  makes for a resume. It is worth naming what this gives up: a program vouched for *after* the
+  cut is not in the child's history, and `TrustedPrograms` has no timeline to filter by. The
+  alternative is asking the same person about the same command again, which is how people are
+  taught to click through questions. `trust.known` is `false` when the parent was itself still
+  holding the question, and then the fork emits `trust.request` exactly as a new session does.
+- `turns` and `todos` are the parent's, cut to the same place: a turn's plan belongs to its turn.
+  Tokens start at nothing, because that figure answers "what has this session cost me".
+- The fork keeps the **title of the session it came from**, since its title is derived from the
+  first thing said in the history it kept. A fork at the first prompt has kept nothing, so it is
+  named by whatever is sent next, like any new session.
+- **Nothing is written.** The `id` is real and reserved from here, but the record appears on the
+  first turn, matching `session.new`: a fork opened and abandoned leaves no trace.
+- Refused with `turn_in_flight` while the parent has a turn running. Not tidiness: a worker holds
+  the session's state for the whole of its turn and dispatch is one thread, so a fork that waited
+  for that lock would stop the bridge answering anything — including the question the turn is
+  blocked on.
+- Refused with `bad_request` for a session that has not been written down yet: it has no history
+  to fork and no id to point back at.
+- Session ids are `<second>-<pid>`, so two begun in the same second in one process are the same
+  session as far as the store is concerned. Nothing else can reach that — every other way of
+  starting one has a turn's worth of time in front of it — but two forks are two clicks. The
+  bridge therefore waits a second out rather than handing back an id something else is holding.
+
+**Lineage is not in the record.** `Record` has no field for a parent, and adding one is an
+upstream change (§2); worse, `Handle::save` rebuilds the record wholesale, so a key written
+beside it would be erased by the fork's first turn. The front-end keeps it instead, in a
+`forks.json` of its own under `userData`, written by the main process **from this response** —
+never from what the renderer asked for. That is the same promise the recents list makes: the
+renderer can read the list and ask for something on it, and has no way to write to it.
+
 #### `session.close`
 
 ```json

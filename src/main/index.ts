@@ -17,6 +17,8 @@ import { parseContextRef, parseWindowState } from '../shared/commands'
 import { installMenu, popupContext, rebuildMenu, refreshMenu } from './menu'
 import { noteProject, recents } from './recents'
 import { isProjectPath } from '../shared/recents'
+import { forks, noteFork } from './forks'
+import { parseForkResult } from '../shared/forks'
 import {
   parseExportRequest,
   suggestedFilename,
@@ -96,6 +98,7 @@ const ALLOWED = new Set([
   'session.list',
   'session.open',
   'session.new',
+  'session.fork',
   'session.close',
   'turn.send',
   'turn.cancel',
@@ -131,6 +134,17 @@ app.whenReady().then(() => {
       if (method === 'session.open' || method === 'session.new') {
         const directory = (params as { directory?: unknown } | null)?.directory
         if (isProjectPath(directory) && noteProject(directory)) rebuildMenu()
+      }
+      // A fork is the one call whose *answer* is worth writing down: which session it made and
+      // which one it came out of. Read off the agent's reply and never off `params`, so the
+      // renderer cannot compose a lineage it was not given — the same promise the recents list
+      // makes one line up.
+      if (method === 'session.fork') {
+        const fork = parseForkResult(ok)
+        if (fork) {
+          noteFork(fork)
+          if (noteProject(fork.child.directory)) rebuildMenu()
+        }
       }
       return { ok }
     } catch (error) {
@@ -273,6 +287,9 @@ app.whenReady().then(() => {
 
   /** The projects opened before, newest first. Read-only on purpose. */
   ipcMain.handle('bravebot:recents:read', () => recents())
+
+  /** Which session came out of which. Read-only for the same reason the recents list is. */
+  ipcMain.handle('bravebot:forks:read', () => forks())
 
   // What the window can currently do, so the menu can grey what it cannot. The renderer is
   // the only thing that knows this, and it says so rather than being asked: a menu that has

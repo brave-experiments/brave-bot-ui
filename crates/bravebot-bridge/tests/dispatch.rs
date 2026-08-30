@@ -242,3 +242,61 @@ fn doctor_reports_rather_than_failing_when_bua_is_absent() {
     );
     assert!(report["text"].is_string());
 }
+
+// ------------------------------------------------------------------------------- forking
+
+#[test]
+fn forking_an_unknown_session_says_so() {
+    let (mut bridge, _) = harness();
+    assert_eq!(
+        call(&mut bridge, "session.fork", json!({ "session": "s99", "prompt": 0, "text": "x" })),
+        Err(ErrorCode::NoSuchSession),
+    );
+}
+
+/// A session that has never been written down has no history to fork and no id to point back
+/// at. Refused rather than answered with a session that came from nowhere.
+#[test]
+fn forking_a_session_that_has_said_nothing_is_refused() {
+    let (mut bridge, _) = harness();
+    let opened = call(
+        &mut bridge,
+        "session.new",
+        json!({ "directory": std::env::temp_dir().display().to_string() }),
+    )
+    .expect("opens");
+    let handle = opened["session"].as_str().expect("a handle").to_string();
+
+    assert_eq!(
+        call(&mut bridge, "session.fork", json!({ "session": handle, "prompt": 0, "text": "x" })),
+        Err(ErrorCode::BadRequest),
+    );
+}
+
+#[test]
+fn forking_needs_a_numeric_prompt_and_the_words_that_go_with_it() {
+    let (mut bridge, _) = harness();
+    let opened = call(
+        &mut bridge,
+        "session.new",
+        json!({ "directory": std::env::temp_dir().display().to_string() }),
+    )
+    .expect("opens");
+    let handle = opened["session"].as_str().expect("a handle").to_string();
+
+    assert_eq!(
+        call(&mut bridge, "session.fork", json!({ "session": &handle, "text": "x" })),
+        Err(ErrorCode::BadRequest),
+        "an ordinal is not optional",
+    );
+    assert_eq!(
+        call(&mut bridge, "session.fork", json!({ "session": &handle, "prompt": "0", "text": "x" })),
+        Err(ErrorCode::BadRequest),
+        "and it is a number, not the word for one",
+    );
+    assert_eq!(
+        call(&mut bridge, "session.fork", json!({ "session": &handle, "prompt": 0 })),
+        Err(ErrorCode::BadRequest),
+        "the prompt's own words are how the ordinal is checked, so they are required too",
+    );
+}

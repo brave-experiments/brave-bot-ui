@@ -14,6 +14,7 @@ import type { StoredLayout } from '../shared/layout'
 import type { StoredView } from '../shared/view'
 import type { CommandId, ContextCommandId, ContextRef, WindowState } from '../shared/commands'
 import type { ExportOutcome, ExportRequest } from '../shared/export'
+import type { Fork } from '../shared/forks'
 
 export interface Answer<T> {
   ok?: T
@@ -66,6 +67,16 @@ const api = {
    */
   readRecents(): Promise<string[]> {
     return ipcRenderer.invoke('bravebot:recents:read') as Promise<string[]>
+  },
+
+  /**
+   * Which session came out of which, newest first.
+   *
+   * No write half either, and for the same reason: the main process writes a line here from
+   * what the agent answered when a fork was made, so a lineage on screen is one that happened.
+   */
+  readForks(): Promise<Fork[]> {
+    return ipcRenderer.invoke('bravebot:forks:read') as Promise<Fork[]>
   },
 
   /** Ask the user for a project directory, natively. */

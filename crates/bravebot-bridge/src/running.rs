@@ -9,6 +9,7 @@
 //! thread holds only what it needs to answer a question or stop the work.
 
 use bravebot_agent::Conversation;
+use bravebot_agent::conversation::Snapshot;
 use crate::turn::{Kind, Reply};
 use bravebot_agent::confirm::{Decision, RunDecision};
 use bravebot_core::cancel::Cancel;
@@ -87,6 +88,47 @@ impl State {
             tokens: record.tokens,
             todos: record.todo_rows(),
             first_prompt: Some(record.title.clone()),
+        }
+    }
+
+    /// The state a fork begins with: part of another session's conversation, and an id of its
+    /// own.
+    ///
+    /// The handle is `Handle::begin` where [`State::resumed`] deliberately uses
+    /// `Handle::resuming`, and that one line is the whole difference between a fork and a
+    /// resume. Resuming keeps the record's id so a turn lands back in the session it was taken
+    /// in; forking takes a new one so the session it came from is left exactly as it was. Get
+    /// this backwards and the parent is silently rewritten with a shorter history — which is
+    /// what `tests/interop.rs` pins from both directions.
+    ///
+    /// The handle is made by the caller rather than here, because making one that is safe to
+    /// use is a question about every *other* session — see `Bridge::begin_unique`. It is made at
+    /// all, rather than left for `save` to mint, so the caller can say what the fork's durable
+    /// id is at once. It still writes nothing: like a session started fresh, a fork opened and
+    /// abandoned leaves no record.
+    ///
+    /// `turns` and `todos` come from the parent, cut to the same place the conversation was, so
+    /// the turn numbering the transcript shows carries on rather than restarting under a history
+    /// that already has some. `tokens` starts at nothing: the figure answers "what has this
+    /// session cost me", and this one has not run yet.
+    pub fn forked(
+        handle: Handle,
+        before: Snapshot,
+        trust: TrustStore,
+        programs: TrustedPrograms,
+        turns: usize,
+        todos: BTreeMap<usize, Vec<Row>>,
+        first_prompt: Option<String>,
+    ) -> Self {
+        Self {
+            conversation: Conversation::restored(before),
+            trust,
+            programs,
+            handle: Some(handle),
+            turns,
+            tokens: 0,
+            todos,
+            first_prompt,
         }
     }
 }

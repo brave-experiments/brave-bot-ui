@@ -23,6 +23,7 @@
     "package": "npm run bridge && electron-vite build && node scripts/package.mjs",
     "drive:menu": "npm run bridge && electron-vite build && node scripts/drive-menu.mjs",
     "drive:export": "npm run bridge && electron-vite build && node scripts/drive-export.mjs",
+    "drive:fork": "npm run bridge && electron-vite build && node scripts/drive-fork.mjs",
     "drive:packaged": "node scripts/drive-packaged.mjs"
   },
   "devDependencies": {
