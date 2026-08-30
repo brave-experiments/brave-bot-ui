@@ -185,10 +185,12 @@ export function PopMenu({
             .filter(Boolean)
             .join(' ')}
           // A checkable row is announced as one, so a screen reader says "on"/"off" rather
-          // than leaving the tick to be seen.
-          {...(entry.checked !== undefined
-            ? { role: 'menuitemcheckbox' as const, 'aria-checked': entry.checked }
-            : { role: 'menuitem' as const })}
+          // than leaving the tick to be seen. Written as two attributes rather than a spread
+          // of one object or the other: `aria-checked` is simply absent on a plain row, which
+          // is what `undefined` renders as, and a spread here is a shape a reader — and the
+          // repository's scanner — has to work out rather than read.
+          role={entry.checked !== undefined ? 'menuitemcheckbox' : 'menuitem'}
+          aria-checked={entry.checked}
           // `aria-disabled` rather than the attribute: a disabled button leaves the
           // accessibility tree, and the empty state here is a single disabled row that
           // still has to be readable.
