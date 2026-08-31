@@ -129,15 +129,18 @@ check(
   ours.every((id) => ALLOWED_IDS.includes(id)),
   `every non-role item is a declared command (${ours.join(', ')})`,
 )
-// The cheapest statement of the same thing: this feature reaches the agent through methods
-// that were already permitted, so the allow-list did not grow. Export is the reason to keep
-// checking it — writing a file to disk is the largest new capability this app has taken on,
-// and it deliberately reaches no agent method at all, so this number staying at 14 is an
-// assertion about the export feature as much as about the menu.
+// What the window may ask the agent for, counted. The number is checked rather than described
+// because it is the one place a feature can widen this app's reach without anybody noticing,
+// and a count that has to be edited is a change somebody has to look at.
+//
+// Export was the case for keeping it: writing a file to disk is the largest capability this app
+// has taken on and it reaches no agent method at all. Forking is the opposite case and the
+// reason the number is now 15 — cutting a conversation is something only the agent can do, so
+// it is a method, and it names nothing that decides any more than the other fourteen do.
 const allowed = (readFileSync('src/main/index.ts', 'utf8').match(/const ALLOWED = new Set\(\[([^\]]*)\]/) ?? [])[1]
 check(
-  allowed !== undefined && !/approve|decide/.test(allowed) && allowed.split(',').filter((s) => s.trim()).length === 14,
-  'the main-process allow-list is unchanged at 14 methods',
+  allowed !== undefined && !/approve|decide/.test(allowed) && allowed.split(',').filter((s) => s.trim()).length === 15,
+  'the main-process allow-list is 15 methods, none of which decides anything',
 )
 
 // --- accelerators are declared (they cannot be *dispatched* from here) -----------------
@@ -344,7 +347,9 @@ if (hasSessions) {
 }
 
 await app.evaluate(() => { globalThis.__pops = [] })
-const bubble = page.locator('.bubble').first()
+// A reply rather than any entry: tool lines inside a folded run carry no right-click at all,
+// which is its own small fact and not the one being checked here.
+const bubble = page.locator('.bubble.assistant').first()
 if (await bubble.isVisible().catch(() => false)) {
   await bubble.click({ button: 'right' })
   await page.waitForTimeout(400)
@@ -352,10 +357,25 @@ if (await bubble.isVisible().catch(() => false)) {
   check(pops.length === 1, 'right-clicking a transcript entry opens one menu')
   const ids = (pops[0] ?? []).map((i) => i.id)
   // The assertion the whole design is for: a transcript entry offers copying and nothing
-  // else. A confirm card gets the same one item as a plain message.
+  // else. A confirm card gets the same one item as a plain reply.
   check(
     ids.join() === 'context.entry.copy',
     `and it offers copying and nothing that decides (${ids.join(', ')})`,
+  )
+}
+
+// A prompt is the one exception, and it is not an exception to the rule above: forking decides
+// nothing. It opens a session holding what was said before that point, and every question the
+// new session raises is asked in its transcript. `drive-fork.mjs` walks what it does.
+await app.evaluate(() => { globalThis.__pops = [] })
+const prompt = page.locator('.bubble.user').first()
+if (await prompt.isVisible().catch(() => false)) {
+  await prompt.click({ button: 'right' })
+  await page.waitForTimeout(400)
+  const ids = ((await app.evaluate(() => globalThis.__pops))[0] ?? []).map((i) => i.id)
+  check(
+    ids.join() === 'context.entry.copy,context.entry.fork',
+    `and a prompt offers copying and forking, and still nothing that decides (${ids.join(', ')})`,
   )
 }
 

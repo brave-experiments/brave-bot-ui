@@ -259,6 +259,9 @@ export function popupContext(reference: ContextRef): void {
     items.map((entry) => ({
       id: entry.id,
       label: entry.label,
+      // Greyed from the same window state the menu bar is greyed from, so an item that the
+      // window would refuse is not black in one menu and grey in the other.
+      enabled: entry.requires ? isEnabled(entry.requires, state) : true,
       click: () => choose(entry.id, reference),
     })),
   )

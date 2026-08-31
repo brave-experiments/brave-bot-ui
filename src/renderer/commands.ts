@@ -43,6 +43,14 @@ export interface CommandActions {
   copyProjectPath: (id: string) => void
   /** Put a named transcript entry's text on the clipboard. */
   copyEntry: (id: string) => void
+  /**
+   * Begin a session holding everything said before a named prompt, with that prompt to edit.
+   *
+   * Named the same way `copyEntry` is — the id of a row, resolved against the transcript here
+   * rather than sent anywhere. What crosses to the agent is where that row falls among the
+   * prompts, and what it said.
+   */
+  forkEntry: (id: string) => void
   /** Write the open session's conversation to a file, in one of three formats. */
   exportSession: (format: ExportFormat) => void
   /** Flip whether an export carries the tool calls as well as the conversation. */
@@ -78,6 +86,8 @@ export function useCommandRouter(actions: CommandActions): void {
           return context && act.copyProjectPath(context.id)
         case 'context.entry.copy':
           return context && act.copyEntry(context.id)
+        case 'context.entry.fork':
+          return context && act.forkEntry(context.id)
         case 'session.new':
           return act.create()
         case 'session.close':

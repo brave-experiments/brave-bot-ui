@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SessionSummary } from '../../shared/protocol'
+import type { ContextTarget } from '../../shared/commands'
+import { keyOf } from '../../shared/forks'
 import { Fold } from './Fold'
+import { ForkIcon } from './ForkIcon'
 import { PopMenu, type PopItem } from './PopMenu'
 
 interface Props {
   sessions: SessionSummary[]
   openId: string | undefined
+  /** Which sessions came out of another one, by `directory/id`. */
+  forked: ReadonlySet<string>
   onOpen: (summary: SessionSummary) => void
   onNew: (directory?: string) => void
   build: string | null
@@ -17,7 +22,7 @@ interface Props {
  * Only the kind and the id travel. What the menu says is decided over there, from labels
  * compiled into it, so nothing on screen can put a word into a native menu.
  */
-function contextMenu(target: 'session' | 'entry', id: string) {
+function contextMenu(target: ContextTarget, id: string) {
   return (event: React.MouseEvent): void => {
     event.preventDefault()
     window.bravebot.popupContext({ target, id })
@@ -38,7 +43,14 @@ function contextMenu(target: 'session' | 'entry', id: string) {
  */
 export { contextMenu }
 
-export function Sessions({ sessions, openId, onOpen, onNew, build }: Props): React.JSX.Element {
+export function Sessions({
+  sessions,
+  openId,
+  forked,
+  onOpen,
+  onNew,
+  build,
+}: Props): React.JSX.Element {
   // Local rather than lifted into `App`. The convention there is that state lives in `App`,
   // but the reason given for the composer's draft is that the menu has to read it; nothing
   // outside this column reads the query, and — more to the point — `App` looks a right-
@@ -146,6 +158,7 @@ export function Sessions({ sessions, openId, onOpen, onNew, build }: Props): Rea
               key={`${session.directory}/${session.id}`}
               session={session}
               openId={openId}
+              forked={forked.has(keyOf(session.directory, session.id))}
               onOpen={onOpen}
             />
           ))}
@@ -157,6 +170,7 @@ export function Sessions({ sessions, openId, onOpen, onNew, build }: Props): Rea
               open={searching || !collapsed.has(group.directory)}
               onToggle={toggleGroup}
               openId={openId}
+              forked={forked}
               onOpen={onOpen}
               onNew={onNew}
             />
@@ -194,6 +208,7 @@ function Group({
   open,
   onToggle,
   openId,
+  forked,
   onOpen,
   onNew,
 }: {
@@ -201,6 +216,7 @@ function Group({
   open: boolean
   onToggle: (directory: string) => void
   openId: string | undefined
+  forked: ReadonlySet<string>
   onOpen: (summary: SessionSummary) => void
   onNew: (directory: string) => void
 }): React.JSX.Element {
@@ -242,6 +258,7 @@ function Group({
             key={`${session.directory}/${session.id}`}
             session={session}
             openId={openId}
+            forked={forked.has(keyOf(session.directory, session.id))}
             onOpen={onOpen}
           />
         ))}
@@ -262,10 +279,12 @@ function Group({
 function Session({
   session,
   openId,
+  forked,
   onOpen,
 }: {
   session: SessionSummary
   openId: string | undefined
+  forked: boolean
   onOpen: (summary: SessionSummary) => void
 }): React.JSX.Element {
   return (
@@ -278,8 +297,21 @@ function Session({
           to 60 characters and an ellipsis of its own before it is ever stored, and this
           cannot get back what was dropped there. It gets back what the column dropped on
           top of that, which at this width is most of it — and two sessions in a project
-          often differ only in the part that gets cut. */}
+          often differ only in the part that gets cut. The mark is left out of it: it is
+          said in words beside the glyph, and a tooltip is for what the column clipped. */}
+      {/* The word the glyph stands in for, said to a reader who does not see glyphs. Outside
+          the title and not inside it: `.offscreen` is taken out of the flow, so this costs
+          the layout nothing wherever it sits — and inside, it would be part of what the
+          title element *says*, which is a session's name and nothing else. */}
+      {forked && <span className="offscreen">Forked. </span>}
       <span className="session-title" title={session.title}>
+        {/* Before the name rather than after it, so the marks line up down the column
+            instead of hanging off titles of every length. */}
+        {forked && (
+          <span className="fork-mark">
+            <ForkIcon size={11} />
+          </span>
+        )}
         {session.title}
       </span>
       <span className="session-where">

@@ -90,6 +90,36 @@ export interface OpenedSession {
   buildNote: string | null
 }
 
+/**
+ * A session begun from part of another one.
+ *
+ * `said` is the child's own transcript rather than a slice of the parent's, so a window draws a
+ * fork from what the conversation says instead of from what it happened to have on screen.
+ * `prefill` is the prompt it was cut in front of — handed back rather than kept, because the
+ * point of forking is to ask it differently.
+ */
+export interface ForkedSession {
+  session: string
+  /** The child's durable id. Real from here, though its record waits for the first turn. */
+  id: string
+  directory: string
+  branch: string | null
+  said: Said[]
+  prefill: string
+  context: string
+  turns: number
+  todos: Record<string, TodoRow[]>
+  trust: { known: boolean; rules: { path: string; integrity: string }[] | null }
+  parent: {
+    id: string
+    directory: string
+    /** What the parent is called, for a banner that has not read the session list yet. */
+    title: string | null
+    /** Which of its prompts the cut was made in front of. */
+    prompt: number
+  }
+}
+
 export interface ConfirmRequest {
   request: number
   path: string

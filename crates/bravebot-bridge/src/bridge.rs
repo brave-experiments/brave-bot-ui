@@ -80,6 +80,7 @@ impl Bridge {
             "session.list" => self.list(request),
             "session.open" => self.open_session(request),
             "session.new" => self.new_session(request),
+            "session.fork" => self.fork_session(request),
             "session.close" => self.close_session(request),
             "turn.send" => self.send_turn(request),
             "turn.cancel" => self.cancel_turn(request),
@@ -179,11 +180,7 @@ impl Bridge {
         let conversation = bravebot_agent::Conversation::restored(record.conversation.clone());
         let said: Vec<Value> = conversation.recounted().iter().map(wire::said).collect();
 
-        let todos: HashMap<String, Vec<Value>> = record
-            .todo_rows()
-            .iter()
-            .map(|(turn, rows)| (turn.to_string(), rows.iter().map(wire::row).collect()))
-            .collect();
+        let todos = todos_json(&record.todo_rows());
 
         json!({
             "session": handle,
@@ -256,6 +253,149 @@ impl Bridge {
             "session": handle,
             "directory": directory.display().to_string(),
             "branch": branch,
+        }))
+    }
+
+    /// Begin a session from part of another one.
+    ///
+    /// The cut is named by an ordinal over the prompts the transcript drew, and by the text of
+    /// the prompt at that ordinal. Both, because they check each other: the ordinal says where,
+    /// and the text says that the front-end's idea of where agrees with the conversation's. A
+    /// window can count differently — the agent writes user-role messages of its own that a
+    /// transcript draws but nobody typed — and a fork taken one prompt away from where somebody
+    /// pointed is worse than one that did not happen.
+    ///
+    /// Nothing is written. The child's id is real and reserved from here, but its record appears
+    /// on its first turn like any other session's, so a fork opened and abandoned leaves no
+    /// trace. See `docs/phase-0-rpc-protocol.md` §7.1.
+    fn fork_session(&mut self, request: &Request) -> Result<Value, Failure> {
+        let handle = request.string("session")?;
+        let ordinal = request.number("prompt")? as usize;
+        let text = request.string("text")?;
+
+        self.reap(&handle);
+
+        let open = self.open.get(&handle).ok_or_else(Failure::no_such_session)?;
+        // Refused rather than queued, and not out of tidiness: a worker holds the session's
+        // state for the whole of its turn, and dispatch is one thread. A fork that waited for
+        // the lock would stop this bridge answering anything — including the question the turn
+        // is blocked on, which is the thing that would let it finish.
+        if open.running.is_some() {
+            return Err(Failure::new(
+                ErrorCode::TurnInFlight,
+                "a turn is running in the session being forked",
+            ));
+        }
+
+        let project = open.project.clone();
+        let answered_trust = open.answered_trust;
+
+        // Everything needed is copied out under the lock and the lock is dropped before any of
+        // it is used. A fork does no I/O and no thinking, but holding a session's state across
+        // work is the habit that turns into a stall later.
+        let (snapshot, said, trust, programs, todos, parent_id, parent_title) = {
+            let state = open
+                .state
+                .lock()
+                .map_err(|_| Failure::new(ErrorCode::Internal, "session state is poisoned"))?;
+            let Some(parent) = state.handle.as_ref() else {
+                return Err(Failure::bad_request(
+                    "this session has not been written down yet, so there is nothing to fork from",
+                ));
+            };
+            (
+                state.conversation.snapshot(),
+                state.conversation.recounted(),
+                state.trust.clone(),
+                state.programs.clone(),
+                state.todos.clone(),
+                parent.id().to_string(),
+                parent.title().to_string(),
+            )
+        };
+
+        let cut = crate::fork::cut(&snapshot, &said, ordinal).ok_or_else(|| {
+            Failure::bad_request(format!("no prompt {ordinal} to fork in front of"))
+        })?;
+        if cut.prompt != text {
+            return Err(Failure::bad_request(
+                "the prompt at that position is not the one this fork names; \
+                 reopen the session and fork again",
+            ));
+        }
+
+        // What the child's own transcript reads as, from the same projection a resume uses, so
+        // the front-end draws the fork from what the conversation says rather than from a slice
+        // of what it happened to have on screen.
+        let before = bravebot_agent::Conversation::restored(cut.before.clone()).recounted();
+        let recounted: Vec<Value> = before.iter().map(wire::said).collect();
+        // The first thing said in the history the child keeps, which is what titles it. Without
+        // this a fork would be named after the prompt that replaced the one it was cut at, and a
+        // list of forks would say nothing about where any of them came from.
+        let first_prompt = crate::fork::prompts(&before)
+            .first()
+            .map(|prompt| (*prompt).to_string());
+
+        // Cut to the same place the conversation was: a turn's plan belongs to the turn, and the
+        // child has the turns before the cut and no others.
+        let todos: std::collections::BTreeMap<_, _> =
+            todos.into_iter().filter(|(turn, _)| *turn <= ordinal).collect();
+        // The child knows its map exactly when the parent did. A parent still holding the
+        // question — a record written before maps were kept — hands the question down.
+        let known = answered_trust;
+        let rules = rules_json(&trust);
+
+        let begun = self.begin_unique(&project)?;
+        let id = begun.id().to_string();
+
+        let child = self.mint(Open {
+            project: project.clone(),
+            state: Arc::new(Mutex::new(State::forked(
+                begun,
+                cut.before,
+                trust,
+                programs,
+                ordinal,
+                todos.clone(),
+                first_prompt,
+            ))),
+            // Inherited along with the map itself: the same person, in the same directory, in
+            // the same window, so asking again would be asking somebody to answer twice.
+            answered_trust,
+            running: None,
+        });
+
+        if !answered_trust {
+            self.emitter.send(Event::new(
+                "trust.request",
+                &child,
+                json!({ "directory": project.display().to_string() }),
+            ));
+        }
+
+        let title = if parent_title.is_empty() {
+            store::load(&project, &parent_id).map(|record| record.title)
+        } else {
+            Some(parent_title)
+        };
+
+        Ok(json!({
+            "session": child,
+            "id": id,
+            "directory": project.display().to_string(),
+            "branch": bravebot_tui::sessions::branch_of(&project),
+            "said": recounted,
+            "prefill": cut.prompt,
+            "context": snapshot.context,
+            "turns": ordinal,
+            "todos": todos_json(&todos),
+            "trust": { "known": known, "rules": if known { Value::from(rules) } else { Value::Null } },
+            "parent": {
+                "id": parent_id,
+                "directory": project.display().to_string(),
+                "title": title,
+                "prompt": ordinal,
+            },
         }))
     }
 
@@ -521,6 +661,50 @@ impl Bridge {
 
     // ------------------------------------------------------------ plumbing
 
+    /// A handle for a new session whose id nothing else is using.
+    ///
+    /// The agent's ids are the second plus the process id, so two sessions begun in the same
+    /// second in the same process *are* the same session as far as the store is concerned — the
+    /// one saved second would overwrite the first. Resuming cannot reach that and starting
+    /// sessions by hand barely can, since both need a turn's worth of time in between. Forking
+    /// can: a fork is written down the moment it is asked for, and a fork of a fork is two ids
+    /// minted by two clicks.
+    ///
+    /// A second is the whole resolution of the collision, so waiting one out is the whole fix.
+    /// Taken means either a record already on disk or an id another open session is holding —
+    /// the second matters because a fork nobody has spoken to yet has an id and no record, and
+    /// that is exactly the case this exists for.
+    fn begin_unique(&self, project: &std::path::Path) -> Result<Handle, Failure> {
+        for attempt in 0..6 {
+            if attempt > 0 {
+                thread::sleep(std::time::Duration::from_millis(250));
+            }
+            let handle = Handle::begin(project);
+            if !self.id_taken(project, handle.id()) {
+                return Ok(handle);
+            }
+        }
+        Err(Failure::new(
+            ErrorCode::Internal,
+            "could not find an unused session id for the fork",
+        ))
+    }
+
+    fn id_taken(&self, project: &std::path::Path, id: &str) -> bool {
+        if store::load(project, id).is_some() {
+            return true;
+        }
+        self.open.values().any(|open| {
+            open.project == project
+                && open
+                    .state
+                    .lock()
+                    .ok()
+                    .and_then(|state| state.handle.as_ref().map(|held| held.id() == id))
+                    .unwrap_or(false)
+        })
+    }
+
     fn mint(&mut self, session: Open) -> String {
         self.next_handle += 1;
         let handle = format!("s{}", self.next_handle);
@@ -630,19 +814,7 @@ fn work(work: Work) {
 
             save(&project, &mut state, turn, sink.trail());
 
-            let rules: Vec<Value> = state
-                .trust
-                .rules()
-                .map(|(path, integrity)| {
-                    // The same two words the record is written with, so a rule reads the
-                    // same whether it came off disk or out of a finished turn.
-                    let integrity = match integrity {
-                        bravebot_core::label::Integrity::Trusted => "trusted",
-                        bravebot_core::label::Integrity::Untrusted => "untrusted",
-                    };
-                    json!({ "path": path, "integrity": integrity })
-                })
-                .collect();
+            let rules = rules_json(&state.trust);
 
             emitter.send(Event::new(
                 "turn.done",
@@ -707,4 +879,31 @@ fn save(project: &std::path::Path, state: &mut State, turn: usize, trail: &brave
         },
     );
     handle.append_audit(turn, trail.events());
+}
+
+/// The task lists, keyed by turn as a string, because JSON object keys are.
+fn todos_json(
+    todos: &std::collections::BTreeMap<usize, Vec<bravebot_core::todo::Row>>,
+) -> HashMap<String, Vec<Value>> {
+    todos
+        .iter()
+        .map(|(turn, rows)| (turn.to_string(), rows.iter().map(wire::row).collect()))
+        .collect()
+}
+
+/// A trust map as a front-end reads it.
+///
+/// The same two words the record is written with, so a rule reads the same whether it came off
+/// disk, out of a finished turn, or out of the session a fork inherited it from.
+fn rules_json(trust: &TrustStore) -> Vec<Value> {
+    trust
+        .rules()
+        .map(|(path, integrity)| {
+            let integrity = match integrity {
+                bravebot_core::label::Integrity::Trusted => "trusted",
+                bravebot_core::label::Integrity::Untrusted => "untrusted",
+            };
+            json!({ "path": path, "integrity": integrity })
+        })
+        .collect()
 }

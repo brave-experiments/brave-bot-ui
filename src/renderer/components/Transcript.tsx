@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AskAnswer, AskPrompt, Phase, Shown, TodoRow } from '../../shared/protocol'
 import * as t from '../transcript'
 import type { Side } from '../columns'
@@ -6,6 +6,7 @@ import type { Asked } from '../App'
 import type { ExportFormat } from '../../shared/export'
 import { Diff } from './Diff'
 import { Fold } from './Fold'
+import { ForkIcon } from './ForkIcon'
 import { contextMenu } from './Sessions'
 import { Markdown } from './Markdown'
 import { PopMenu, type PopItem } from './PopMenu'
@@ -20,6 +21,8 @@ interface Live {
   tokens: number
   running: boolean
   askingTrust: string | null
+  forkedFrom: { directory: string; id: string; title: string; prompt: number } | null
+  focus: number | null
 }
 
 /**
@@ -51,6 +54,12 @@ interface Props {
   onCancel: () => void
   onDecide: Answer
   onAnswer: AnswerQuestions
+  /** Begin a session from what was said before a named prompt. */
+  onFork: (id: string) => void
+  /** Show the session this one was forked out of, at the prompt it was cut in front of. */
+  onOpenParent: () => void
+  /** Said once the marked prompt has been scrolled to, so the mark can be let go of. */
+  onFocused: () => void
   /** Whether there is any conversation to write down. */
   canExport: boolean
   /** Whether an export will carry the tool calls as well as the conversation. */
@@ -114,16 +123,64 @@ export function Transcript({
   onCancel,
   onDecide,
   onAnswer,
+  onFork,
+  onOpenParent,
+  onFocused,
   canExport,
   includeTools,
   onToggleTools,
   onExport,
 }: Props): React.JSX.Element {
   const bottom = useRef<HTMLDivElement>(null)
+  const marked = useRef<HTMLDivElement>(null)
+
+  /**
+   * Which row a fork link is pointing at, resolved from an ordinal over the prompts.
+   *
+   * The ordinal is the coordinate, not the id: ids are minted fresh each time a session is
+   * opened, so nothing durable can name a row. Counting prompts is what both sides of a fork
+   * agree on, and it is the same count the cut was made on.
+   */
+  const focused = useMemo(() => {
+    if (!live || live.focus === null) return null
+    let seen = 0
+    for (const entry of live.entries) {
+      if (entry.kind !== 'user') continue
+      if (seen === live.focus) return entry.id
+      seen += 1
+    }
+    // A parent with fewer prompts than it had. The link still opened the right session, which
+    // is the honest half of what it promised.
+    return null
+  }, [live])
+
+  // Read inside the effect below rather than depended on, and that is the whole point: a
+  // transcript follows the conversation, but one that has been *sent* somewhere must stay
+  // where it was sent. As a dependency, letting go of the mark would count as a change and
+  // drag the view to the bottom a second and a half after the link landed on the row.
+  const focusRef = useRef<number | null>(null)
+  focusRef.current = live?.focus ?? null
 
   useEffect(() => {
+    if (focusRef.current !== null) return
     bottom.current?.scrollIntoView({ behavior: 'smooth' })
   }, [live?.entries.length, live?.phase])
+
+  useEffect(() => {
+    if (!focused) return
+    // Instant, unlike the bottom-follow above. A smooth scroll is right for a transcript
+    // growing under you and wrong for a link: it can be hundreds of lines to travel, and a
+    // reader watching the intervening session fly past has been shown the journey rather than
+    // the place they asked for.
+    // The row inside the wrapper, not the wrapper: `.entry-hit` is `display: contents`, so it
+    // has no box of its own — and an element with no box cannot be scrolled to. The same
+    // reason `.entry-hit.focused` paints its child rather than itself.
+    marked.current?.firstElementChild?.scrollIntoView({ behavior: 'auto', block: 'center' })
+    // Let go of the mark rather than leaving it: it says "this is the row you asked for", and
+    // a row that keeps saying that is a row that looks selected.
+    const timer = setTimeout(onFocused, 1600)
+    return () => clearTimeout(timer)
+  }, [focused, onFocused])
 
   // The header is outside this branch on purpose. It carries the fold toggles and the
   // window's drag strip, and with no session open there would otherwise be neither: a
@@ -156,6 +213,7 @@ export function Transcript({
         <ColumnToggle side="right" collapsed={collapsed.right} onToggle={onToggle} />
       </div>
       {problem && <p className="note">{problem}</p>}
+      {live?.forkedFrom && <ForkBanner from={live.forkedFrom} onOpen={onOpenParent} />}
     </header>
   )
 
@@ -187,10 +245,25 @@ export function Transcript({
             // alternative was an `onContextMenu` on each of the eleven shapes `Row` returns.
             <div
               key={run.entry.id}
-              className="entry-hit"
-              onContextMenu={contextMenu('entry', run.entry.id)}
+              className={`entry-hit ${run.entry.id === focused ? 'focused' : ''}`}
+              ref={run.entry.id === focused ? marked : undefined}
+              // A prompt is the one row that came from the person reading it, and the only one
+              // a fork can be cut in front of, so it is a different kind of thing to
+              // right-click. The menu it gets is still decided in the main process.
+              onContextMenu={contextMenu(
+                run.entry.kind === 'user' ? 'entry-user' : 'entry',
+                run.entry.id,
+              )}
             >
-              <Row entry={run.entry} onDecide={onDecide} onAnswer={onAnswer} />
+              <Row
+                entry={run.entry}
+                onDecide={onDecide}
+                onAnswer={onAnswer}
+                onFork={onFork}
+                // Greyed rather than gone while a turn runs, the way the menu item is: a
+                // control that disappears is one the reader has to go looking for again.
+                forkable={!live.running}
+              />
             </div>
           ),
         )}
@@ -393,6 +466,10 @@ function ToolRun({ entries }: { entries: t.Entry[] }): React.JSX.Element {
             entry={entry}
             onDecide={() => undefined}
             onAnswer={() => undefined}
+            // A run holds tool lines and nothing else, so neither of these can be reached
+            // from in here — and a folded row carries no right-click either.
+            onFork={() => undefined}
+            forkable={false}
           />
         ))}
       </Fold>
@@ -539,6 +616,39 @@ function Questions({
   )
 }
 
+/**
+ * The line at the top of a session that was cut out of another one.
+ *
+ * In the header, beside the notes about the branch and the build, rather than in the scroller.
+ * Those are the other two things the window says *about* a session rather than in it, and a
+ * transcript is long: an indicator that has to be scrolled back to is one nobody reads.
+ *
+ * A button and not a link: nothing in this window navigates, and an `<a href>` here would be
+ * the one thing on screen that could. It is also not a `t.Entry`, which is what keeps it out of
+ * `t.conversation` and therefore out of every export — a note this window wrote about a session
+ * is not something the session said.
+ */
+function ForkBanner({
+  from,
+  onOpen,
+}: {
+  from: { title: string; prompt: number }
+  onOpen: () => void
+}): React.JSX.Element {
+  return (
+    <p className="fork-banner">
+      <span className="fork-mark">
+        <ForkIcon />
+      </span>{' '}
+      Forked from{' '}
+      <button className="link" onClick={onOpen} title="Show the session this was forked from">
+        {from.title}
+      </button>
+      , before prompt {from.prompt + 1}.
+    </p>
+  )
+}
+
 /** What somebody answered, in words, for the record left in the transcript. */
 function describe(prompt: AskPrompt, answer: AskAnswer | undefined): string {
   if (!answer) return 'Declined'
@@ -554,14 +664,39 @@ function Row({
   entry,
   onDecide,
   onAnswer,
+  onFork,
+  forkable,
 }: {
   entry: t.Entry
   onDecide: Answer
   onAnswer: AnswerQuestions
+  onFork: (id: string) => void
+  /** Whether a fork can be taken at all right now — false while a turn is running. */
+  forkable: boolean
 }): React.JSX.Element {
   switch (entry.kind) {
     case 'user':
-      return <div className="bubble user">{entry.text}</div>
+      return (
+        <div className="bubble user">
+          {entry.text}
+          {/* Inside the bubble, and positioned out of it. The wrapper this row sits in is
+              `display: contents` and has no box to hang anything off, and the bubble is the
+              only thing here that knows where the row actually is on screen. */}
+          <button
+            className="fork-here"
+            aria-label="Fork from here"
+            title={
+              forkable
+                ? 'Start a session from what was said before this'
+                : 'Wait for the turn to finish'
+            }
+            disabled={!forkable}
+            onClick={() => onFork(entry.id)}
+          >
+            <ForkIcon />
+          </button>
+        </div>
+      )
 
     case 'assistant':
       // The only formatted surface in the app. See Markdown.tsx for why it is the only one.

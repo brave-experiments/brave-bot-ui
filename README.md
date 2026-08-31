@@ -47,6 +47,33 @@ Three columns, each side one resizable and foldable:
 The two side columns fold to nothing from a chevron at either end of the transcript's
 header, and their widths and fold states survive a relaunch.
 
+### Forking
+
+Hover a prompt you wrote and a fork appears beside it; right-clicking one offers **Fork From
+Here** as well, and both do the same thing. That begins a session holding everything said
+*before* that prompt, and puts the prompt itself in the composer to be edited and asked
+differently — which is the usual reason to want one: a conversation that went somewhere
+unhelpful, and a wish to go back rather than to start again from nothing.
+
+The session it came from is not touched. A fork is a session of its own from the first moment,
+with its own id, and — like a new session — it writes no record until it has something to say.
+It inherits what the parent had answered about trusting the directory, and the commands vouched
+for there, since it is the same person in the same checkout.
+
+The cut is made by the agent, on its own conversation, in front of a message rather than in
+front of a row on screen. A transcript is a projection of the exchange, so what crosses is
+where the prompt falls among the prompts and what it said; the two are checked against each
+other, and a fork that cannot be placed exactly is refused rather than made in roughly the
+right place. `docs/phase-0-rpc-protocol.md` §7.1 has the argument in full.
+
+A forked session says so in its header, with a link back to the session it came out of, which
+opens it at the prompt the cut was made in front of. The session list marks a fork beside its
+name. All three are the same mark — the control on a prompt, the banner, and the row — because
+they are the same idea. None of it can live in the agent's own record — that has no field for a
+parent, and it is rewritten after every turn — so the lineage comes from a file this app keeps
+beside the recents list, written by the main process from what the agent answered rather than
+from anything the window asked for.
+
 An **Export** button sits beside Send, and File › Export offers the same three formats:
 plain text, Markdown, or a PDF that keeps the window's own bubbles. What it writes by default
 is the *conversation* — what was asked and what came back — and never the diffs, approval
@@ -271,6 +298,7 @@ at, that a control keeps keyboard focus through an animation.
 | `npm run drive:ask` | Answering a series of questions the planner asks, likewise live |
 | `npm run drive:menu` | The application menu: what it offers, what it greys, and what it refuses to offer |
 | `npm run drive:export` | Exporting a conversation to text, Markdown and PDF — with and without the tool calls, and what the file leaves out either way |
+| `npm run drive:fork` | Cutting a session in two: that the fork holds the right half and the session it came from is untouched |
 | `npm run drive:packaged` | A built `.app`: that a release hides the developer items and finds its agent |
 | `node scripts/drive-turn.mjs` | A live inference request through the window, to prove the binary carries its credentials rather than inheriting them |
 | `scripts/smoke-turn.sh` | A live turn straight through `bravebot-rpc`, no app |

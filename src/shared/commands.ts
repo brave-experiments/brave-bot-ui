@@ -44,7 +44,7 @@ export type CommandId =
  * with the rest of the declaration: the main process greys a menu item by it, and anything
  * drawing an in-window menu can grey a row by the same tag rather than by its own opinion.
  */
-export type Requires = 'always' | 'session' | 'running' | 'sendable' | 'exportable'
+export type Requires = 'always' | 'session' | 'running' | 'sendable' | 'exportable' | 'forkable'
 
 export interface Command {
   id: CommandId
@@ -185,6 +185,11 @@ export function isEnabled(requires: Requires, state: WindowState): boolean {
       return state.canSend
     case 'exportable':
       return state.canExport
+    case 'forkable':
+      // A fork cuts the conversation the session is holding, and a turn in flight is holding
+      // it. The agent refuses one anyway; this is so the menu does not offer what it will
+      // refuse.
+      return state.hasSession && !state.running
   }
 }
 
@@ -258,7 +263,7 @@ export function isCommandId(value: unknown): value is CommandId {
  * A closed union rather than a free string, because this is what the renderer is allowed to
  * say when it asks for a popup, and the main process builds the menu from it.
  */
-export type ContextTarget = 'session' | 'entry' | 'directory'
+export type ContextTarget = 'session' | 'entry' | 'entry-user' | 'directory'
 
 export type ContextCommandId =
   /** Start a session in a project the main process named, from File > Open Recent. */
@@ -267,6 +272,7 @@ export type ContextCommandId =
   | 'context.session.close'
   | 'context.session.copy-path'
   | 'context.entry.copy'
+  | 'context.entry.fork'
 
 /**
  * What appears on a right-click, decided here and built in the main process.
@@ -282,8 +288,18 @@ export type ContextCommandId =
  * Note what an entry offers: copying, and nothing else. A confirm card, a command about to
  * be run and a quarantined blob all get the same one item as a plain message. Approving is
  * not on a context menu for the same reason it is not on an accelerator.
+ *
+ * A prompt the user typed offers one thing more, because it is the one row in a transcript that
+ * came from the person reading it: forking. That is not an exception to the rule above. Forking
+ * decides nothing — it opens a session holding what was said before that point and puts the
+ * prompt in a composer to be edited — and every question the new session raises is still asked
+ * in its transcript, beside the evidence. The renderer says a prompt was clicked; it still
+ * cannot say what the menu reads.
  */
-export const CONTEXT: Record<ContextTarget, readonly { id: ContextCommandId; label: string }[]> = {
+export const CONTEXT: Record<
+  ContextTarget,
+  readonly { id: ContextCommandId; label: string; requires?: Requires }[]
+> = {
   // Not right-clickable: a directory reference only ever arrives from File > Open Recent,
   // which builds its own items. It is here so the union is total.
   directory: [],
@@ -293,6 +309,10 @@ export const CONTEXT: Record<ContextTarget, readonly { id: ContextCommandId; lab
     { id: 'context.session.copy-path', label: 'Copy Project Path' },
   ],
   entry: [{ id: 'context.entry.copy', label: 'Copy' }],
+  'entry-user': [
+    { id: 'context.entry.copy', label: 'Copy' },
+    { id: 'context.entry.fork', label: 'Fork From Here…', requires: 'forkable' },
+  ],
 }
 
 /** Which thing was clicked. An identifier and a kind; never anything renderable. */
@@ -304,14 +324,24 @@ export interface ContextRef {
 export function parseContextRef(value: unknown): ContextRef | null {
   if (typeof value !== 'object' || value === null) return null
   const { target, id } = value as Record<string, unknown>
-  if (target !== 'session' && target !== 'entry' && target !== 'directory') return null
+  // Checked against the table rather than against a list written out again here, so a target
+  // added above cannot be one the boundary quietly refuses.
+  if (typeof target !== 'string' || !isContextTarget(target)) return null
   if (typeof id !== 'string' || id.length === 0) return null
   return { target, id }
 }
 
+function isContextTarget(value: string): value is ContextTarget {
+  return Object.hasOwn(CONTEXT, value)
+}
+
+/**
+ * Every target's items, rather than a list of the targets that had any when this was written.
+ * A new kind of thing to right-click should not need remembering here in order to work.
+ */
 export function isContextCommandId(value: unknown): value is ContextCommandId {
   return (
     typeof value === 'string' &&
-    (CONTEXT.session.some((i) => i.id === value) || CONTEXT.entry.some((i) => i.id === value))
+    Object.values(CONTEXT).some((items) => items.some((item) => item.id === value))
   )
 }
