@@ -1023,7 +1023,47 @@ button { font: inherit; color: inherit; cursor: pointer; }
   padding-top: 46px;
 }
 
+/* The row of connected buttons at the top of the column, one per panel.
+   Connected rather than five separate controls, because it is one choice about one column: the
+   shape a segmented control has on this platform. Borders on the insides only, so the row reads
+   as a single object with divisions in it. */
+.context-head { padding: 0 14px 8px; }
+.panel-bar {
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  overflow: hidden;
+  /* Nothing of its own. The lit segments are the light ones, so the ground has to be the
+     column's, or the panels that are *off* would be the ones glowing white. */
+  background: transparent;
+}
+.panel-pick {
+  flex: 1;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-faint);
+}
+.panel-pick:first-child { border-left: 0; }
+.panel-pick:hover { background: rgba(127, 127, 127, 0.12); color: var(--ink-dim); }
+/* On, in the accent and on a ground of its own. Two differences rather than one: colour alone
+   would leave the state invisible to anybody who cannot see this particular orange, and
+   `aria-pressed` is what says it to a screen reader either way. */
+.panel-pick[aria-pressed='true'] {
+  background: var(--tree-bg);
+  color: var(--accent);
+}
+.panel-icon { display: block; }
+
 .panel { border-bottom: 1px solid var(--line); }
+/* Turned off from the bar. `display: none` rather than a fold: this is not a movement somebody
+   should watch, and it takes the panel out of the tab order and the accessibility tree with it. */
+.panel.off { display: none; }
 .panel-head {
   display: flex;
   align-items: center;

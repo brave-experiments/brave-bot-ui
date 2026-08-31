@@ -1,5 +1,6 @@
 // That the folds fold rather than snap — the context panels, and the runs of tool calls
-// in the transcript, which share one implementation.
+// in the transcript, which share one implementation. Then the row of buttons that decides which
+// panels are in the column at all.
 //
 // The assertion worth making is the one a screenshot cannot make: that the thing passes
 // through heights between full and nothing. A collapse that jumps looks identical in
@@ -120,6 +121,49 @@ if ((await page.locator('.tool-run').count()) === 0) {
   check(Math.abs((await runHeight()) - runOpen) < 1, 'the run reopens to its full height')
   await page.screenshot({ path: '/tmp/bravebot-ui/12-run-open.png' })
 }
+
+// --- the row of buttons that turns panels off ------------------------------------------
+// Folding and turning off are different things: the bar at the top of the column decides which
+// panels are in it at all. The assertion that matters is the last one — a panel that comes back
+// has to come back as it was, which is the whole reason it is hidden rather than unmounted. A
+// panel that forgot its fold, or a tree that forgot which folders were open, would be the bar
+// quietly undoing somebody's work.
+const picks = page.locator('.panel-pick')
+check((await picks.count()) === 5, `the bar has one button per panel (${await picks.count()})`)
+
+const standing = () => page.locator('.panel:not(.off)').count()
+const before = await standing()
+check(before === 5, `every panel starts in the column (${before})`)
+
+// Folded first, so there is a state to lose.
+const plan = page.locator('#panel-plan')
+await plan.locator('.panel-head').click()
+await page.waitForTimeout(400)
+check((await plan.locator('.panel-head').getAttribute('aria-expanded')) === 'false', 'a panel folds')
+
+await picks.first().click()
+await page.waitForTimeout(300)
+check((await standing()) === before - 1, 'its button takes it out of the column')
+check((await picks.first().getAttribute('aria-pressed')) === 'false', 'and the button says so')
+check(
+  !(await plan.locator('.panel-head').isVisible()),
+  'a panel that is off leaves the tab order and the accessibility tree',
+)
+
+await picks.first().click()
+await page.waitForTimeout(300)
+check((await standing()) === before, 'pressing it again brings the panel back')
+check(
+  (await plan.locator('.panel-head').getAttribute('aria-expanded')) === 'false',
+  'and it comes back folded the way it was left, rather than reset',
+)
+
+// Put it back open, because the panels are shared ground with the assertions at the top of this
+// file and the next run starts by measuring them.
+await plan.locator('.panel-head').click()
+await page.waitForTimeout(400)
+check((await plan.locator('.panel-head').getAttribute('aria-expanded')) === 'true', 'and unfolds again')
+await page.screenshot({ path: '/tmp/bravebot-ui/13-panel-bar.png' })
 
 await app.close()
 console.log(problems.length ? `\nRESULT: ${problems.length} problem(s)` : '\nRESULT: ok')

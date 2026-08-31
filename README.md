@@ -42,7 +42,10 @@ Three columns, each side one resizable and foldable:
   of the five that means *no answers at all* rather than a decline per question: a decline
   somebody made and a question that never reached them must not look alike.
 - **Context** — what the session has touched: the plan, files read, writes and how far each
-  got, and anything quarantined — and, last, the one panel that reads the disk rather than the
+  got, and anything quarantined. A row of connected buttons at the top of the column turns
+  each panel on and off; a panel that is off keeps everything it knew, including its fold and
+  which folders were open in its tree, so turning it back on does not undo any of that. Last
+  in the column is the one panel that reads the disk rather than the
   transcript: a **file tree** of the folder the session is working in. Directories list when
   you open one rather than up front, dot-prefixed entries sit behind a toggle, each file
   carries a two-letter badge for its type, and a box above the tree filters by name — which
@@ -299,7 +302,7 @@ at, that a control keeps keyboard focus through an animation.
 | `npm run drive` | Launch, list sessions, filter them by title and project, group them by checkout, fold one away, start one from a heading, open one |
 | `npm run drive:resize` | Divider drags, the clamps, keyboard resizing, persistence |
 | `npm run drive:columns` | Folding each side column, and what is remembered |
-| `npm run drive:panels` | The context panels and the transcript's tool runs |
+| `npm run drive:panels` | The context panels, the row of buttons that turns them on and off, and the transcript's tool runs |
 | `npm run drive:markdown` | Markdown rendering, light and dark |
 | `npm run drive:run` | Approving a command from the window, end to end through a live turn |
 | `npm run drive:ask` | Answering a series of questions the planner asks, likewise live |
