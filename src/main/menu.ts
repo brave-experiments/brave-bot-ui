@@ -190,6 +190,8 @@ export function installMenu(window: BrowserWindow): void {
         item('view.fold-left'),
         item('view.fold-right'),
         item('view.reset-columns'),
+        { type: 'separator' },
+        item('view.theme'),
         ...developing,
       ],
     },

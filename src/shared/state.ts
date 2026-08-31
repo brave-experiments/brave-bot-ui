@@ -6,10 +6,10 @@
  * `recents.json`, `forks.json` — on the principle each of those validators states: one judgement
  * per shape, so a hand-edited grouping flag cannot cost somebody their column widths. That
  * principle survives here intact, and this file is the reason it can: `parseState` does not judge
- * anything itself. It calls the four validators that already existed, plus `parsePanels` below,
- * and each key is theirs alone. What changed is where the bytes live, not who decides what they
- * mean — one file per shape has become one file with a key per shape, and a bad value in any key
- * still costs that key and nothing beside it.
+ * anything itself. It calls the four validators that already existed, plus `parsePanels` below and
+ * `parseChosenTheme` next door, and each key is theirs alone. What changed is where the bytes
+ * live, not who decides what they mean — one file per shape has become one file with a key per
+ * shape, and a bad value in any key still costs that key and nothing beside it.
  *
  * What that buys: somewhere to look. A person wondering what this app kept about them had four
  * files to find and no way to know there were not five.
@@ -19,6 +19,7 @@ import { parseLayout, type StoredLayout } from './layout'
 import { parseView, type StoredView } from './view'
 import { parseRecents } from './recents'
 import { parseForks, type Fork } from './forks'
+import { parseChosenTheme } from './theme'
 
 /** The panels in the context column, in the order they appear there. */
 export const PANEL_NAMES = ['plan', 'read', 'writes', 'confined', 'files'] as const
@@ -48,6 +49,8 @@ export interface StoredState {
   recents: string[]
   /** Which session came out of which, newest first. Written by the main process alone. */
   forks: Fork[]
+  /** Which palette the window is painted in, by name. `brave` is the app's own. */
+  theme: string
 }
 
 function isPanelName(value: unknown): value is PanelName {
@@ -87,5 +90,9 @@ export function parseState(value: unknown): StoredState {
     // expect to read, and handed to their validators in the shape those already judge.
     recents: parseRecents({ directories: held.recents }).directories,
     forks: parseForks({ forks: held.forks }).forks,
+    // Judged by `parseChosenTheme`, which lives beside the palette format it names one of rather
+    // than here — the same arrangement the four above have, where the validator sits with the
+    // shape it understands.
+    theme: parseChosenTheme(held.theme),
   }
 }

@@ -17,7 +17,15 @@
    same specificity, and this sheet is loaded after it.
 
    Deliberately not `nativeTheme.themeSource`, which is process-global: it would flip the
-   window the user is actually looking at, mid-export. */
+   window the user is actually looking at, mid-export.
+
+   The same source-order argument is why themes must never reach this page. A chosen palette is
+   applied as `:root[data-theme]` in `styles.css`, and an attribute selector outranks the plain
+   `:root` below however late this sheet is loaded. It never matches here because `export.tsx` is
+   a separate entry point that does not import `renderer/theme.ts` — the print window is always
+   `brave`. That is load-bearing rather than incidental: adding theming to `export.tsx` would make
+   a session exported at night in a dark palette come out black on paper, and nothing else would
+   go wrong first. */
 :root {
   --bg: #ffffff;
   --bg-side: #ffffff;

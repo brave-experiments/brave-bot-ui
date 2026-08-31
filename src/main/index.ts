@@ -16,7 +16,7 @@ import { parseView } from '../shared/view'
 import { parseContextRef, parseWindowState } from '../shared/commands'
 import { installMenu, popupContext, rebuildMenu, refreshMenu } from './menu'
 import { noteProject, recents } from './recents'
-import { putLayout, putPanels, putView, readState } from './state'
+import { putLayout, putPanels, putTheme, putView, readState } from './state'
 import { parsePanels } from '../shared/state'
 import { isProjectPath } from '../shared/recents'
 import { forks, noteFork } from './forks'
@@ -33,9 +33,12 @@ import {
   type ExportOutcome,
 } from '../shared/export'
 import { printToPdf } from './export'
+import { readThemes, themesDirectory, watchThemes } from './theme'
+import { parseChosenTheme } from '../shared/theme'
 
 let window: BrowserWindow | null = null
 let bridge: Bridge | null = null
+let stopWatchingThemes: (() => void) | null = null
 
 function createWindow(): void {
   window = new BrowserWindow({
@@ -72,6 +75,19 @@ function createWindow(): void {
     window?.webContents.send('bravebot:event', message)
   })
 
+  // Watching the palettes directory, so that editing one is an editing loop rather than a relaunch
+  // each time. Torn down with the window rather than at quit: on macOS the last window can close
+  // and a new one be built from the dock, and a watcher left holding a `webContents` that is gone
+  // would be one more thing keeping it alive.
+  stopWatchingThemes?.()
+  stopWatchingThemes = watchThemes(() => {
+    window?.webContents.send('bravebot:theme:changed', {
+      themes: readThemes(),
+      chosen: readState().theme,
+      directory: themesDirectory(),
+    })
+  })
+
   if (process.env.ELECTRON_RENDERER_URL) {
     void window.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
@@ -79,6 +95,8 @@ function createWindow(): void {
   }
 
   window.on('closed', () => {
+    stopWatchingThemes?.()
+    stopWatchingThemes = null
     window = null
   })
 
@@ -282,6 +300,27 @@ app.whenReady().then(() => {
   ipcMain.handle('bravebot:panels:read', () => readState().panels)
 
   ipcMain.handle('bravebot:panels:write', (_event, value: unknown) => putPanels(parsePanels(value)))
+
+  // The theme. The chosen name is a key in the same file as the three above; the list it is chosen
+  // from is built here, because reading a directory of palettes is not something the renderer does.
+  //
+  // What crosses is a *name*. Not a path — the renderer cannot see the filesystem and this does not
+  // become the first place it can reach one — and not a colour either, so nothing painted in this
+  // window is something the renderer composed. Validated on the way in like the rest, and checked
+  // against the list as well: a name nobody is offering is a bug on this side rather than a
+  // preference, and writing it down would outlive the session that caused it.
+
+  ipcMain.handle('bravebot:theme:read', () => ({
+    themes: readThemes(),
+    chosen: readState().theme,
+    directory: themesDirectory(),
+  }))
+
+  ipcMain.handle('bravebot:theme:write', (_event, value: unknown) => {
+    const name = parseChosenTheme(value)
+    if (!readThemes().some((theme) => theme.name === name)) return
+    putTheme(name)
+  })
 
   // Choosing a project is a native affair: the renderer cannot see the filesystem and
   // should not be handed a path it invented.

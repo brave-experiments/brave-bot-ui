@@ -123,6 +123,11 @@ const ALLOWED_IDS = [
   // A setting, not an action: it decides what goes in an exported file, and like everything
   // else in this list it reaches no agent method.
   'session.export-tools',
+  // Opens the theme picker. Nothing labelled is involved: the names are read off disk and drawn
+  // for a person, they never reach a model, and choosing one is not an answer to anything the
+  // agent asked. It reaches no agent method either — what crosses is a name, checked against the
+  // list the main process built.
+  'view.theme',
 ]
 const ours = every.filter((i) => i.id && !i.role).map((i) => i.id)
 check(

@@ -128,6 +128,7 @@ was no way to find out that ⌘↵ sent a prompt.
 | `⌘.` | Cancel the running turn |
 | `⌥⌘←` / `⌥⌘→` | Fold the session list / the context panel |
 | right-click | A session row, or anything in the transcript |
+| `↑` `↓` `⏎` `Esc` | In the theme picker: preview, keep, and put back what was there |
 | `Esc` | Cancel, from the composer — or clear the session filter, from the filter box |
 
 `Esc` is the one that is not in a menu. As an accelerator it would fire with no session open
@@ -189,10 +190,14 @@ src/main/                 Electron main: one window, one child process, a narrow
   state.ts                bravebot-ui.json: everything remembered, one key per shape
   files.ts                listing and opening inside a session's own folder
   recents.ts              the projects opened before, which only this side writes
+  theme.ts                the palettes on offer: the built-ins, plus JSON in themes/
 src/preload/              the only thing the renderer can reach
 src/renderer/             the React app
   commands.ts             what a chosen menu item does — and what it deliberately cannot
+  theme.ts                putting a palette on the window, as DOM rather than as a render
+  components/ThemePicker.tsx  the picker, which previews on the window behind it
 src/shared/               types both sides agree on
+  theme.ts                the palette format, ported from the agent's own theme.rs
 scripts/                  the bridge build, a live smoke test, and the app drivers
 docs/                     the protocol design
 ```
@@ -208,6 +213,7 @@ One file, `bravebot-ui.json` under `app.getPath('userData')`, with a key per sha
 | `panels` | Which panels in the context column are turned **off** |
 | `recents` | The projects opened before, newest first |
 | `forks` | Which session came out of which |
+| `theme` | Which palette the window is painted in, by name |
 
 A file rather than `localStorage`, because the renderer is loaded from `file://` and Chromium
 discards storage for that origin between launches — measured, not assumed.
@@ -219,14 +225,51 @@ somebody their column widths. Every write goes through `src/main/state.ts`, whic
 one key and leaves the rest of the file as it found it, and what lands on disk is always the parsed
 state rather than the object a caller passed.
 
-The renderer reaches three of those keys, and only through a channel of its own per shape:
-`layout`, `view` and `panels`. `recents` and `forks` are written by the main process alone, from a
+The renderer reaches four of those keys, and only through a channel of its own per shape:
+`layout`, `view`, `panels` and `theme`. `recents` and `forks` are written by the main process alone, from a
 native picker and from what the *agent* answered — the window can read them and has no way to
 write a line into either.
 
 This replaces `layout.json`, `view.json`, `recents.json` and `forks.json`. Those are read once, on
 the first launch after the change, so nobody loses their columns to a rename; they are then left
 where they are and never read again.
+
+### Themes
+
+`View ▸ Theme…` opens a picker over the transcript. Moving the cursor repaints the window behind
+it, Enter keeps the choice, Escape puts back what was there.
+
+`brave` is the default and means what this window has always looked like: the macOS palette in
+`styles.css`, following the system between light and dark. It is not a theme that happens to match
+— under `brave` no theme is applied at all, which is why it costs nothing, why the native sidebar
+blur survives it, and why an exported PDF stays white however dark the window is.
+
+Twenty-one named schemes are compiled in beside it. A palette somebody writes goes in `themes/`,
+beside `bravebot-ui.json` under `userData`; the picker prints the path, and the window follows the
+file as it is edited rather than needing a relaunch. A file taking the name of a built-in replaces
+it. A broken one is not a theme, and does not appear.
+
+A palette names nine things — a ground, an ink, a quieter ink, and one each for finished, failed,
+running, a confinement, the session's own voice and the person at the keyboard:
+
+```json
+{ "defs": { "ground": "#2e3440" },
+  "background": "ground", "text": "#d8dee9", "muted": "#616e88",
+  "ok": "#a3be8c", "fail": "#bf616a", "running": "#ebcb8b",
+  "accent": "#b48ead", "note": "#d08770", "primary": "#88c0d0" }
+```
+
+Nine and not nineteen: `styles.css` mixes the window's other tokens from these in a
+`:root[data-theme]` block, so writing a palette is choosing colours rather than computing a rule at
+fourteen percent of your own ink. Any key left out, or set to `"none"`, is inherited — a palette
+that only changes the accent is two lines long, and one that inherits its background keeps the
+window blur that an opaque ground would cover.
+
+The format is a port of `crates/tui/src/theme.rs` in the agent's repository, kept faithful so that
+a palette written for one is recognisable in the other and `nord` means the same thing in both. It
+is a port and not a link: nothing here reads anything the agent owns. The agent is a subprocess
+this window drives, not something it is installed alongside, and a window that could not paint
+itself until the terminal had been run once would be depending on something it was never promised.
 
 ## Prerequisites
 
@@ -341,6 +384,7 @@ at, that a control keeps keyboard focus through an animation.
 | `npm run drive:export` | Exporting a conversation to text, Markdown and PDF — with and without the tool calls, and what the file leaves out either way |
 | `npm run drive:fork` | Cutting a session in two: that the fork holds the right half and the session it came from is untouched |
 | `npm run drive:tree` | The file tree: listing, expanding, the dotfile toggle, the name filter, and that a session with no root and a symlink out of the project both list nothing |
+| `npm run drive:theme` | Themes: that previewing repaints before anything is written down, that Escape restores exactly, that every derived token survives a palette, that editing a palette repaints without a relaunch, and that a PDF stays white regardless |
 | `npm run drive:packaged` | A built `.app`: that a release hides the developer items and finds its agent |
 | `node scripts/drive-turn.mjs` | A live inference request through the window, to prove the binary carries its credentials rather than inheriting them |
 | `scripts/smoke-turn.sh` | A live turn straight through `bravebot-rpc`, no app |
@@ -364,6 +408,10 @@ before it measures one and again before it finishes, and `drive-tree.mjs` puts t
 on before it tests it. Anything new in this
 area should do the same, and a driver that seeds a fixture should replace its own key rather than
 the file: the other keys are somebody's arrangement of this window.
+
+`drive-theme.mjs` does the same for the `theme` key, and has one duty beyond the file: it writes
+palettes into `themes/` beside it, so it removes the ones it wrote on the way out however it exits,
+and removes the directory too if it was the one that made it.
 
 ## Build
 

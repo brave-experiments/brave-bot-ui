@@ -1,7 +1,7 @@
 /**
  * The only thing the renderer can reach.
  *
- * A handful of functions and a subscription. No child processes, no IPC surface beyond this: the
+ * A handful of functions and two subscriptions. No child processes, no IPC surface beyond this: the
  * renderer asks the main process to call a named method, and the main process decides whether that
  * is a method at all. Nor any filesystem, with one measured exception below — the tree in the
  * context column can list a directory of the folder its own session is working in, and ask the
@@ -11,6 +11,11 @@
  * The layout and view pairs are the only things here that are not about the agent — they store
  * where the columns were and how the session list is arranged, and the main process checks that
  * that is all they are.
+ *
+ * The theme pair belongs with them: which palette the window is painted in is a fact about this
+ * window, kept in the same file as the columns. What crosses is a name and never a colour, and the
+ * one path that comes back is there to be printed in a sentence — nothing here takes a path, so
+ * this side still cannot name a file.
  */
 
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
@@ -22,6 +27,19 @@ import type { CommandId, ContextCommandId, ContextRef, WindowState } from '../sh
 import type { ExportOutcome, ExportRequest } from '../shared/export'
 import type { Fork } from '../shared/forks'
 import type { Listing, OpenOutcome } from '../shared/files'
+import type { Theme } from '../shared/theme'
+
+/** Everything the picker needs: what is on offer, which of them is chosen, and where to put one. */
+export interface ThemeState {
+  themes: Theme[]
+  chosen: string
+  /**
+   * Where a palette somebody writes goes. Shown, and nothing more — the picker prints it in a
+   * sentence so that "add your own" is an instruction rather than a hint. It is composed in the
+   * main process and never travels back.
+   */
+  directory: string
+}
 
 export interface Answer<T> {
   ok?: T
@@ -80,6 +98,43 @@ const api = {
   /** Remember which panels are on. Best-effort; the caller does not wait or check. */
   writePanels(panels: StoredPanels): void {
     void ipcRenderer.invoke('bravebot:panels:write', panels)
+  },
+
+  /**
+   * The palettes on offer and the one in force.
+   *
+   * The list is built in the main process from the set compiled into the app plus whatever JSON
+   * somebody has written into its themes directory, because reading a directory is not something
+   * this side does. The chosen name comes out of `bravebot-ui.json`, beside the columns.
+   */
+  readTheme(): Promise<ThemeState> {
+    return ipcRenderer.invoke('bravebot:theme:read') as Promise<ThemeState>
+  },
+
+  /**
+   * Choose a theme, by name.
+   *
+   * A name and nothing else, checked against the list on the way in — the renderer cannot hand
+   * over a colour to paint with any more than it can name a file to read. Best-effort and
+   * unanswered, like `writeLayout`: the window is already painted, and the round trip would only
+   * confirm that the memory of it was written down.
+   */
+  writeTheme(name: string): void {
+    void ipcRenderer.invoke('bravebot:theme:write', name)
+  },
+
+  /**
+   * Listen for the palettes on disk changing. Returns an unsubscribe.
+   *
+   * The second subscription on this bridge, and the reason there is one: writing a palette is an
+   * editing loop — save the file, look at the window, adjust a colour — and without this every
+   * turn of it would mean quitting the app. Carries the same shape `readTheme` answers with, so
+   * the renderer has one way of taking it in rather than two.
+   */
+  onThemeChanged(listener: (state: ThemeState) => void): () => void {
+    const handler = (_event: IpcRendererEvent, state: ThemeState) => listener(state)
+    ipcRenderer.on('bravebot:theme:changed', handler)
+    return () => ipcRenderer.off('bravebot:theme:changed', handler)
   },
 
   /**
