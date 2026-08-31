@@ -116,18 +116,20 @@ if (await reply.isVisible().catch(() => false)) {
 // A session already in the list, said to have come from another one. Seeded because the mark in
 // the list is the one indicator a run like this cannot otherwise reach: a fork has no record
 // until its first turn, and this sends no prompts. The file is put back at the end, the way
-// `drive-menu.mjs` puts the recents list back.
+// `drive-menu.mjs` puts the recents list back — one key of the shared preferences file, with the
+// other four left as they were found.
 const userData = await app.evaluate(({ app }) => app.getPath('userData'))
-const forksFile = join(userData, 'forks.json')
-const hadForks = existsSync(forksFile) ? readFileSync(forksFile, 'utf8') : null
+const stateFile = join(userData, 'bravebot-ui.json')
+const hadState = existsSync(stateFile) ? readFileSync(stateFile, 'utf8') : null
 restoreForks = () => {
-  if (hadForks === null) rmSync(forksFile, { force: true })
-  else writeFileSync(forksFile, hadForks, 'utf8')
+  if (hadState === null) rmSync(stateFile, { force: true })
+  else writeFileSync(stateFile, hadState, 'utf8')
 }
 const marked = (listed.ok?.sessions ?? []).find((s) => s.id !== parent.id) ?? parent
 writeFileSync(
-  forksFile,
+  stateFile,
   JSON.stringify({
+    ...(hadState === null ? {} : JSON.parse(hadState)),
     forks: [
       {
         child: { directory: marked.directory, id: marked.id },

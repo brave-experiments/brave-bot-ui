@@ -243,16 +243,18 @@ check(!(await page.locator('.notice').isVisible()), 'Escape closes it — nothin
 // The recents list is this machine's, and a fresh checkout has none — which would leave the
 // keyboard walk below with a single disabled row and nothing to walk. So a known list is put
 // in place for the duration and the original is put back at the end, the way
-// `drive-columns.mjs` treats the layout file it shares.
+// `drive-columns.mjs` treats the layout it shares. One key of the file, not the file: the
+// other four are somebody's arrangement of this window.
 const userData = await app.evaluate(({ app }) => app.getPath('userData'))
-const recentsFile = join(userData, 'recents.json')
-const hadRecents = existsSync(recentsFile) ? readFileSync(recentsFile, 'utf8') : null
+const stateFile = join(userData, 'bravebot-ui.json')
+const hadState = existsSync(stateFile) ? readFileSync(stateFile, 'utf8') : null
 writeFileSync(
-  recentsFile,
+  stateFile,
   JSON.stringify({
+    ...(hadState === null ? {} : JSON.parse(hadState)),
     // The third is deliberately not a path, to prove the validator drops it rather than
     // refusing the two good ones alongside it.
-    directories: ['/tmp/alpha-project', '/tmp/beta-project', 'relative/nope'],
+    recents: ['/tmp/alpha-project', '/tmp/beta-project', 'relative/nope'],
   }),
   'utf8',
 )
@@ -379,11 +381,11 @@ if (await prompt.isVisible().catch(() => false)) {
   )
 }
 
-// Put the recents file back the way it was found.
-if (hadRecents === null) rmSync(recentsFile, { force: true })
-else writeFileSync(recentsFile, hadRecents, 'utf8')
+// Put the preferences file back the way it was found.
+if (hadState === null) rmSync(stateFile, { force: true })
+else writeFileSync(stateFile, hadState, 'utf8')
 
-// The layout file is shared with the other drivers, so this one puts it back.
+// The columns are shared with the other drivers, so this one puts them back.
 await page.locator('.gutter').first().dblclick()
 await page.locator('.gutter').nth(1).dblclick()
 await page.waitForTimeout(300)

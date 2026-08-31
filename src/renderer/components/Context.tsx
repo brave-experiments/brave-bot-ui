@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Fold } from './Fold'
 import { FileTree } from './FileTree'
-import { PanelIcon, type PanelId } from './PanelIcon'
+import { PanelIcon } from './PanelIcon'
+import { PANEL_NAMES, type PanelName } from '../../shared/state'
 import type { Activity, Phase, Shown, TodoRow } from '../../shared/protocol'
 import type { Entry } from '../transcript'
 
@@ -22,9 +23,11 @@ interface Live {
  *
  * One list rather than a set of `useState`s and a hand-written row of buttons: the bar and the
  * column are then two readings of the same thing, and a panel added later cannot end up in one
- * and not the other.
+ * and not the other. The names come from `shared/state.ts`, which is also what decides whether a
+ * name in the preferences file is a panel at all — so the column, the bar and the file on disk are
+ * all talking about the same five things.
  */
-const PANELS: readonly PanelId[] = ['plan', 'read', 'writes', 'confined', 'files']
+const PANELS = PANEL_NAMES
 
 /**
  * The right-hand column: what this session has touched, and the folder it is touching it in.
@@ -36,13 +39,35 @@ const PANELS: readonly PanelId[] = ['plan', 'read', 'writes', 'confined', 'files
  */
 export function Context({ live }: { live: Live | null }): React.JSX.Element {
   // Which panels are *off*. Held here rather than in each panel, because the row of buttons at the
-  // top has to be able to say so — and declared above the empty case, so the hook runs on every
+  // top has to be able to say so — and declared above the empty case, so the hooks run on every
   // render the way the rules require.
   //
-  // The off ones rather than the on ones, so that a panel added to this window in a later build
-  // arrives visible rather than hidden by a choice made before it existed.
-  const [off, setOff] = useState<ReadonlySet<PanelId>>(() => new Set())
-  const toggle = (panel: PanelId): void =>
+  // The off ones rather than the on ones, all the way down to the file: a panel added to this
+  // window in a later build then arrives visible under a preference written before it existed,
+  // which is the column's own default. `shared/state.ts` says the same thing about the shape.
+  const [off, setOff] = useState<ReadonlySet<PanelName>>(() => new Set())
+
+  // Read once, and written on every change after the read has landed — the arrangement the
+  // session list keeps for its own preference, and the `ready` guard is why: without it the empty
+  // initial state races the read and writes "every panel is on" over what somebody chose.
+  const ready = useRef(false)
+  useEffect(() => {
+    void window.bravebot
+      .readPanels()
+      .then((panels) => setOff(new Set(panels.off)))
+      .catch(() => undefined)
+      .finally(() => (ready.current = true))
+  }, [])
+  useEffect(() => {
+    if (!ready.current) return
+    try {
+      window.bravebot.writePanels({ off: [...off] })
+    } catch {
+      // The column is still arranged the way it was asked to be, for this session at least.
+    }
+  }, [off])
+
+  const toggle = (panel: PanelName): void =>
     setOff((was) => {
       const next = new Set(was)
       if (!next.delete(panel)) next.add(panel)
@@ -65,7 +90,7 @@ export function Context({ live }: { live: Live | null }): React.JSX.Element {
   // What each panel is called, which is what its button says it will show or hide. Read off the
   // same value the heading uses, so the bar cannot promise "Files read" over a panel headed
   // "Calls made".
-  const labels: Record<PanelId, string> = {
+  const labels: Record<PanelName, string> = {
     plan: 'Plan',
     read: onlyReplayed ? 'Calls made' : 'Files read',
     writes: 'Writes',
@@ -82,9 +107,8 @@ export function Context({ live }: { live: Live | null }): React.JSX.Element {
           worse to use: it would throw away which folders somebody had opened in the tree and how
           each panel was folded, so turning a panel off and on again would silently undo their
           work. `display: none` takes it out of the tab order and the accessibility tree just the
-          same.
-
-          Wrapped, because `.context > *` hands every direct child of this column the width the
+          same. */}
+      {/* Wrapped, because `.context > *` hands every direct child of this column the width the
           column will come back at when it unfolds — which a full-width row of buttons plus its
           own margins overflows. The wrapper takes that width and the bar sits inside it. */}
       <div className="context-head">
@@ -249,7 +273,7 @@ function Section({
   children,
 }: {
   /** Which panel this is, so the button in the bar can point at it. */
-  id: PanelId
+  id: PanelName
   title: string
   /** How many things are in it, for the pill in the head. Omitted where there is nothing to count. */
   count?: number

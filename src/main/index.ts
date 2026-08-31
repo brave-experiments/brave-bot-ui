@@ -8,7 +8,7 @@
  */
 
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Bridge, BridgeError } from './bridge'
 import { parseLayout } from '../shared/layout'
@@ -16,6 +16,8 @@ import { parseView } from '../shared/view'
 import { parseContextRef, parseWindowState } from '../shared/commands'
 import { installMenu, popupContext, rebuildMenu, refreshMenu } from './menu'
 import { noteProject, recents } from './recents'
+import { putLayout, putPanels, putView, readState } from './state'
+import { parsePanels } from '../shared/state'
 import { isProjectPath } from '../shared/recents'
 import { forks, noteFork } from './forks'
 import { isSessionId, parseForkResult } from '../shared/forks'
@@ -249,64 +251,37 @@ app.whenReady().then(() => {
     }
   })
 
-  // Where the column widths live.
+  // What the window remembers between launches: the column widths and folds, how the session
+  // list is arranged, and which panels the context column is showing.
   //
   // A file rather than `localStorage`, because the renderer is loaded from `file://` and
   // Chromium does not keep storage for that origin across launches — writes work for the
-  // life of the window and are gone by the next one. Measured, not assumed.
+  // life of the window and are gone by the next one. Measured, not assumed. `state.ts` owns
+  // that file and replaces one key per write, so a preference crossing here cannot disturb
+  // another one, and the two lists in it that the renderer may read have no channel that
+  // writes them.
   //
   // The renderer is ours, but this still validates what it sends: the value is written to
   // disk and read back on the next launch, so a bad write would be a bug that outlives the
-  // session that caused it. `parseLayout` is the whole of the judgement, on the way in and
-  // on the way out — so what lands on disk is the parsed layout and never the object the
-  // renderer happened to pass, and a renderer bug cannot leave a fourth field in the file.
-  const layoutFile = (): string => join(app.getPath('userData'), 'layout.json')
+  // session that caused it. One validator per shape is the whole of the judgement, on the way
+  // in and on the way out — so what lands on disk is the parsed value and never the object
+  // the renderer happened to pass.
 
-  ipcMain.handle('bravebot:layout:read', () => {
-    try {
-      return parseLayout(JSON.parse(readFileSync(layoutFile(), 'utf8')))
-    } catch {
-      // No file yet, or one nothing can read. Either way the defaults are correct.
-      return null
-    }
-  })
+  ipcMain.handle('bravebot:layout:read', () => readState().layout)
 
   ipcMain.handle('bravebot:layout:write', (_event, value: unknown) => {
     const layout = parseLayout(value)
     if (!layout) return
-    try {
-      writeFileSync(layoutFile(), JSON.stringify(layout), 'utf8')
-    } catch {
-      // A layout that cannot be written down is not worth an error on screen.
-    }
+    putLayout(layout)
   })
 
-  // Where the session list's own arrangement lives — at the moment, whether it is grouped
-  // by checkout.
-  //
-  // Its own file rather than a field in the layout, for the reason `shared/view.ts` gives:
-  // one file per shape, so a hand-edited preference here cannot cost somebody the column
-  // widths next door. The same in-and-out discipline as the layout otherwise — `parseView`
-  // is the whole of the judgement both ways, so what lands on disk is the parsed value and
-  // never the object the renderer happened to pass.
-  const viewFile = (): string => join(app.getPath('userData'), 'view.json')
+  ipcMain.handle('bravebot:view:read', () => readState().view)
 
-  ipcMain.handle('bravebot:view:read', () => {
-    try {
-      return parseView(JSON.parse(readFileSync(viewFile(), 'utf8')))
-    } catch {
-      // No file yet, or one nothing can read. Either way the flat list is correct.
-      return parseView(null)
-    }
-  })
+  ipcMain.handle('bravebot:view:write', (_event, value: unknown) => putView(parseView(value)))
 
-  ipcMain.handle('bravebot:view:write', (_event, value: unknown) => {
-    try {
-      writeFileSync(viewFile(), JSON.stringify(parseView(value)), 'utf8')
-    } catch {
-      // A preference that cannot be written down is not worth an error on screen.
-    }
-  })
+  ipcMain.handle('bravebot:panels:read', () => readState().panels)
+
+  ipcMain.handle('bravebot:panels:write', (_event, value: unknown) => putPanels(parsePanels(value)))
 
   // Choosing a project is a native affair: the renderer cannot see the filesystem and
   // should not be handed a path it invented.

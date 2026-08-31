@@ -50,6 +50,16 @@ if ((await page.locator('.session').count()) === 0) {
 await page.locator('.session').first().click()
 await page.waitForTimeout(1600)
 
+// The file tree can be turned off from the bar at the top of the column, and that choice is
+// remembered between launches — so a run puts it back rather than assuming it inherited a column
+// with a tree in it. The same courtesy the columns get above. After the session is opened, because
+// the bar belongs to a column with something in it and there is no bar before then.
+const filesPick = page.locator('.panel-pick').last()
+if ((await filesPick.getAttribute('aria-pressed')) === 'false') {
+  await filesPick.click()
+  await page.waitForTimeout(400)
+}
+
 const rows = page.locator('.tree-list[role="tree"] > li > .tree-row')
 // The names alone, not the rows: a row also holds a chevron and the two-letter type badge, and
 // reading those as part of the name is how an earlier version of this file talked itself into

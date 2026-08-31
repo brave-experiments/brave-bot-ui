@@ -44,8 +44,7 @@ Three columns, each side one resizable and foldable:
 - **Context** — what the session has touched: the plan, files read, writes and how far each
   got, and anything quarantined. A row of connected buttons at the top of the column turns
   each panel on and off; a panel that is off keeps everything it knew, including its fold and
-  which folders were open in its tree, so turning it back on does not undo any of that. Last
-  in the column is the one panel that reads the disk rather than the
+  which folders were open in its tree, so turning it back on does not undo any of that — and, last, the one panel that reads the disk rather than the
   transcript: a **file tree** of the folder the session is working in. Directories list when
   you open one rather than up front, dot-prefixed entries sit behind a toggle, each file
   carries a two-letter badge for its type, and a box above the tree filters by name — which
@@ -108,7 +107,7 @@ whole extra window.
 The bold word beside the Apple menu is the one part of the menu a template cannot set: AppKit
 reads it from the running bundle's `CFBundleName` before any JavaScript runs, and
 `app.setName` does not touch it — that renames `app.name`, which `app.getPath('userData')` is
-built from, so using it would move `layout.json` and orphan every remembered column.
+built from, so using it would move `bravebot-ui.json` and orphan every remembered column.
 
 Unpackaged, the running bundle is Electron's own, so `scripts/name-dev-app.mjs` renames it.
 It runs from `npm run dev` and from `postinstall`, because an `npm install` restores the
@@ -187,6 +186,7 @@ crates/bravebot-bridge/        the Rust library and the bravebot-rpc binary
   tests/                  eight integration suites, including the refusal guarantees
 src/main/                 Electron main: one window, one child process, a narrow channel
   menu.ts                 the application menu, built from the shared command list
+  state.ts                bravebot-ui.json: everything remembered, one key per shape
   files.ts                listing and opening inside a session's own folder
   recents.ts              the projects opened before, which only this side writes
 src/preload/              the only thing the renderer can reach
@@ -196,6 +196,37 @@ src/shared/               types both sides agree on
 scripts/                  the bridge build, a live smoke test, and the app drivers
 docs/                     the protocol design
 ```
+
+### What is remembered
+
+One file, `bravebot-ui.json` under `app.getPath('userData')`, with a key per shape:
+
+| Key | What it holds |
+| --- | --- |
+| `layout` | The column widths and which side columns are folded |
+| `view` | Whether the session list is grouped by checkout, and which headings are shut |
+| `panels` | Which panels in the context column are turned **off** |
+| `recents` | The projects opened before, newest first |
+| `forks` | Which session came out of which |
+
+A file rather than `localStorage`, because the renderer is loaded from `file://` and Chromium
+discards storage for that origin between launches — measured, not assumed.
+
+One file, but not one judgement: `src/shared/state.ts` decides nothing itself. It delegates each
+key whole to the validator that already owned that shape — `parseLayout`, `parseView`,
+`parsePanels`, `parseRecents`, `parseForks` — so a hand-edited grouping flag still cannot cost
+somebody their column widths. Every write goes through `src/main/state.ts`, which replaces exactly
+one key and leaves the rest of the file as it found it, and what lands on disk is always the parsed
+state rather than the object a caller passed.
+
+The renderer reaches three of those keys, and only through a channel of its own per shape:
+`layout`, `view` and `panels`. `recents` and `forks` are written by the main process alone, from a
+native picker and from what the *agent* answered — the window can read them and has no way to
+write a line into either.
+
+This replaces `layout.json`, `view.json`, `recents.json` and `forks.json`. Those are read once, on
+the first launch after the change, so nobody loses their columns to a rename; they are then left
+where they are and never read again.
 
 ## Prerequisites
 
@@ -326,9 +357,13 @@ Each driver launches the app, prints a line per assertion and leaves screenshots
 `drive-turn.mjs` and `smoke-turn.sh` send an actual prompt, and `smoke-turn.sh` needs a shell where `direnv` has
 loaded the agent's `.envrc`.
 
-The drivers share the persisted layout file, so one that leaves a column folded would make
-the next one's measurements meaningless. `drive-columns.mjs` normalises the columns at the
-start of a run and puts them back at the end; anything new in this area should do the same.
+The drivers share `bravebot-ui.json`, so one that leaves a column folded — or a panel turned off —
+would make the next one's measurements meaningless. `drive-columns.mjs` normalises the columns at
+the start of a run and puts them back at the end, `drive-panels.mjs` turns every panel back on
+before it measures one and again before it finishes, and `drive-tree.mjs` puts the file tree back
+on before it tests it. Anything new in this
+area should do the same, and a driver that seeds a fixture should replace its own key rather than
+the file: the other keys are somebody's arrangement of this window.
 
 ## Build
 

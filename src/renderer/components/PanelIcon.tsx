@@ -11,10 +11,9 @@
  * and a mark that announced itself as well would say it twice.
  */
 
-/** Which panel a mark belongs to. The names `Context` uses for the panels themselves. */
-export type PanelId = 'plan' | 'read' | 'writes' | 'confined' | 'files'
+import type { PanelName } from '../../shared/state'
 
-const PATHS: Record<PanelId, React.ReactNode> = {
+const PATHS: Record<PanelName, React.ReactNode> = {
   // A list with the first thing on it done, which is what a plan in this window looks like.
   plan: (
     <>
@@ -58,7 +57,7 @@ export function PanelIcon({
   panel,
   size = 13,
 }: {
-  panel: PanelId
+  panel: PanelName
   size?: number
 }): React.JSX.Element {
   return (
