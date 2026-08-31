@@ -1,5 +1,5 @@
 // Launch the app and poke it, so a change can be seen rather than inferred.
-// macOS has a real display, so no xvfb: this drives the actual window.
+// A display is required. `scripts/with-display.sh` supplies Xvfb when there is none.
 import { _electron as electron } from 'playwright-core'
 import { existsSync, mkdirSync } from 'node:fs'
 

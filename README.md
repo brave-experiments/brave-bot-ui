@@ -1,6 +1,6 @@
 # bravebot-ui
 
-A macOS interface to `bravebot` — the prompt-injection-resistant coding agent — in
+A desktop interface to `bravebot` — the prompt-injection-resistant coding agent — in
 a window instead of a terminal.
 
 The app does not drive a terminal and does not parse one. It talks to a small Rust library
@@ -273,7 +273,10 @@ itself until the terminal had been run once would be depending on something it w
 
 ## Prerequisites
 
-- **macOS.** The window uses `hiddenInset` traffic lights and `sidebar` vibrancy.
+- **macOS or Linux.** On macOS the window uses `hiddenInset` traffic lights and `sidebar`
+  vibrancy. On Linux the window manager draws the title bar and the fill is opaque. Headless
+  Linux (CI, a Cloud Agent without a desktop) needs `xvfb`; `npm run drive*` wraps it when
+  `$DISPLAY` is empty.
 - **Rust 1.88+** (`edition = "2024"`). This matches the agent's own floor; building against
   its crates with an older toolchain fails in *its* sources, which is a confusing place to
   discover a version problem.
@@ -358,7 +361,7 @@ releases are, with the credentials present, or it will ship unable to reach the 
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run build` | Bridge, typecheck, then bundle main + preload + renderer into `out/` |
 | `npm start` | Preview a built bundle without rebuilding |
-| `npm run package` | Build a `.app` into `dist/` (see Packaging) |
+| `npm run package` | Build a packaged app into `dist/` (see Packaging) |
 | `npm run demo` | Walk the whole product at human speed, recording it (see Recording a demo) |
 | `cargo test -p bravebot-bridge` | The Rust suites |
 
@@ -374,7 +377,8 @@ guarantees that the security model rests on.
 The interface is tested by **driving the real window** with Playwright, because the things
 worth asserting here are the ones a screenshot cannot show — that a fold passes through
 intermediate heights rather than snapping, that a column comes back at the width it left
-at, that a control keeps keyboard focus through an animation.
+at, that a control keeps keyboard focus through an animation. `scripts/with-display.sh`
+supplies Xvfb when the machine has no `$DISPLAY`; macOS and a Linux desktop skip it.
 
 | Command | Covers |
 | --- | --- |
@@ -390,7 +394,7 @@ at, that a control keeps keyboard focus through an animation.
 | `npm run drive:fork` | Cutting a session in two: that the fork holds the right half and the session it came from is untouched |
 | `npm run drive:tree` | The file tree: listing, expanding, the dotfile toggle, the name filter, and that a session with no root and a symlink out of the project both list nothing |
 | `npm run drive:theme` | Themes: that previewing repaints before anything is written down, that Escape restores exactly, that every derived token survives a palette, that editing a palette repaints without a relaunch, and that a PDF stays white regardless |
-| `npm run drive:packaged` | A built `.app`: that a release hides the developer items and finds its agent |
+| `npm run drive:packaged` | A built bundle: that a release hides the developer items and finds its agent |
 | `npm run drive:astar` | One long piece of real work, start to finish: a new session in an empty checkout, every question it puts answered yes, and what the window has to show for it |
 | `node scripts/drive-turn.mjs` | A live inference request through the window, to prove the binary carries its credentials rather than inheriting them |
 | `scripts/smoke-turn.sh` | A live turn straight through `bravebot-rpc`, no app |
@@ -534,14 +538,15 @@ the types, and `electron-vite` bundles the main process, the preload and the ren
 npm run package
 ```
 
-Bridge, typecheck, bundle, then `@electron/packager` builds `dist/Brave Bot-darwin-<arch>/Brave
-Bot.app`. `bravebot-rpc` is copied in as a resource, which is where `Bridge.binaryPath()` looks
+Bridge, typecheck, bundle, then `@electron/packager` builds for this machine:
+`dist/Brave Bot-darwin-<arch>/Brave Bot.app` on macOS, or `dist/Brave Bot-linux-<arch>/Brave Bot`
+on Linux. `bravebot-rpc` is copied in as a resource, which is where `Bridge.binaryPath()` looks
 when `app.isPackaged` — the `target/debug` fallback is development only, so packaging is the
 only way that branch is ever exercised.
 
-Naming the bundle is also how the menu bar gets the right word in a release: AppKit reads it
-from `CFBundleName` before any of our code runs. `scripts/name-dev-app.mjs` is the equivalent
-hack for `npm run dev`; here it is simply the bundle's own name.
+Naming the bundle is also how the macOS menu bar gets the right word in a release: AppKit reads
+it from `CFBundleName` before any of our code runs. `scripts/name-dev-app.mjs` is the equivalent
+hack for `npm run dev`; here it is simply the bundle's own name. Linux has no equivalent.
 
 **A bundle built from a development checkout has no credentials.** It starts, lists sessions
 and opens them, and fails at the first inference request — the degraded mode described above,
@@ -594,6 +599,9 @@ that decides. A renderer with filesystem access would undo that from the outside
 [`docs/phase-0-rpc-protocol.md`](docs/phase-0-rpc-protocol.md) is the design document for
 the bridge and its protocol: the message envelope (§4), every request (§7) and event (§8),
 the trust model (§9), concurrency (§10), and what is deliberately out of scope (§11).
+
+Cloud Agents start from [`.cursor/environment.json`](.cursor/environment.json); what they
+should run is in [`AGENTS.md`](AGENTS.md).
 
 ## Licence
 

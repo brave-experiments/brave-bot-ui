@@ -47,6 +47,12 @@ export interface Answer<T> {
 }
 
 const api = {
+  /**
+   * Which OS this window is on. Not a capability: it decides whether the renderer clears
+   * space for inset traffic lights, which do not exist on Linux.
+   */
+  platform: process.platform,
+
   /** Call one of the agent's methods. Never throws; failures come back in `error`. */
   request<T>(method: string, params?: Record<string, unknown>): Promise<Answer<T>> {
     return ipcRenderer.invoke('bravebot:request', method, params ?? {}) as Promise<Answer<T>>

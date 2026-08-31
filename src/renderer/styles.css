@@ -1,5 +1,6 @@
 /* A three-column chat layout, native to macOS.
-   Light and dark both defined; the app follows the system. */
+   Light and dark both defined; the app follows the system.
+   `html.linux` drops the traffic-light inset: the window manager draws the title bar. */
 
 :root {
   --bg: #ffffff;
@@ -127,6 +128,22 @@
   --bg-side: color-mix(in srgb, var(--role-text) 4%, var(--role-background));
 }
 
+/* Linux has no inset lights and no vibrancy. The sidebar colour was a translucent wash
+   meant to sit over the desktop; opaque, that wash is just muddy.
+
+   A plain override rather than one guarded against a theme, because it does not need to be:
+   `:root[data-theme][data-ground]` above outweighs `html.linux` on specificity, so a palette
+   that brought a ground of its own still paints the sidebar and all twenty-two of them look
+   the same here as anywhere. What is left for this to catch is `brave`, where nothing is
+   applied and the wash has no blur under it to be a wash over. */
+html.linux {
+  --lights: 0px;
+  --bg-side: #f6f6f8;
+}
+@media (prefers-color-scheme: dark) {
+  html.linux { --bg-side: #1e1e20; }
+}
+
 * { box-sizing: border-box; }
 
 body {
@@ -233,6 +250,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   padding: 52px 12px 8px;
   -webkit-app-region: drag;
 }
+html.linux .sessions-head { padding: 12px 12px 8px; }
 
 .new {
   -webkit-app-region: no-drag;
@@ -1083,6 +1101,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   overflow-y: auto;
   padding-top: 46px;
 }
+html.linux .context { padding-top: 8px; }
 
 /* The row of connected buttons at the top of the column, one per panel.
    Connected rather than five separate controls, because it is one choice about one column: the
