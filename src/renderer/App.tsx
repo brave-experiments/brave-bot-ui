@@ -21,6 +21,9 @@ import type { ExportFormat } from '../shared/export'
 import { useCommandRouter, usePublishedState } from './commands'
 import { type Fork, forkOf, forkedSessions } from '../shared/forks'
 import * as t from './transcript'
+import { ThemePicker } from './components/ThemePicker'
+import { applyTheme, watchAppearance } from './theme'
+import { BRAVE, BRAVE_THEME, BUILTINS, findTheme, type Theme } from '../shared/theme'
 
 /** What the app is doing, which decides most of what the interface offers. */
 interface Live {
@@ -146,6 +149,27 @@ export function App(): React.JSX.Element {
 
   const [forks, setForks] = useState<Fork[]>([])
 
+  /**
+   * What this window is painted in, and whether the picker is open.
+   *
+   * The name is remembered in `bravebot-ui.json` like the columns and the panels, and arrives the
+   * same way theirs do — asynchronously, so it cannot seed `useState`.
+   *
+   * Seeded from the set compiled into the app rather than from nothing, so that the picker has
+   * rows even if the read never answers — the palettes somebody wrote are the only part of the
+   * list that has to come off disk.
+   *
+   * The list is kept beside the name for two reasons: the picker has something to open on without
+   * a round trip, and `applyTheme` has a palette to re-resolve against when the system flips to
+   * dark — a palette that names only an accent inherits the other eight, and what it inherits
+   * changes. It can also change under the window, which is what `onThemeChanged` below is for:
+   * somebody editing a palette file should see the window follow.
+   */
+  const [themes, setThemes] = useState<readonly Theme[]>(BUILTINS)
+  const [chosen, setChosen] = useState(BRAVE)
+  const [themesDirectory, setThemesDirectory] = useState('')
+  const [picking, setPicking] = useState(false)
+
   // Read inside the event handler, which is installed once and must not close over a
   // stale session handle.
   const handleRef = useRef<string | null>(null)
@@ -164,6 +188,72 @@ export function App(): React.JSX.Element {
   const readForks = useCallback(async () => {
     setForks(await window.bravebot.readForks().catch(() => []))
   }, [])
+
+  /**
+   * The theme in force, kept as a ref so that the appearance watcher below has the current one
+   * without being torn down and reinstalled every time the choice changes.
+   */
+  const themeRef = useRef<Theme | null>(null)
+  themeRef.current = findTheme(themes, chosen) ?? null
+
+  /**
+   * Whether the picker has the window, which decides whether an answer from disk may repaint it.
+   *
+   * A ref and not the state below, because `takeTheme` is installed once and would otherwise read
+   * whatever `picking` was when it was made.
+   */
+  const previewing = useRef(false)
+
+  /**
+   * Take what the main process answered, and paint the window in it.
+   *
+   * Except while the picker is open, when the list is taken and the painting is not. Opening the
+   * picker asks for the list again, and the watcher can answer at any moment; either reply landing
+   * a frame after somebody pressed an arrow would put the *chosen* theme back over the preview
+   * they were looking at. The picker owns the window until it closes, and Escape is what puts the
+   * previous one back.
+   */
+  const takeTheme = useCallback((state: { themes: Theme[]; chosen: string; directory: string }) => {
+    setThemes(state.themes)
+    setChosen(state.chosen)
+    setThemesDirectory(state.directory)
+    if (previewing.current) return
+    const theme = findTheme(state.themes, state.chosen)
+    if (theme) applyTheme(theme)
+  }, [])
+
+  /**
+   * Read the list again.
+   *
+   * Called when the picker opens as well as at startup, because the watcher can only tell the
+   * window about a palette written while the window was running — and it is the one moment the
+   * list has to be right. A round trip nobody is waiting on is cheaper than a picker that does not
+   * offer a file somebody just saved.
+   */
+  const refreshThemes = useCallback(() => {
+    void window.bravebot
+      .readTheme()
+      .then(takeTheme)
+      .catch(() => undefined)
+  }, [takeTheme])
+
+  /**
+   * Paint the window, and keep it painted as the answer changes underneath.
+   *
+   * Three things can change it: this window's own picker, a palette file being written — which
+   * arrives on `onThemeChanged` — and the system flipping to dark, which only matters for a
+   * palette that inherits some of its roles but matters a lot to that one. All three land in the
+   * same place.
+   */
+  useEffect(() => {
+    refreshThemes()
+    const stopListening = window.bravebot.onThemeChanged(takeTheme)
+    const stopWatching = watchAppearance(() => themeRef.current ?? BRAVE_THEME)
+    return () => {
+      stopListening()
+      stopWatching()
+    }
+  }, [takeTheme, refreshThemes])
 
   const refresh = useCallback(async () => {
     try {
@@ -637,6 +727,11 @@ export function App(): React.JSX.Element {
     forkEntry: (id) => void forkFrom(id),
     exportSession: (format) => void exportSession(format),
     toggleExportTools: () => setIncludeTools((on) => !on),
+    theme: () => {
+      previewing.current = true
+      refreshThemes()
+      setPicking(true)
+    },
   })
 
   // What the menu is allowed to offer. Assembled here because this is the only component
@@ -731,6 +826,23 @@ export function App(): React.JSX.Element {
       {unconfigured && <Unconfigured detail={unconfigured} />}
       {live?.askingTrust && (
         <TrustPrompt directory={live.askingTrust} onAnswer={answerTrust} />
+      )}
+      {picking && (
+        <ThemePicker
+          themes={themes}
+          chosen={chosen}
+          directory={themesDirectory}
+          onKeep={(name) => {
+            window.bravebot.writeTheme(name)
+            setChosen(name)
+            previewing.current = false
+            setPicking(false)
+          }}
+          onClose={() => {
+            previewing.current = false
+            setPicking(false)
+          }}
+        />
       )}
     </div>
   )

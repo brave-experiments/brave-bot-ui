@@ -55,6 +55,15 @@ export interface CommandActions {
   exportSession: (format: ExportFormat) => void
   /** Flip whether an export carries the tool calls as well as the conversation. */
   toggleExportTools: () => void
+  /**
+   * Open the theme picker.
+   *
+   * Here rather than among the things this module may not reach, because a theme is not an
+   * answer: the names are read off disk and drawn for a person, nothing about them is labelled,
+   * and choosing one decides nothing the agent asked. The paragraphs above are about approvals,
+   * and this is not one.
+   */
+  theme: () => void
 }
 
 /**
@@ -110,6 +119,8 @@ export function useCommandRouter(actions: CommandActions): void {
           return act.toggle('right')
         case 'view.reset-columns':
           return act.resetColumns()
+        case 'view.theme':
+          return act.theme()
         case 'app.about':
           return act.about()
         case 'help.doctor':
