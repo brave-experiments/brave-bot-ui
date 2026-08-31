@@ -27,6 +27,11 @@
   --confine-bg: rgba(111, 66, 193, 0.09);
   --radius: 10px;
   --code-bg: rgba(0, 0, 0, 0.055);
+  /* The ground under the file tree. Lighter than the column it sits in, which is what makes the
+     tree read as a surface with an edge rather than as text loose in the sidebar. Its own token
+     because the two themes want opposite things of it: the window's own white here, and a lift
+     off the dark ground there — `--code-bg` would darken this one and `--bg` would sink that one. */
+  --tree-bg: #ffffff;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   /* Where the inset traffic lights stop: 16px of inset, three 12px lights, two 8px gaps,
      and a little air after them so a control does not look crowded by the window's own. */
@@ -57,6 +62,7 @@
     --confine: #b392f0;
     --confine-bg: rgba(179, 146, 240, 0.12);
     --code-bg: rgba(255, 255, 255, 0.07);
+    --tree-bg: rgba(255, 255, 255, 0.06);
   }
 }
 
@@ -1139,6 +1145,160 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* A line from the record, which has no outcome behind it. */
 .files li.from-record code { opacity: 0.7; }
 .files li.from-record { border-left: 2px solid var(--line); padding-left: 6px; }
+
+/* ---------------------------------------------------------------- file tree */
+
+/* The one panel in this column that reads the disk. Same type and colours as the lists above it,
+   so it belongs to them; the only new idea is the indent. */
+
+.tree-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-bottom: 6px;
+}
+.tree-root {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+  /* Ellipsised on the right with the tooltip carrying the whole string, the same bargain every
+     other path in this column strikes. Clipping from the front would keep the more interesting
+     end, and the CSS trick for it (`direction: rtl`) moves a leading `/` to the other end of the
+     line — a path that reads wrong is worse than one that is short. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tree-tool {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-faint);
+  font-size: 11px;
+  line-height: 1;
+}
+.tree-tool:hover { background: rgba(127, 127, 127, 0.14); color: var(--ink-dim); }
+.tree-tool.on { color: var(--accent); }
+/* Wide enough for two characters, and in the mono face so `.*` reads as the filename it is. */
+.tree-tool.dotfiles { width: auto; padding: 0 4px; font-family: var(--mono); font-size: 10px; }
+
+/* The same box as the session filter next door, at the size this column speaks in. One shape for
+   "type to narrow this list" wherever the window offers it. */
+.tree-find {
+  appearance: none;
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--tree-bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+}
+.tree-find::placeholder { color: var(--ink-faint); }
+.tree-find:focus { outline: none; border-color: var(--accent); }
+.tree-find::-webkit-search-cancel-button { appearance: none; }
+
+.tree-note {
+  margin: 0 0 6px;
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
+.tree-problem {
+  margin: 0 0 6px;
+  font-size: 11px;
+  color: var(--warn);
+}
+
+/* The ground the rows stand on. The cap is in `vh` because what it is competing with is the
+   height of the window, not of the folder. */
+.tree-body {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--tree-bg);
+  padding: 4px 2px;
+  max-height: 44vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.tree-list { list-style: none; margin: 0; padding: 0; }
+
+/* The indent rides on `--depth`, set per row from React, so a deep row is still one flex box the
+   full width of the panel: nesting the padding instead would push the name off the right-hand edge
+   and ellipsise it against a box nobody can see. */
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  padding: 2px 4px 2px calc(4px + var(--depth) * 11px);
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  /* Full-strength ink. These are names somebody is reading one by one to find one of them,
+     unlike the dimmed lists above, which are read as a group and glanced at. */
+  color: var(--ink);
+  text-align: left;
+}
+.tree-row:hover { background: rgba(127, 127, 127, 0.16); }
+/* A folder is the thing you aim at to get somewhere, so it takes the weight and a file does not. */
+.tree-row.directory { font-weight: 500; }
+
+/* The chevron's box is held even on a file, so names line up whether or not the row opens. */
+.tree-row .chevron {
+  flex: none;
+  width: 9px;
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+/* Two or three letters saying what kind of file this is. A fixed box so every name in the
+   folder starts at the same x — a badge that sized itself to its own letters would leave the
+   column ragged, which is the one thing a list of filenames cannot afford. */
+.tree-glyph {
+  flex: none;
+  width: 23px;
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: center;
+  color: var(--ink-faint);
+}
+.tree-glyph.folder { font-size: 11px; font-weight: 400; }
+.tree-glyph.code { color: var(--accent-quiet); }
+.tree-glyph.data { color: var(--warn); }
+.tree-glyph.markup { color: var(--confine); }
+.tree-glyph.doc { color: var(--ink-dim); }
+.tree-glyph.image { color: var(--added); }
+.tree-glyph.media { color: var(--removed); }
+.tree-glyph.archive { color: var(--accent); }
+
+.tree-name {
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Both of these are said in the panel rather than in a dialog: they are about one folder, and the
+   folder is on screen. */
+.tree-body .none { padding: 4px 6px; font-size: 11px; }
+.tree-list .none { padding-left: 12px; }
+.tree-more {
+  padding: 3px 4px;
+  font-size: 10px;
+  color: var(--ink-faint);
+}
 
 /* Not a modal: this is not dismissable, because nothing in the window fixes it. */
 .unconfigured {

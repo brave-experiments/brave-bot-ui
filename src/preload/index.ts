@@ -1,11 +1,16 @@
 /**
  * The only thing the renderer can reach.
  *
- * A handful of functions and a subscription. No filesystem, no child processes, no IPC
- * surface beyond this: the renderer asks the main process to call a named method, and the
- * main process decides whether that is a method at all. The layout and view pairs are the
- * only things here that are not about the agent — they store where the columns were and how
- * the session list is arranged, and the main process checks that that is all they are.
+ * A handful of functions and a subscription. No child processes, no IPC surface beyond this: the
+ * renderer asks the main process to call a named method, and the main process decides whether that
+ * is a method at all. Nor any filesystem, with one measured exception below — the tree in the
+ * context column can list a directory of the folder its own session is working in, and ask the
+ * system to open a file there, naming both by a path relative to a root only the main process
+ * holds. It cannot name a folder, and nothing here reads a file's contents.
+ *
+ * The layout and view pairs are the only things here that are not about the agent — they store
+ * where the columns were and how the session list is arranged, and the main process checks that
+ * that is all they are.
  */
 
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
@@ -15,6 +20,7 @@ import type { StoredView } from '../shared/view'
 import type { CommandId, ContextCommandId, ContextRef, WindowState } from '../shared/commands'
 import type { ExportOutcome, ExportRequest } from '../shared/export'
 import type { Fork } from '../shared/forks'
+import type { Listing, OpenOutcome } from '../shared/files'
 
 export interface Answer<T> {
   ok?: T
@@ -77,6 +83,32 @@ const api = {
    */
   readForks(): Promise<Fork[]> {
     return ipcRenderer.invoke('bravebot:forks:read') as Promise<Fork[]>
+  },
+
+  /**
+   * One directory of the folder a session is working in, or `null` for anything it may not see.
+   *
+   * A session handle and a path *relative* to that session's directory — never a path. The main
+   * process holds the roots, learned from what the agent answered when the session was opened, so
+   * this cannot name a folder no session of this window is running in. That is the same promise
+   * `chooseDirectory` below makes, and the reason there is no `readDirectory(path)` here.
+   *
+   * Names and kinds only. Nothing on this bridge reads a file's contents, so it adds no way for
+   * something the agent was refused to reach the renderer regardless.
+   */
+  listFiles(session: string, path: string): Promise<Listing | null> {
+    return ipcRenderer.invoke('bravebot:files:list', session, path) as Promise<Listing | null>
+  },
+
+  /**
+   * Hand a file to whichever app the system assigns its type.
+   *
+   * The same pair, checked the same way, and only ever a regular file inside the session's own
+   * folder. Never throws; a refusal comes back in `status`, because somebody double-clicked and
+   * deserves to hear that nothing happened.
+   */
+  openFile(session: string, path: string): Promise<OpenOutcome> {
+    return ipcRenderer.invoke('bravebot:files:open', session, path) as Promise<OpenOutcome>
   },
 
   /** Ask the user for a project directory, natively. */

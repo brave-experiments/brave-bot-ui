@@ -1,9 +1,13 @@
 import { useState } from 'react'
 import { Fold } from './Fold'
+import { FileTree } from './FileTree'
 import type { Activity, Phase, Shown, TodoRow } from '../../shared/protocol'
 import type { Entry } from '../transcript'
 
 interface Live {
+  /** The session's handle. The file tree names it rather than naming a folder. */
+  handle: string
+  summary: { directory: string }
   entries: Entry[]
   todos: TodoRow[]
   quarantine: Shown[]
@@ -13,10 +17,12 @@ interface Live {
 }
 
 /**
- * The right-hand column: what this session has touched.
+ * The right-hand column: what this session has touched, and the folder it is touching it in.
  *
- * Derived from the transcript rather than tracked separately, so the two cannot disagree
- * about what happened.
+ * The first four panels are derived from the transcript rather than tracked separately, so the two
+ * cannot disagree about what happened. The fifth is the exception and says so: a file tree reads
+ * the disk, because the question it answers — what else is in there, and what does this file look
+ * like in a real editor — is not one the transcript can be asked.
  */
 export function Context({ live }: { live: Live | null }): React.JSX.Element {
   if (!live) return <aside className="context" id="context-column" />
@@ -137,6 +143,24 @@ export function Context({ live }: { live: Live | null }): React.JSX.Element {
           </ul>
         )}
       </Section>
+
+      {/* Last, and on purpose. The four panels above are derived from the transcript — what the
+          session touched — and this one reads the disk. Putting it under them keeps that boundary
+          visible instead of interleaving two kinds of claim.
+
+          No count: the others count something the session did, where this would count entries in
+          the top of a folder, which is a number nobody is waiting for.
+
+          Keyed by the handle so switching sessions resets the tree rather than showing one
+          project's folders under another's root while the new listing arrives. */}
+      <Section title="Files">
+        <FileTree
+          key={live.handle}
+          session={live.handle}
+          root={live.summary.directory}
+          running={live.running}
+        />
+      </Section>
     </aside>
   )
 }
@@ -147,7 +171,8 @@ function Section({
   children,
 }: {
   title: string
-  count: number
+  /** How many things are in it, for the pill in the head. Omitted where there is nothing to count. */
+  count?: number
   children: React.ReactNode
 }): React.JSX.Element {
   const [open, setOpen] = useState(true)
@@ -164,7 +189,7 @@ function Section({
           ›
         </span>
         {title}
-        {count > 0 && <span className="count">{count}</span>}
+        {count !== undefined && count > 0 && <span className="count">{count}</span>}
       </button>
       <Fold open={open} className="panel-inner">
         {children}

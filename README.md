@@ -42,7 +42,13 @@ Three columns, each side one resizable and foldable:
   of the five that means *no answers at all* rather than a decline per question: a decline
   somebody made and a question that never reached them must not look alike.
 - **Context** — what the session has touched: the plan, files read, writes and how far each
-  got, and anything quarantined.
+  got, and anything quarantined — and, last, the one panel that reads the disk rather than the
+  transcript: a **file tree** of the folder the session is working in. Directories list when
+  you open one rather than up front, dot-prefixed entries sit behind a toggle, each file
+  carries a two-letter badge for its type, and a box above the tree filters by name — which
+  searches what has been read and says so, since the tree is listed a folder at a time. A
+  double-click hands a file to whichever app the system assigns its type. It re-reads the
+  folder when a turn finishes, which is the moment its contents can have changed.
 
 The two side columns fold to nothing from a chevron at either end of the transcript's
 header, and their widths and fold states survive a relaunch.
@@ -178,6 +184,7 @@ crates/bravebot-bridge/        the Rust library and the bravebot-rpc binary
   tests/                  eight integration suites, including the refusal guarantees
 src/main/                 Electron main: one window, one child process, a narrow channel
   menu.ts                 the application menu, built from the shared command list
+  files.ts                listing and opening inside a session's own folder
   recents.ts              the projects opened before, which only this side writes
 src/preload/              the only thing the renderer can reach
 src/renderer/             the React app
@@ -299,6 +306,7 @@ at, that a control keeps keyboard focus through an animation.
 | `npm run drive:menu` | The application menu: what it offers, what it greys, and what it refuses to offer |
 | `npm run drive:export` | Exporting a conversation to text, Markdown and PDF — with and without the tool calls, and what the file leaves out either way |
 | `npm run drive:fork` | Cutting a session in two: that the fork holds the right half and the session it came from is untouched |
+| `npm run drive:tree` | The file tree: listing, expanding, the dotfile toggle, the name filter, and that a session with no root and a symlink out of the project both list nothing |
 | `npm run drive:packaged` | A built `.app`: that a release hides the developer items and finds its agent |
 | `node scripts/drive-turn.mjs` | A live inference request through the window, to prove the binary carries its credentials rather than inheriting them |
 | `scripts/smoke-turn.sh` | A live turn straight through `bravebot-rpc`, no app |
@@ -359,6 +367,18 @@ that decides. A renderer with filesystem access would undo that from the outside
   and `sandbox` are on, `nodeIntegration` and `webviewTag` are off, `will-navigate` is
   refused outright, and a link opens in the user's browser.
 - The preload exposes a handful of functions and one subscription. Nothing else.
+- **The renderer never composes a filesystem path.** A project directory arrives from a
+  native picker or from a list the main process keeps; it is never a string the window made
+  up. The file tree keeps that promise for reading a folder too: it names a *session* and a
+  path relative to that session's directory, and the main process holds the roots — learned
+  from what the agent answered when the session was opened, forked or made. There is no
+  channel that accepts an absolute path, and a handle no session is running under lists
+  nothing. Two checks, not one: the lexical one (`shared/files.ts`) refuses `..` and anything
+  absolute before it becomes a syscall, and the main process then resolves the pair and
+  requires `realpath` to land inside the root's own `realpath` — so a symlink out of the
+  project is refused rather than followed. Nothing on that channel reads a file's
+  *contents*, only names and kinds, so it adds no route by which something the agent was
+  refused could reach the renderer anyway.
 - The methods the renderer may call are an **allow-list** in the main process, not a
   pass-through. A generic "send anything to the agent" channel would make the preload's
   narrowness decorative.

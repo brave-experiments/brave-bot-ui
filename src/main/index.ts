@@ -18,7 +18,9 @@ import { installMenu, popupContext, rebuildMenu, refreshMenu } from './menu'
 import { noteProject, recents } from './recents'
 import { isProjectPath } from '../shared/recents'
 import { forks, noteFork } from './forks'
-import { parseForkResult } from '../shared/forks'
+import { isSessionId, parseForkResult } from '../shared/forks'
+import { forgetRoot, list, noteRoot, open as openInApp } from './files'
+import { isSubpath } from '../shared/files'
 import {
   parseExportRequest,
   suggestedFilename,
@@ -118,6 +120,34 @@ const FILTERS: Record<ExportFormat, Electron.FileFilter> = {
   pdf: { name: 'PDF', extensions: ['pdf'] },
 }
 
+/**
+ * Remember where a session that has just started is working, for the file tree.
+ *
+ * The handle comes off the answer in every case. The directory comes off the answer too where
+ * there is one — an opened session carries its record, a forked one its own directory — and off
+ * the request for `session.new`, which answers with a handle and a branch and nothing else. That
+ * one path is the same value this handler already trusts enough to write to the recents list a few
+ * lines up, it arrived from a native picker or a list the main process itself keeps, and it is
+ * checked as a project path before it becomes a root.
+ */
+function noteOpenedRoot(method: string, params: unknown, ok: unknown): void {
+  if (method !== 'session.open' && method !== 'session.new' && method !== 'session.fork') return
+  if (typeof ok !== 'object' || ok === null) return
+  const answer = ok as Record<string, unknown>
+  if (!isSessionId(answer.session)) return
+
+  if (method === 'session.new') {
+    noteRoot(answer.session, (params as { directory?: unknown } | null)?.directory)
+    return
+  }
+  const record = answer.record
+  const directory =
+    method === 'session.open' && typeof record === 'object' && record !== null
+      ? (record as { directory?: unknown }).directory
+      : answer.directory
+  noteRoot(answer.session, directory)
+}
+
 app.whenReady().then(() => {
   ipcMain.handle('bravebot:request', async (_event, method: unknown, params: unknown) => {
     if (typeof method !== 'string' || !ALLOWED.has(method)) {
@@ -145,6 +175,16 @@ app.whenReady().then(() => {
           noteFork(fork)
           if (noteProject(fork.child.directory)) rebuildMenu()
         }
+      }
+      // Which directory each live session is working in, for the file tree in the context
+      // column. Recorded at this one choke point because it is the only place that sees both
+      // halves at once, and read off the *answer* wherever the answer carries it — the handle
+      // always, the directory for an opened or forked session — so a root the tree can browse is
+      // one the agent confirmed rather than one the renderer asserted. See `files.ts`.
+      noteOpenedRoot(method, params, ok)
+      if (method === 'session.close') {
+        const closing = (params as { session?: unknown } | null)?.session
+        if (isSessionId(closing)) forgetRoot(closing)
       }
       return { ok }
     } catch (error) {
@@ -290,6 +330,30 @@ app.whenReady().then(() => {
 
   /** Which session came out of which. Read-only for the same reason the recents list is. */
   ipcMain.handle('bravebot:forks:read', () => forks())
+
+  // Looking at the folder a session is working in.
+  //
+  // The pair that crosses is a session handle and a path relative to that session's directory,
+  // and both are refused here before anything becomes a syscall. The roots are the main process's
+  // own record of what the agent answered, so there is no channel on which the renderer can name a
+  // folder — the promise `choose-directory` makes, kept for a second feature. `files.ts` has the
+  // resolution and the reason a lexical check is only half of it.
+  //
+  // Note what this does not touch: `ALLOWED` above. The tree reaches no agent method, so the list
+  // of things the renderer may ask the agent to do is exactly as long as it was.
+  ipcMain.handle('bravebot:files:list', (_event, session: unknown, path: unknown) => {
+    if (!isSessionId(session) || !isSubpath(path)) return null
+    return list(session, path)
+  })
+
+  ipcMain.handle('bravebot:files:open', async (_event, session: unknown, path: unknown) => {
+    if (!isSessionId(session) || !isSubpath(path)) {
+      // Deliberately not an echo of what arrived, the way the export refusal is not: the message
+      // is for the person, and the payload is the one thing they cannot act on.
+      return { status: 'failed', message: 'that is not a file in this project' }
+    }
+    return openInApp(session, path)
+  })
 
   // What the window can currently do, so the menu can grey what it cannot. The renderer is
   // the only thing that knows this, and it says so rather than being asked: a menu that has
