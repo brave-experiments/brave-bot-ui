@@ -1,9 +1,15 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Fold } from './Fold'
+import { FileTree } from './FileTree'
+import { PanelIcon } from './PanelIcon'
+import { PANEL_NAMES, type PanelName } from '../../shared/state'
 import type { Activity, Phase, Shown, TodoRow } from '../../shared/protocol'
 import type { Entry } from '../transcript'
 
 interface Live {
+  /** The session's handle. The file tree names it rather than naming a folder. */
+  handle: string
+  summary: { directory: string }
   entries: Entry[]
   todos: TodoRow[]
   quarantine: Shown[]
@@ -13,12 +19,61 @@ interface Live {
 }
 
 /**
- * The right-hand column: what this session has touched.
+ * The panels, in the order they appear, and the order their buttons appear in.
  *
- * Derived from the transcript rather than tracked separately, so the two cannot disagree
- * about what happened.
+ * One list rather than a set of `useState`s and a hand-written row of buttons: the bar and the
+ * column are then two readings of the same thing, and a panel added later cannot end up in one
+ * and not the other. The names come from `shared/state.ts`, which is also what decides whether a
+ * name in the preferences file is a panel at all — so the column, the bar and the file on disk are
+ * all talking about the same five things.
+ */
+const PANELS = PANEL_NAMES
+
+/**
+ * The right-hand column: what this session has touched, and the folder it is touching it in.
+ *
+ * The first four panels are derived from the transcript rather than tracked separately, so the two
+ * cannot disagree about what happened. The fifth is the exception and says so: a file tree reads
+ * the disk, because the question it answers — what else is in there, and what does this file look
+ * like in a real editor — is not one the transcript can be asked.
  */
 export function Context({ live }: { live: Live | null }): React.JSX.Element {
+  // Which panels are *off*. Held here rather than in each panel, because the row of buttons at the
+  // top has to be able to say so — and declared above the empty case, so the hooks run on every
+  // render the way the rules require.
+  //
+  // The off ones rather than the on ones, all the way down to the file: a panel added to this
+  // window in a later build then arrives visible under a preference written before it existed,
+  // which is the column's own default. `shared/state.ts` says the same thing about the shape.
+  const [off, setOff] = useState<ReadonlySet<PanelName>>(() => new Set())
+
+  // Read once, and written on every change after the read has landed — the arrangement the
+  // session list keeps for its own preference, and the `ready` guard is why: without it the empty
+  // initial state races the read and writes "every panel is on" over what somebody chose.
+  const ready = useRef(false)
+  useEffect(() => {
+    void window.bravebot
+      .readPanels()
+      .then((panels) => setOff(new Set(panels.off)))
+      .catch(() => undefined)
+      .finally(() => (ready.current = true))
+  }, [])
+  useEffect(() => {
+    if (!ready.current) return
+    try {
+      window.bravebot.writePanels({ off: [...off] })
+    } catch {
+      // The column is still arranged the way it was asked to be, for this session at least.
+    }
+  }, [off])
+
+  const toggle = (panel: PanelName): void =>
+    setOff((was) => {
+      const next = new Set(was)
+      if (!next.delete(panel)) next.add(panel)
+      return next
+    })
+
   if (!live) return <aside className="context" id="context-column" />
 
   const files = touched(live.entries)
@@ -32,9 +87,53 @@ export function Context({ live }: { live: Live | null }): React.JSX.Element {
   // replayed one says what it actually knows.
   const onlyReplayed = replayed.length > 0 && files.length === 0
 
+  // What each panel is called, which is what its button says it will show or hide. Read off the
+  // same value the heading uses, so the bar cannot promise "Files read" over a panel headed
+  // "Calls made".
+  const labels: Record<PanelName, string> = {
+    plan: 'Plan',
+    read: onlyReplayed ? 'Calls made' : 'Files read',
+    writes: 'Writes',
+    confined: 'Confined content',
+    files: 'Files',
+  }
+
   return (
     <aside className="context" id="context-column">
-      <Section title="Plan" count={live.todos.length}>
+      {/* One connected row, because these five are one choice about one column rather than five
+          unrelated switches — the shape a segmented control has on this platform.
+
+          A hidden panel is hidden in CSS rather than unmounted. Unmounting is tidier to write and
+          worse to use: it would throw away which folders somebody had opened in the tree and how
+          each panel was folded, so turning a panel off and on again would silently undo their
+          work. `display: none` takes it out of the tab order and the accessibility tree just the
+          same. */}
+      {/* Wrapped, because `.context > *` hands every direct child of this column the width the
+          column will come back at when it unfolds — which a full-width row of buttons plus its
+          own margins overflows. The wrapper takes that width and the bar sits inside it. */}
+      <div className="context-head">
+        <div className="panel-bar" role="group" aria-label="Which panels to show">
+          {PANELS.map((panel) => (
+            <button
+              key={panel}
+              className="panel-pick"
+              aria-pressed={!off.has(panel)}
+              aria-controls={`panel-${panel}`}
+              aria-label={labels[panel]}
+              // The name stays put and the verb goes in the tooltip, the rule `ColumnToggle`
+              // states: a control that renames itself is one the reader has to find again.
+              title={`${off.has(panel) ? 'Show' : 'Hide'} ${labels[panel].toLowerCase()}`}
+              onClick={() => toggle(panel)}
+            >
+              <PanelIcon panel={panel} />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {off.size === PANELS.length && <p className="none">Every panel is hidden.</p>}
+
+      <Section id="plan" title="Plan" count={live.todos.length} off={off.has('plan')}>
         {live.todos.length === 0 ? (
           <p className="none">{onlyReplayed ? 'No plan was recorded.' : 'No plan yet.'}</p>
         ) : (
@@ -57,8 +156,10 @@ export function Context({ live }: { live: Live | null }): React.JSX.Element {
           list "files read" would be a third thing the interface got wrong about a session
           it did not watch. */}
       <Section
-        title={onlyReplayed ? 'Calls made' : 'Files read'}
+        id="read"
+        title={labels.read}
         count={onlyReplayed ? replayed.length : files.length}
+        off={off.has('read')}
       >
         {onlyReplayed ? (
           <>
@@ -96,7 +197,7 @@ export function Context({ live }: { live: Live | null }): React.JSX.Element {
         )}
       </Section>
 
-      <Section title="Writes" count={writes.length}>
+      <Section id="writes" title="Writes" count={writes.length} off={off.has('writes')}>
         {writes.length === 0 ? (
           <p className="none">
             {onlyReplayed
@@ -115,7 +216,12 @@ export function Context({ live }: { live: Live | null }): React.JSX.Element {
         )}
       </Section>
 
-      <Section title="Confined content" count={live.quarantine.length}>
+      <Section
+        id="confined"
+        title="Confined content"
+        count={live.quarantine.length}
+        off={off.has('confined')}
+      >
         {live.quarantine.length === 0 ? (
           <p className="none">
             {onlyReplayed
@@ -137,22 +243,51 @@ export function Context({ live }: { live: Live | null }): React.JSX.Element {
           </ul>
         )}
       </Section>
+
+      {/* Last, and on purpose. The four panels above are derived from the transcript — what the
+          session touched — and this one reads the disk. Putting it under them keeps that boundary
+          visible instead of interleaving two kinds of claim.
+
+          No count: the others count something the session did, where this would count entries in
+          the top of a folder, which is a number nobody is waiting for.
+
+          Keyed by the handle so switching sessions resets the tree rather than showing one
+          project's folders under another's root while the new listing arrives. */}
+      <Section id="files" title="Files" off={off.has('files')}>
+        <FileTree
+          key={live.handle}
+          session={live.handle}
+          root={live.summary.directory}
+          running={live.running}
+        />
+      </Section>
     </aside>
   )
 }
 
 function Section({
+  id,
   title,
   count,
+  off = false,
   children,
 }: {
+  /** Which panel this is, so the button in the bar can point at it. */
+  id: PanelName
   title: string
-  count: number
+  /** How many things are in it, for the pill in the head. Omitted where there is nothing to count. */
+  count?: number
+  /**
+   * Whether the bar has turned it off. Distinct from folded: folding is about this panel's own
+   * contents and lives in the head, where turning it off is a choice about the column and lives
+   * at the top of it. A panel that is off keeps everything it knows, including its fold.
+   */
+  off?: boolean
   children: React.ReactNode
 }): React.JSX.Element {
   const [open, setOpen] = useState(true)
   return (
-    <section className="panel">
+    <section className={`panel ${off ? 'off' : ''}`} id={`panel-${id}`}>
       <button
         className="panel-head"
         aria-expanded={open}
@@ -164,7 +299,7 @@ function Section({
           ›
         </span>
         {title}
-        {count > 0 && <span className="count">{count}</span>}
+        {count !== undefined && count > 0 && <span className="count">{count}</span>}
       </button>
       <Fold open={open} className="panel-inner">
         {children}

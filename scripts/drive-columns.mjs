@@ -6,7 +6,7 @@
 // where it was rather than at the default — which only shows up if the column was dragged
 // somewhere non-default first, so the run starts by doing exactly that.
 import { _electron as electron } from 'playwright-core'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 mkdirSync('/tmp/bravebot-ui', { recursive: true })
@@ -211,8 +211,15 @@ check(
 )
 await app.close()
 
-// --- a layout file written before any of this existed -------------------------------------
-writeFileSync(join(userData, 'layout.json'), '{"left":300,"right":300}', 'utf8')
+// --- a stored layout written before folding existed ---------------------------------------
+// Written into the one file the app keeps, under its own key and leaving the other keys alone —
+// the same read-modify-write the main process does, because clobbering somebody's recents list
+// to test a column width would be a driver doing more than it said.
+{
+  const file = join(userData, 'bravebot-ui.json')
+  const held = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {}
+  writeFileSync(file, JSON.stringify({ ...held, layout: { left: 300, right: 300 } }), 'utf8')
+}
 app = await launch()
 page = await ready(app, { fresh: true })
 const old = { left: await width(page, '.sessions'), right: await width(page, '.context') }
