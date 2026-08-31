@@ -192,8 +192,12 @@ export function App(): React.JSX.Element {
    *
    * `focus` is how the fork banner points back: an ordinal over the prompts, resolved to a row
    * when the transcript draws it. See `Live.focus`.
+   *
+   * Not called `open`, which is what it was: that shadows `window.open`, so every call to it
+   * reads — to a scanner, and to anybody who does not know this file — as opening a browser
+   * tab. A name that has to be recognised before it can be understood is the wrong name.
    */
-  const open = useCallback(async (summary: SessionSummary, focus?: number) => {
+  const showSession = useCallback(async (summary: SessionSummary, focus?: number) => {
     try {
       // Let go of the one being left first. The app shows a single session and already
       // drops events for any other (see the listener below), so a turn left running behind
@@ -492,9 +496,9 @@ export function App(): React.JSX.Element {
   const openSession = useCallback(
     (id: string) => {
       const found = sessions.find((session) => session.id === id)
-      if (found) void open(found)
+      if (found) void showSession(found)
     },
-    [sessions, open],
+    [sessions, showSession],
   )
 
   /**
@@ -599,9 +603,9 @@ export function App(): React.JSX.Element {
     const found = sessions.find(
       (session) => session.id === from.id && session.directory === from.directory,
     )
-    if (found) void open(found, from.prompt)
+    if (found) void showSession(found, from.prompt)
     else setProblem('the session this was forked from is no longer in the list')
-  }, [live, sessions, open])
+  }, [live, sessions, showSession])
 
   /** Stop marking the prompt a fork link landed on, so the transcript behaves normally again. */
   const clearFocus = useCallback(() => {
@@ -678,7 +682,7 @@ export function App(): React.JSX.Element {
         sessions={sessions}
         openId={live?.summary.id ?? undefined}
         forked={forked}
-        onOpen={open}
+        onOpen={showSession}
         onNew={create}
         build={build}
       />
