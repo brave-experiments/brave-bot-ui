@@ -445,6 +445,12 @@ npm run demo -- --only 07-fork       # one scene, for a retake
 npm run demo -- --list               # what it would film, in order
 ```
 
+Filming is macOS-only, and it is the one thing in this repository that is: `--record` shells
+out to `screencapture`, which Linux does not have. Every other flag below works anywhere the
+app runs — a Linux take plays the scenes and captions to a screen and leaves the recording to
+whatever that desktop records with. `npm run demo` is also the one driver `with-display.sh`
+does not wrap, for the same reason: it films the screen it is on, and an Xvfb buffer is not one.
+
 `--record` points macOS's own `screencapture` at the window's rectangle and drops a WebVTT
 beside the film with every caption already timed to it — so a run produces the video *and*
 its subtitle track, rather than producing something somebody then has to remember to record.
