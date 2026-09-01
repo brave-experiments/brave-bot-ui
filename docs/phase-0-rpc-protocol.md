@@ -206,10 +206,14 @@ thing that matters.
 Two things follow, and both are needed:
 
 - **Build through direnv.** `scripts/build-bridge.sh` (what `npm run bridge` runs) finds
-  the agent checkout — `$BRAVEBOT_DIR`, defaulting to `~/repos/bravebot` — and
-  builds via `direnv exec` when its `.envrc` is allowed, so the credentials are captured.
-  It warns loudly rather than silently producing a binary that cannot infer. Verified: a
-  turn runs from a shell with all three variables explicitly unset.
+  the agent checkout — `$BRAVEBOT_DIR` if set, otherwise a sibling named `bravebot` next
+  to this repository, which is the same path `crates/bravebot-bridge/Cargo.toml` depends
+  on — and builds via `direnv exec` when its `.envrc` is allowed, so the credentials are
+  captured. The path is canonicalised first: direnv's allow list is keyed on the physical
+  path of the `.envrc`, so a checkout reached through a symlink otherwise reads as
+  un-allowed even after `direnv allow`. It warns loudly rather than silently producing a
+  binary that cannot infer. Verified: a turn runs from a shell with all three variables
+  explicitly unset.
 - **`BRAVEBOT_ALLOW_UNCONFIGURED_BUILD=1` stays set** in `.cargo/config.toml`, so a checkout
   with no secrets still compiles and the 47 tests still run. It only suppresses the
   build failure; it does not prevent baking, so it costs nothing when credentials are
@@ -441,13 +445,19 @@ differently: the front-end puts it in the composer and the person edits it.
   and **never raised**: integrity is met over a session's whole life and no message records its
   own, so it cannot be recomputed for a prefix, and the only direction it may be wrong in is
   downwards.
-- The **trust map and the vouched programs are inherited** from the parent's live state — the
-  same person, the same directory, the same window, which is the argument `session.open` already
-  makes for a resume. It is worth naming what this gives up: a program vouched for *after* the
-  cut is not in the child's history, and `TrustedPrograms` has no timeline to filter by. The
-  alternative is asking the same person about the same command again, which is how people are
-  taught to click through questions. `trust.known` is `false` when the parent was itself still
-  holding the question, and then the fork emits `trust.request` exactly as a new session does.
+- The **trust map, the vouched programs, and any extra open directories** are inherited
+  from the parent's live state — the same person, the same directory, the same window,
+  which is the argument `session.open` already makes for a resume. Extra directories are
+  the other half of a grant a trust rule cannot express: an absolute path is refused
+  unless its directory is open, whatever the map says. This front-end has no `/add-dir`,
+  so a session begun here never opens any; they are still carried so a session begun in
+  the terminal does not lose them when it is forked or saved here. It is worth naming
+  what the rest of this inheritance gives up: a program vouched for *after* the cut is
+  not in the child's history, and `TrustedPrograms` has no timeline to filter by. The
+  alternative is asking the same person about the same command again, which is how people
+  are taught to click through questions. `trust.known` is `false` when the parent was
+  itself still holding the question, and then the fork emits `trust.request` exactly as a
+  new session does.
 - `turns` and `todos` are the parent's, cut to the same place: a turn's plan belongs to its turn.
   Tokens start at nothing, because that figure answers "what has this session cost me".
 - The fork keeps the **title of the session it came from**, since its title is derived from the
@@ -491,6 +501,14 @@ confirmation is **refused** (§8.4). Returns `{}` once the worker has joined.
   "params": { "session": "s1", "prompt": "why does the parser drop trailing commas?",
               "files": ["notes.md"] } }
 ```
+
+Builds a `Workspace` over the session's project, then re-opens any extra directories the
+record still lists. A workspace is built per turn and opens the project only, so those
+paths have to be opened again here: the trust rules about them came back with the map,
+and a rule about a directory nothing can open refuses every path under it for escaping
+the workspace. One that has since moved or been deleted is left closed — the refusal it
+causes is the one that was already happening, and this protocol has no way to say so
+outside a turn.
 
 Builds a `Task::new(prompt)`, applies `with_file` per entry of `files`, and
 `with_home(home::directory())`. Spawns the worker thread and calls `turn::resume` with an

@@ -27,7 +27,7 @@ export function Unconfigured({ detail }: { detail: string }): React.JSX.Element 
         <li>Restart this app.</li>
       </ol>
       <p className="aside">
-        If the agent checkout is not at <code>~/repos/bravebot</code>, set{' '}
+        If the agent checkout is not a sibling named <code>bravebot</code>, set{' '}
         <code>BRAVEBOT_DIR</code> before building.
       </p>
       <details>
