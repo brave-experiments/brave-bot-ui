@@ -8,7 +8,7 @@
 // This one makes something. A fork is a real session from its first moment, so a take leaves
 // a forked session in the store — it writes no record until it has something to say, but it
 // is there in the window. The scene says which one, so it can be cleaned up after the shoot.
-import { findSession, open } from '../pick.mjs'
+import { findSession, openSession } from '../pick.mjs'
 
 export default {
   id: '08-fork',
@@ -25,7 +25,7 @@ export default {
     if (!parent) s.skip('no stored session has two prompts in it — nothing to fork')
 
     await s.say('Forking', 'A conversation that went somewhere unhelpful, and a wish to go back.', 2.2)
-    await open(s, parent)
+    await openSession(s, parent)
 
     const prompt = page.locator('.bubble.user').nth(1)
     await s.glideTo(prompt)

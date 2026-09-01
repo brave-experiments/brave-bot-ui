@@ -5,7 +5,7 @@
 // Filmed by walking the row rather than by opening one panel, because the argument the column
 // makes is cumulative: it is the whole of what the agent did, in one place, beside the
 // conversation that caused it.
-import { findSession, open, openNewest } from '../pick.mjs'
+import { findSession, openSession, openNewest } from '../pick.mjs'
 
 const LABELS = {
   plan: ['The plan', 'What the agent said it was going to do.'],
@@ -25,7 +25,7 @@ export default {
     // A session that actually did something, so the panels have contents rather than counts
     // of zero — an empty panel is a truthful shot and a useless one.
     const busy = await findSession(s, (said) => said.filter((l) => l.kind === 'tool').length >= 2)
-    if (busy) await open(s, busy, { hold: 1.2 })
+    if (busy) await openSession(s, busy, { hold: 1.2 })
     else await openNewest(s, { hold: 1.2 })
 
     if (!(await page.locator('.context').isVisible().catch(() => false))) {

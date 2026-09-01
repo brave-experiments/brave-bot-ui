@@ -12,7 +12,7 @@
 // PDF is real: it is drawn by a second renderer using the same React components the window
 // does, so a reply's markdown is gated on the way to paper by exactly what gates it on screen.
 import { readFileSync } from 'node:fs'
-import { findSession, open, openNewest } from '../pick.mjs'
+import { findSession, openSession, openNewest } from '../pick.mjs'
 
 export default {
   id: '09-export',
@@ -22,7 +22,7 @@ export default {
     const { page, app } = s
 
     const busy = await findSession(s, (said) => said.some((line) => line.kind === 'tool'))
-    if (busy) await open(s, busy, { hold: 1.2 })
+    if (busy) await openSession(s, busy, { hold: 1.2 })
     else await openNewest(s, { hold: 1.2 })
 
     const trigger = page.locator('.export-open')

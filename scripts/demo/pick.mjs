@@ -34,7 +34,7 @@ export async function findSession(s, fits, { limit = 12 } = {}) {
 }
 
 /** Open a session by clicking its row, which is what the video is meant to show happening. */
-export async function open(s, session, { hold = 1.6 } = {}) {
+export async function openSession(s, session, { hold = 1.6 } = {}) {
   const row = s.page.locator('.session').filter({ hasText: session.title }).first()
   if (!(await row.count())) s.skip(`"${session.title}" is not in the list`)
   await s.click(row)
@@ -50,6 +50,6 @@ export async function openNewest(s, opts) {
     ? all.find((x) => x.title?.toLowerCase().includes(s.opts.session.toLowerCase()))
     : all[0]
   if (!wanted) s.skip(s.opts.session ? `no session matches --session ${s.opts.session}` : 'no sessions are stored')
-  await open(s, wanted, opts)
+  await openSession(s, wanted, opts)
   return wanted
 }

@@ -4,7 +4,7 @@
 // beat of its own — and worth saying on screen what the renderer will not do with it. There
 // is no `rehype-raw`, no `dangerouslySetInnerHTML`, an allow-list of link schemes and no
 // images, which is why a reply can be formatted without a reply being able to reach anything.
-import { findSession, open, openNewest } from '../pick.mjs'
+import { findSession, openSession, openNewest } from '../pick.mjs'
 
 /** Something in the reply that is unmistakably *rendered* rather than printed. */
 const RICH = ['.bubble.assistant .md-table-wrap', '.bubble.assistant pre code', '.bubble.assistant h2', '.bubble.assistant ul']
@@ -20,7 +20,7 @@ export default {
     const wordy = await findSession(s, (said) =>
       said.some((line) => line.kind === 'assistant' && (line.text?.length ?? 0) > 600),
     )
-    if (wordy) await open(s, wordy, { hold: 1.2 })
+    if (wordy) await openSession(s, wordy, { hold: 1.2 })
     else await openNewest(s, { hold: 1.2 })
 
     const reply = page.locator('.bubble.assistant').first()

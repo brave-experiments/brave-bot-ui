@@ -5,7 +5,7 @@
 // exchange rather than as a log. And anything the agent was shown from outside is drawn as
 // confined content — labelled as what it is, not as text the model simply read — which is the
 // whole argument the app is making.
-import { findSession, open, openNewest } from '../pick.mjs'
+import { findSession, openSession, openNewest } from '../pick.mjs'
 
 export default {
   id: '03-transcript',
@@ -18,7 +18,7 @@ export default {
     const busy = await findSession(s, (said) => said.some((line) => line.kind === 'tool'))
     if (busy) {
       await s.say('Open a session', `"${busy.title.slice(0, 60)}"`)
-      await open(s, busy)
+      await openSession(s, busy)
     } else {
       await s.say('Open a session', 'Click a row and the conversation fills in.')
       await openNewest(s)
