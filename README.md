@@ -359,6 +359,7 @@ releases are, with the credentials present, or it will ship unable to reach the 
 | `npm run build` | Bridge, typecheck, then bundle main + preload + renderer into `out/` |
 | `npm start` | Preview a built bundle without rebuilding |
 | `npm run package` | Build a `.app` into `dist/` (see Packaging) |
+| `npm run demo` | Walk the whole product at human speed, recording it (see Recording a demo) |
 | `cargo test -p bravebot-bridge` | The Rust suites |
 
 TypeScript runs `strict`, plus `noUncheckedIndexedAccess`, `noUnusedLocals` and
@@ -427,6 +428,95 @@ the file: the other keys are somebody's arrangement of this window.
 `drive-theme.mjs` does the same for the `theme` key, and has one duty beyond the file: it writes
 palettes into `themes/` beside it, so it removes the ones it wrote on the way out however it exits,
 and removes the directory too if it was the one that made it.
+
+### Recording a demo
+
+The drivers above assert; `npm run demo` performs. Same Playwright, same real window, same
+class names — but paced in beats rather than in milliseconds, and it films itself:
+
+```bash
+npm run demo -- --record             # the whole product, no model calls, to a .mov
+npm run demo -- --record --live      # plus a real turn, an approval card and a question
+npm run demo -- --only 07-fork       # one scene, for a retake
+npm run demo -- --list               # what it would film, in order
+```
+
+`--record` points macOS's own `screencapture` at the window's rectangle and drops a WebVTT
+beside the film with every caption already timed to it — so a run produces the video *and*
+its subtitle track, rather than producing something somebody then has to remember to record.
+It needs Screen Recording permission for whatever is running it; without that the film comes
+out empty and the run says so.
+
+The capture is then re-encoded, because the raw one is not a file anybody wants to be sent.
+`screencapture` records at the display's own resolution and refresh rate — retina, at **120
+fps** — which is around 45 MB for three minutes of a mostly stationary window, and nothing in
+its flag list changes that. So it is fixed afterwards: halved to logical resolution, dropped to
+30 fps, and encoded at a CRF where the app's own text is still sharp at 1:1. That is about 4 MB
+for the same footage. `--width 0` keeps the retina resolution, `--crf` and `--fps` move the
+other two, `--keep-raw` keeps the capture as well, and `--no-compress` skips it.
+
+This is the one step that wants something the repository does not depend on: **`ffmpeg`**. A
+machine without it keeps the raw capture and is told why it is large. macOS's own `avconvert`
+was tried instead and is not an alternative — it re-encodes at the source resolution and frame
+rate, and saved almost nothing.
+
+#### Nothing real is filmed
+
+A demo of this app is a demo of somebody's session list, and a session list is a record of
+what they have actually been doing: real project names, real prompts, real paths, and — in
+the file tree — the real contents of a real directory. So the demo does not film the machine.
+
+It launches with `$HOME` pointed at a **demo world** under `/Users/Shared/bravebot-ui-demo`.
+That is the whole mechanism: the agent finds `~/.bravebot` by reading `HOME` and nothing else
+(`crates/agent/src/home.rs`), and Electron derives `userData` from it too, so the session list,
+the recents, the column widths and the file tree are all the world's. `/Users/Shared` rather
+than the home directory because every path in it ends up on screen, and a home directory has
+somebody's name in it.
+
+The world holds two invented checkouts — `harbour-lights` and `tide-tables`, copied out of
+`scripts/demo/project/` — and the sessions the demo earned in them. **Earned, not written.**
+Seeding the records by hand would mean encoding the agent's own on-disk format here: a format
+that is upstream, is not ours, and is rewritten after every turn. A demo that hard-coded it
+would break silently on a bump, months later, in a recording somebody was about to publish. So
+the world is built by driving the product — a few real prompts, once, cached for every run
+afterwards. It costs a few tokens the first time and nothing after that, and `--rebuild` throws
+it away and does it again. `scripts/demo/world.mjs` is all of it.
+
+`--real` films this machine's own sessions instead. That is for working on the demo, not for
+recording one.
+
+Two things are drawn into the page for the camera, because the window alone cannot show them.
+Playwright drives Electron over CDP and CDP moves no cursor, so the pointer is drawn in and
+glided to each target, the real one is hidden with `cursor: none` (two pointers, one of them
+motionless, reads as a rendering fault), and each click leaves a ripple. And a caption names
+each feature as it plays, docking to whichever half of the window the pointer is not in.
+
+| Flag | What |
+| --- | --- |
+| `--record [path]` | Film the window. Default lands in `/tmp/bravebot-ui/demo/` |
+| `--live` | Include the live scene: a real turn, a command approval, a series of questions |
+| `--speed 1.4` | Multiply every pause. Higher is slower; the whole video re-times at once |
+| `--size 1600x1000` | Frame it larger than the app's own default of 1280×820 |
+| `--theme light` | `dark` (default), `light` or `system` |
+| `--session <words>` | Pin which stored session gets filmed, so a second take matches the first |
+| `--only <id>` / `--from <id>` | One scene, or from one scene on — for retakes |
+| `--countdown 5` | Hold before the first scene, and before the recorder starts |
+| `--width 1280` | Encoded width. `0` keeps the capture's retina resolution |
+| `--fps 30` / `--crf 28` | The other two encoding dials. Higher CRF is smaller and softer |
+| `--keep-raw` / `--no-compress` | Keep the raw capture too, or skip encoding entirely |
+| `--rebuild` | Throw the demo world away and build it again |
+| `--world <path>` | Somewhere other than `/Users/Shared/bravebot-ui-demo` |
+| `--real` | Film this machine's own sessions. **Not sanitised** |
+
+A `--real` run restores the state file it shares with the drivers, so a video that dragged the
+columns somewhere cinematic does not leave `drive:columns` measuring the demo's idea of a
+layout. A world run cannot reach that file at all.
+
+**A feature that earns a `drive:*` driver earns a scene.** One file per feature under
+`scripts/demo/scenes/`, listed in `scripts/demo/manifest.mjs`, which is checked against the
+directory at startup — a scene added and not listed is an error rather than a scene that
+silently never plays. A feature that needs something to happen in the world to be visible
+also earns a prompt in `RECIPES` in `scripts/demo/world.mjs`, and a `--rebuild`.
 
 ## Build
 
