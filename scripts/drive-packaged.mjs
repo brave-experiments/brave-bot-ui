@@ -20,25 +20,54 @@ const check = (ok, what) => {
   if (!ok) problems.push(what)
 }
 
-const BUNDLE = `dist/Brave Bot-darwin-${process.arch === 'arm64' ? 'arm64' : 'x64'}/Brave Bot.app`
-if (!existsSync(BUNDLE)) {
-  console.log(`RESULT: skipped — no bundle at ${BUNDLE}; run \`npm run package\``)
+const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+
+/** Where this platform puts a packaged build, or `null` if packaging is not set up for it. */
+function packaged() {
+  if (process.platform === 'darwin') {
+    const dir = `dist/Brave Bot-darwin-${arch}/Brave Bot.app`
+    return {
+      dir,
+      exe: `${dir}/Contents/MacOS/Brave Bot`,
+      agent: `${dir}/Contents/Resources/bravebot-rpc`,
+      resourcesHint: '.app/Contents/Resources',
+    }
+  }
+  if (process.platform === 'linux') {
+    const dir = `dist/Brave Bot-linux-${arch}`
+    return {
+      dir,
+      exe: `${dir}/Brave Bot`,
+      agent: `${dir}/resources/bravebot-rpc`,
+      resourcesHint: '/resources',
+    }
+  }
+  return null
+}
+
+const pack = packaged()
+if (pack === null) {
+  console.log(`RESULT: skipped — packaging is not set up for ${process.platform}`)
+  process.exit(0)
+}
+if (!existsSync(pack.dir)) {
+  console.log(`RESULT: skipped — no bundle at ${pack.dir}; run \`npm run package\``)
   process.exit(0)
 }
 
-// The menu bar's title is the one thing no template can set, so it is checked where AppKit
-// actually reads it rather than through the menu API, which would only report what we asked
-// for. In a release this comes from the bundle we built, not from renaming Electron's.
-const plist = readFileSync(`${BUNDLE}/Contents/Info.plist`, 'utf8')
-check(/<key>CFBundleName<\/key>\s*<string>Brave Bot<\/string>/.test(plist), 'the bundle is named "Brave Bot"')
-check(!/<string>Electron<\/string>/.test(plist.split('CFBundleName')[1] ?? ''), 'and not Electron')
-check(
-  existsSync(`${BUNDLE}/Contents/Resources/bravebot-rpc`),
-  'the agent ships beside the app as a resource',
-)
+if (process.platform === 'darwin') {
+  // The menu bar's title is the one thing no template can set, so it is checked where AppKit
+  // actually reads it rather than through the menu API, which would only report what we asked
+  // for. In a release this comes from the bundle we built, not from renaming Electron's.
+  const plist = readFileSync(`${pack.dir}/Contents/Info.plist`, 'utf8')
+  check(/<key>CFBundleName<\/key>\s*<string>Brave Bot<\/string>/.test(plist), 'the bundle is named "Brave Bot"')
+  check(!/<string>Electron<\/string>/.test(plist.split('CFBundleName')[1] ?? ''), 'and not Electron')
+}
+
+check(existsSync(pack.agent), 'the agent ships beside the app as a resource')
 
 const app = await electron.launch({
-  executablePath: `${BUNDLE}/Contents/MacOS/Brave Bot`,
+  executablePath: pack.exe,
   timeout: 60000,
 })
 const page = await app.firstWindow()
@@ -84,7 +113,7 @@ check(
   ['undo', 'cut', 'copy', 'paste', 'selectall'].every((r) => seen.edit.includes(r)),
   'Edit kept the clipboard roles',
 )
-check(seen.titles[4] === 'Session', `the app's own menu is there (${seen.titles.join(', ')})`)
+check(seen.titles.includes('Session'), `the app's own menu is there (${seen.titles.join(', ')})`)
 
 // That the agent was found at the packaged path and actually answered. Sessions on screen
 // mean `bravebot-rpc` was spawned from Resources and the store was read through it — the one
@@ -92,7 +121,7 @@ check(seen.titles[4] === 'Session', `the app's own menu is there (${seen.titles.
 const sessions = await page.locator('.session').count()
 check(sessions > 0, `the agent ran from the bundle and returned sessions (${sessions})`)
 check(
-  seen.fromResources.includes('.app/Contents/Resources'),
+  seen.fromResources.includes(pack.resourcesHint),
   'and it was looked for inside the bundle',
 )
 const build = await page.locator('.build').textContent().catch(() => null)

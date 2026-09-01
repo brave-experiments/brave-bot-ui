@@ -1,4 +1,4 @@
-// Build a real `.app`.
+// Build a packaged app for this machine.
 //
 // Everything the app needs at run time is already in `out/` — the main process, the preload
 // and the renderer, all bundled — so packaging is mostly a matter of saying what to leave
@@ -7,13 +7,14 @@
 // `cargo` output only in development. So the binary is copied in as a resource, and the
 // packaged app is the only build where that path is ever taken.
 //
-// The bundle is named here, which is also the only way the menu bar gets the right word in
-// a release: AppKit reads it from `CFBundleName` before any of our code runs.
+// On macOS the bundle is named here, which is also the only way the menu bar gets the right
+// word in a release: AppKit reads it from `CFBundleName` before any of our code runs.
 // `scripts/name-dev-app.mjs` does the same job for `npm run dev` by renaming Electron's own
-// bundle; this does it properly, by building one of our own.
+// bundle; this does it properly, by building one of our own. Linux has no equivalent: the
+// window manager titles the frame, and the executable is simply called Brave Bot.
 //
 // Credentials: a bundle built from a development checkout carries a `bravebot-rpc` that reads
-// its credentials from the environment, which a double-clicked `.app` does not have. It will
+// its credentials from the environment, which a double-clicked app does not have. It will
 // start, list sessions and open them, and fail at the first inference request. That is the
 // documented degraded mode, not a packaging fault — a real release has to be built with the
 // credentials present. See the README.
@@ -32,18 +33,24 @@ if (!existsSync('out/main/index.js')) {
   process.exit(1)
 }
 
+const platform = process.platform
+if (platform !== 'darwin' && platform !== 'linux') {
+  console.error(`packaging is not set up for ${platform}`)
+  process.exit(1)
+}
+
 const paths = await packager({
   dir: '.',
   out: 'dist',
   name: 'Brave Bot',
-  appBundleId: 'dev.bravebot.ui',
   appVersion: version,
-  platform: 'darwin',
+  platform,
   arch: process.arch === 'arm64' ? 'arm64' : 'x64',
   overwrite: true,
   prune: true,
   asar: true,
   extraResource: [AGENT],
+  ...(platform === 'darwin' ? { appBundleId: 'dev.bravebot.ui' } : {}),
   // What not to carry. `target` is the Rust build directory and is gigabytes of object
   // files; `src` and `crates` are sources whose output is already in `out/`. Leaving any of
   // them in would ship the whole workshop with the furniture.

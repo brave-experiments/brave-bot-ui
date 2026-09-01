@@ -7,7 +7,7 @@
  * remote origins, and no navigation.
  */
 
-import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, nativeTheme, shell } from 'electron'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Bridge, BridgeError } from './bridge'
@@ -41,17 +41,24 @@ let bridge: Bridge | null = null
 let stopWatchingThemes: (() => void) | null = null
 
 function createWindow(): void {
+  const linux = process.platform === 'linux'
   window = new BrowserWindow({
     width: 1280,
     height: 820,
     minWidth: 900,
     minHeight: 560,
     show: false,
-    // Traffic lights inset over the sessions column, which is where a chat app puts them.
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 16, y: 18 },
-    vibrancy: 'sidebar',
-    backgroundColor: '#00000000',
+    // macOS: traffic lights inset over the sessions column, sidebar vibrancy behind it.
+    // Linux: the window manager draws the title bar; those AppKit options are ignored or
+    // leave a transparent hole, so the frame stays default and the fill is opaque.
+    ...(linux
+      ? { backgroundColor: nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#ffffff' }
+      : {
+          titleBarStyle: 'hiddenInset' as const,
+          trafficLightPosition: { x: 16, y: 18 },
+          vibrancy: 'sidebar' as const,
+          backgroundColor: '#00000000',
+        }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,

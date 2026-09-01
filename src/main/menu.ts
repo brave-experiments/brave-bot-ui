@@ -21,12 +21,17 @@
  * So the name is a constant here and the roles that would otherwise interpolate `app.name`
  * — hide, quit — are given the label explicitly.
  *
+ * On Linux there is no Apple menu. The app menu (Services, Hide, Unhide) is omitted, About
+ * sits under Help, and Quit sits under File — still labelled explicitly, still without
+ * `app.setName`.
+ *
  * The bold title beside the Apple menu is a third thing again: AppKit reads it from the
  * bundle's `CFBundleName`, before any of this has run, and no template can change it. It is
  * set instead by `scripts/name-dev-app.mjs`, which renames Electron's own bundle in
  * `node_modules` — the only lever there is until there is a packaging step with a
  * `productName`. If the menu bar ever says "Electron" again, that script has been undone by
- * an `npm install` and `npm run name-dev-app` puts it back.
+ * an `npm install` and `npm run name-dev-app` puts it back. Linux has no equivalent: the
+ * window manager titles the frame from the window, not from a bundle key.
  *
  * ## The roles are load-bearing
  *
@@ -140,48 +145,55 @@ export function installMenu(window: BrowserWindow): void {
     ? []
     : [SEPARATOR, { role: 'reload' }, { role: 'toggleDevTools' }]
 
+  const darwin = process.platform === 'darwin'
+  const quit: MenuItemConstructorOptions = { role: 'quit', label: `Quit ${NAME}` }
+
+  const file: MenuItemConstructorOptions[] = [
+    item('session.new'),
+    openRecent(),
+    SEPARATOR,
+    {
+      label: 'Export',
+      submenu: [
+        item('session.export-tools'),
+        SEPARATOR,
+        item('session.export-text'),
+        item('session.export-markdown'),
+        item('session.export-pdf'),
+      ],
+    },
+    SEPARATOR,
+    item('session.close'),
+    { role: 'close' },
+    ...(darwin ? [] : [SEPARATOR, quit]),
+  ]
+
   const template: MenuItemConstructorOptions[] = [
-    {
-      // Written out rather than `role: 'appMenu'`, because the About item has to be ours:
-      // the agent's build stamp is the first thing worth knowing when something is wrong,
-      // and the stock About panel cannot show it.
-      label: NAME,
-      submenu: [
-        item('app.about'),
-        SEPARATOR,
-        { role: 'services' },
-        SEPARATOR,
-        // Labelled explicitly: left to the role, these interpolate `app.name`, which is the
-        // package identifier `bravebot-ui`, and correcting that at the source would move
-        // `userData`.
-        { role: 'hide', label: `Hide ${NAME}` },
-        { role: 'hideOthers' },
-        { role: 'unhide' },
-        SEPARATOR,
-        { role: 'quit', label: `Quit ${NAME}` },
-      ],
-    },
-    {
-      label: 'File',
-      submenu: [
-        item('session.new'),
-        openRecent(),
-        SEPARATOR,
-        {
-          label: 'Export',
-          submenu: [
-            item('session.export-tools'),
-            SEPARATOR,
-            item('session.export-text'),
-            item('session.export-markdown'),
-            item('session.export-pdf'),
-          ],
-        },
-        SEPARATOR,
-        item('session.close'),
-        { role: 'close' },
-      ],
-    },
+    ...(darwin
+      ? [
+          {
+            // Written out rather than `role: 'appMenu'`, because the About item has to be ours:
+            // the agent's build stamp is the first thing worth knowing when something is wrong,
+            // and the stock About panel cannot show it.
+            label: NAME,
+            submenu: [
+              item('app.about'),
+              SEPARATOR,
+              { role: 'services' as const },
+              SEPARATOR,
+              // Labelled explicitly: left to the role, these interpolate `app.name`, which is the
+              // package identifier `bravebot-ui`, and correcting that at the source would move
+              // `userData`.
+              { role: 'hide' as const, label: `Hide ${NAME}` },
+              { role: 'hideOthers' as const },
+              { role: 'unhide' as const },
+              SEPARATOR,
+              quit,
+            ],
+          },
+        ]
+      : []),
+    { label: 'File', submenu: file },
     // Kept, not added. See the note at the top of this file.
     { role: 'editMenu' },
     {
@@ -202,7 +214,7 @@ export function installMenu(window: BrowserWindow): void {
     { role: 'windowMenu' },
     {
       label: 'Help',
-      submenu: [item('help.doctor')],
+      submenu: darwin ? [item('help.doctor')] : [item('app.about'), SEPARATOR, item('help.doctor')],
     },
   ]
 

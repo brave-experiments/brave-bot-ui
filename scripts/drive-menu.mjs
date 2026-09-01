@@ -83,12 +83,16 @@ check(
 )
 // The bold word beside the Apple menu comes from the bundle's CFBundleName, which no
 // template can reach — so it is asserted at its actual source rather than through the menu.
-const bundleName = await app.evaluate(({ app }) => app.getPath('exe'))
-const plist = bundleName.replace(/\/Contents\/MacOS\/.*$/, '/Contents/Info.plist')
-check(
-  existsSync(plist) && /Brave Bot/.test(readFileSync(plist, 'utf8')),
-  'the running bundle is named "Brave Bot", so the menu bar title is not "Electron"',
-)
+// Linux has no such key: the window manager titles the frame, and name-dev-app.mjs already
+// exits before touching a plist.
+if (process.platform === 'darwin') {
+  const bundleName = await app.evaluate(({ app }) => app.getPath('exe'))
+  const plist = bundleName.replace(/\/Contents\/MacOS\/.*$/, '/Contents/Info.plist')
+  check(
+    existsSync(plist) && /Brave Bot/.test(readFileSync(plist, 'utf8')),
+    'the running bundle is named "Brave Bot", so the menu bar title is not "Electron"',
+  )
+}
 
 // --- what the default was already doing, and must keep doing --------------------------
 const edit = roles('Edit')
