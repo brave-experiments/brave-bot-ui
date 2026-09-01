@@ -390,6 +390,7 @@ at, that a control keeps keyboard focus through an animation.
 | `npm run drive:tree` | The file tree: listing, expanding, the dotfile toggle, the name filter, and that a session with no root and a symlink out of the project both list nothing |
 | `npm run drive:theme` | Themes: that previewing repaints before anything is written down, that Escape restores exactly, that every derived token survives a palette, that editing a palette repaints without a relaunch, and that a PDF stays white regardless |
 | `npm run drive:packaged` | A built `.app`: that a release hides the developer items and finds its agent |
+| `npm run drive:astar` | One long piece of real work, start to finish: a new session in an empty checkout, every question it puts answered yes, and what the window has to show for it |
 | `node scripts/drive-turn.mjs` | A live inference request through the window, to prove the binary carries its credentials rather than inheriting them |
 | `scripts/smoke-turn.sh` | A live turn straight through `bravebot-rpc`, no app |
 
@@ -400,9 +401,19 @@ contents over CDP, and an AppKit key equivalent never sees it. So it asserts the
 ⌘C/⌘V actually reaching the composer — the role assertion proves the item is there, only a
 person proves the keystroke arrives.
 
+`drive:astar` is the long one, and the only driver that follows a whole task rather than a
+control. It starts a session in `/tmp/bravebot-astar`, sends a prompt that has to write a
+library, build a page and photograph it running, and says yes to every question the agent
+puts — a run in the twenty-minute range that answers twenty-odd cards. What it asserts is
+what only a real turn can show: that a decision made in the window reaches the turn blocked
+on it, that nothing can be sent past a question nobody has answered, and that the session is
+in the list afterwards to be reopened. `ASTAR_BUDGET_MS` bounds it, `ASTAR_RESUME=1` sends a
+follow-up to the session already there instead of building from nothing, and
+`ASTAR_INSPECT=1` opens that session and reports what the panels say without spending a turn.
+
 Each driver launches the app, prints a line per assertion and leaves screenshots in
-`/tmp/bravebot-ui/`. Five of them cost real tokens: `drive:markdown`, `drive:run`, `drive:ask`,
-`drive-turn.mjs` and `smoke-turn.sh` send an actual prompt, and `smoke-turn.sh` needs a shell where `direnv` has
+`/tmp/bravebot-ui/`. Six of them cost real tokens: `drive:markdown`, `drive:run`, `drive:ask`,
+`drive:astar`, `drive-turn.mjs` and `smoke-turn.sh` send an actual prompt, and `smoke-turn.sh` needs a shell where `direnv` has
 loaded the agent's `.envrc`.
 
 The drivers share `bravebot-ui.json`, so one that leaves a column folded — or a panel turned off —
