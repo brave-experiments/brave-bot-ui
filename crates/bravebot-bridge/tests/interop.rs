@@ -58,6 +58,7 @@ fn a_record_written_here_is_read_back_by_the_agents_own_reader() {
             todos: &todos,
             trust: &trust,
             programs: &TrustedPrograms::new(),
+            directories: &[],
         },
     );
     let id = handle.id().to_string();
@@ -108,6 +109,7 @@ fn a_stored_conversation_recounts_to_what_a_person_said() {
             todos: &BTreeMap::new(),
             trust: &TrustStore::new(),
             programs: &TrustedPrograms::new(),
+            directories: &[],
         },
     );
     let id = handle.id().to_string();
@@ -166,6 +168,7 @@ fn resuming_a_session_writes_back_to_it_rather_than_forking() {
             todos: &todos,
             trust: &trust,
             programs: &TrustedPrograms::new(),
+            directories: &[],
         },
     );
     let original = handle.id().to_string();
@@ -187,6 +190,7 @@ fn resuming_a_session_writes_back_to_it_rather_than_forking() {
             todos: &state.todos,
             trust: &state.trust,
             programs: &state.programs,
+            directories: &state.directories,
         },
     );
 
@@ -248,6 +252,7 @@ fn two_prompt_session(project: &std::path::Path, trust: Option<&TrustStore>) -> 
             // is given — so an empty map here is still a map, and `None` needs the record.
             trust: trust.unwrap_or(&empty),
             programs: &TrustedPrograms::new(),
+            directories: &[],
         },
     );
     handle.id().to_string()
@@ -476,6 +481,7 @@ fn a_fork_gets_an_id_of_its_own_rather_than_the_one_it_came_from() {
         cut,
         TrustStore::new(),
         TrustedPrograms::new(),
+        Vec::new(),
         1,
         BTreeMap::new(),
         Some("remember the word haddock".into()),
@@ -493,6 +499,7 @@ fn a_fork_gets_an_id_of_its_own_rather_than_the_one_it_came_from() {
             todos: &state.todos,
             trust: &state.trust,
             programs: &state.programs,
+            directories: &state.directories,
         },
     );
     let child = saved.id().to_string();

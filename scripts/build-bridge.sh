@@ -17,9 +17,22 @@
 
 set -uo pipefail
 
+# The default has to agree with the path dependencies in
+# crates/bravebot-bridge/Cargo.toml, which are what actually decide whose sources get
+# compiled. Reading credentials from one checkout while cargo builds another produces a
+# binary nobody asked for, so the default is derived from this script's own location
+# rather than written out a second time.
+#
 # BUA_AGENT_DIR is still read, because it may well be set in a shell profile from before
 # the agent was renamed. BRAVEBOT_DIR wins where both are set.
-AGENT="${BRAVEBOT_DIR:-${BUA_AGENT_DIR:-$HOME/repos/bravebot}}"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+AGENT="${BRAVEBOT_DIR:-${BUA_AGENT_DIR:-$REPO/../bravebot}}"
+
+# direnv's allow list is keyed on the physical path of the .envrc, so a checkout reached
+# through a symlink reads as un-allowed however many times you run `direnv allow` on it.
+if [ -d "$AGENT" ]; then
+  AGENT="$(cd "$AGENT" && pwd -P)"
+fi
 
 build() { cargo build -p bravebot-bridge "$@"; }
 

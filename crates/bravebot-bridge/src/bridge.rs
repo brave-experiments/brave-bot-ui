@@ -293,7 +293,7 @@ impl Bridge {
         // Everything needed is copied out under the lock and the lock is dropped before any of
         // it is used. A fork does no I/O and no thinking, but holding a session's state across
         // work is the habit that turns into a stall later.
-        let (snapshot, said, trust, programs, todos, parent_id, parent_title) = {
+        let (snapshot, said, trust, programs, directories, todos, parent_id, parent_title) = {
             let state = open
                 .state
                 .lock()
@@ -308,6 +308,7 @@ impl Bridge {
                 state.conversation.recounted(),
                 state.trust.clone(),
                 state.programs.clone(),
+                state.directories.clone(),
                 state.todos.clone(),
                 parent.id().to_string(),
                 parent.title().to_string(),
@@ -355,6 +356,7 @@ impl Bridge {
                 cut.before,
                 trust,
                 programs,
+                directories,
                 ordinal,
                 todos.clone(),
                 first_prompt,
@@ -456,12 +458,26 @@ impl Bridge {
 
         let config = Config::from_env()
             .map_err(|error| Failure::new(ErrorCode::Config, error.to_string()))?;
-        let workspace = Workspace::new(open.project.clone())
+        let mut workspace = Workspace::new(open.project.clone())
             .map_err(|error| Failure::new(ErrorCode::Internal, error.to_string()))?;
 
         let project = open.project.clone();
         let state = Arc::clone(&open.state);
-        let turn_number = state.lock().map(|s| s.turns + 1).unwrap_or(1);
+        let (turn_number, directories) = state
+            .lock()
+            .map(|s| (s.turns + 1, s.directories.clone()))
+            .unwrap_or((1, Vec::new()));
+
+        // A workspace is built per turn and opens the project only, so the directories a
+        // resumed session had open have to be opened again here. The rules about them came back
+        // with the trust map, and a rule about a directory nothing can open refuses every path
+        // under it for escaping the workspace — with nothing on screen to say why. One that has
+        // since moved or been deleted cannot be reopened and is left closed: the refusal it
+        // causes is the one that was already happening, and this protocol has no way to say so
+        // outside a turn.
+        for directory in &directories {
+            let _ = workspace.add_directory(&directory.display().to_string());
+        }
 
         // A fresh token and a fresh channel per turn. Reusing either could cancel a turn
         // before it started, or deliver yesterday's answer to today's question.
@@ -876,6 +892,7 @@ fn save(project: &std::path::Path, state: &mut State, turn: usize, trail: &brave
             todos: &state.todos,
             trust: &state.trust,
             programs: &state.programs,
+            directories: &state.directories,
         },
     );
     handle.append_audit(turn, trail.events());
