@@ -173,14 +173,28 @@ if (sessions > 0) {
     `group reopened   : ${reopened}/${sessions} rows visible${reopened === sessions ? '' : '  FAIL'}`
   )
 
-  // Filtering and grouping compose: a query that names one project leaves that project's
-  // heading and no other. An empty group must not leave a heading behind.
+  // Filtering and grouping compose: the headings left are the ones the query names, and
+  // none of them is empty — a group whose rows all went is a heading with nothing under it.
+  //
+  // Not "exactly one heading", which is what this asked for until a machine had both
+  // `bravebot` and `bravebot-astar` checked out. The query is the first row's project name,
+  // and a name is free to be a prefix of another; two headings there is the filter being
+  // right, not wrong. Counting them was reading the driver's own choice of query back as a
+  // fact about the list.
   await box.fill(project)
   await page.waitForTimeout(200)
-  const narrowed = await page.locator('.session-group-head').count()
+  const narrowed = await page.locator('.session-group-section').evaluateAll((sections) =>
+    sections.map((section) => ({
+      path: section.querySelector('.session-group-fold')?.getAttribute('title') ?? '',
+      rows: section.querySelectorAll('.session').length,
+    }))
+  )
+  const named = narrowed.every((section) => section.path.includes(project))
+  const peopled = narrowed.every((section) => section.rows > 0)
   console.log(
-    `grouped + filter : ${narrowed} heading${narrowed === 1 ? '' : 's'} for "${project}"` +
-      `${narrowed === 1 ? '' : '  FAIL'}`
+    `grouped + filter : ${narrowed.length} heading${narrowed.length === 1 ? '' : 's'} for "${project}"` +
+      `, all named by it: ${named}, none empty: ${peopled}` +
+      `${narrowed.length > 0 && named && peopled ? '' : '  FAIL'}`
   )
   await box.press('Escape')
   await page.waitForTimeout(200)
