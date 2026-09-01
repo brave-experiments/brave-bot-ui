@@ -59,6 +59,7 @@ fn a_record_written_here_is_read_back_by_the_agents_own_reader() {
             trust: &trust,
             programs: &TrustedPrograms::new(),
             directories: &[],
+            manifest: None,
         },
     );
     let id = handle.id().to_string();
@@ -110,6 +111,7 @@ fn a_stored_conversation_recounts_to_what_a_person_said() {
             trust: &TrustStore::new(),
             programs: &TrustedPrograms::new(),
             directories: &[],
+            manifest: None,
         },
     );
     let id = handle.id().to_string();
@@ -169,6 +171,7 @@ fn resuming_a_session_writes_back_to_it_rather_than_forking() {
             trust: &trust,
             programs: &TrustedPrograms::new(),
             directories: &[],
+            manifest: None,
         },
     );
     let original = handle.id().to_string();
@@ -191,6 +194,7 @@ fn resuming_a_session_writes_back_to_it_rather_than_forking() {
             trust: &state.trust,
             programs: &state.programs,
             directories: &state.directories,
+            manifest: None,
         },
     );
 
@@ -253,6 +257,7 @@ fn two_prompt_session(project: &std::path::Path, trust: Option<&TrustStore>) -> 
             trust: trust.unwrap_or(&empty),
             programs: &TrustedPrograms::new(),
             directories: &[],
+            manifest: None,
         },
     );
     handle.id().to_string()
@@ -500,6 +505,7 @@ fn a_fork_gets_an_id_of_its_own_rather_than_the_one_it_came_from() {
             trust: &state.trust,
             programs: &state.programs,
             directories: &state.directories,
+            manifest: None,
         },
     );
     let child = saved.id().to_string();

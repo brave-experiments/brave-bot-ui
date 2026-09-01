@@ -284,6 +284,7 @@ dependencies = [
  "bravebot-aichat",
  "bravebot-config",
  "bravebot-core",
+ "bravebot-i18n",
  "bravebot-net",
  "bravebot-skus",
  "serde",
@@ -322,6 +323,10 @@ version = "0.1.0"
 
 [[package]]
 name = "bravebot-core"
+version = "0.1.0"
+
+[[package]]
+name = "bravebot-i18n"
 version = "0.1.0"
 
 [[package]]
@@ -371,6 +376,7 @@ dependencies = [
  "bravebot-aichat",
  "bravebot-config",
  "bravebot-core",
+ "bravebot-i18n",
  "bravebot-net",
  "bravebot-sandbox",
  "rand",
