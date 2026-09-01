@@ -858,6 +858,12 @@ fn work(work: Work) {
                 TurnError::Precommit(_) => "precommit",
                 TurnError::Workspace(_) => "workspace",
                 TurnError::Chat(_) => "chat",
+                // A manifest run is a plan frozen and then carried out unattended, and this
+                // window has no way to ask for one: `turn.send` builds a `Task`. So this arm
+                // is unreachable rather than unhandled, and it is named rather than swept into
+                // a wildcard, because the day the protocol grows a manifest the compiler
+                // should not stay quiet about the `attempt` this drops.
+                TurnError::Manifest { .. } => "manifest",
             };
             emitter.send(Event::new(
                 "turn.error",
@@ -893,6 +899,10 @@ fn save(project: &std::path::Path, state: &mut State, turn: usize, trail: &brave
             trust: &state.trust,
             programs: &state.programs,
             directories: &state.directories,
+            // Every session this window writes is a turn session. `Standing` carries the
+            // manifest so the picker can mark a run that may be read and not continued, and
+            // marking one of ours would be a claim about a session nobody can resume.
+            manifest: None,
         },
     );
     handle.append_audit(turn, trail.events());
