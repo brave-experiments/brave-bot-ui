@@ -286,8 +286,12 @@ itself until the terminal had been run once would be depending on something it w
   **The repository is called `brave-bot` and the directory has to be called `bravebot`**, so
   a plain `git clone` puts it in the wrong place and `cargo` fails on a missing path rather
   than on anything that names the real problem. Clone it with the directory spelled out, as
-  the Setup below does. Set `BRAVEBOT_DIR` if it lives somewhere else — that is what
-  `scripts/build-bridge.sh` reads — and adjust the paths in
+  the Setup below does. `scripts/build-bridge.sh` looks for credentials in that same
+  sibling by default (overridable with `BRAVEBOT_DIR`, which still wins). A checkout
+  reached through a symlink is resolved to its real path, because direnv's allow list is
+  keyed on that. If cargo's path dependencies and the credential checkout are not the
+  same tree, inference fails even when `.envrc` looks fine. If the agent lives somewhere
+  else, set `BRAVEBOT_DIR` *and* adjust the paths in
   `crates/bravebot-bridge/Cargo.toml` to match.
 
   A path dependency rather than a pinned git revision is deliberate for now: the two move

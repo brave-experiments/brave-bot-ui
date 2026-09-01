@@ -18,7 +18,7 @@ use bravebot_core::todo::Row;
 use bravebot_core::trust::TrustStore;
 use bravebot_tui::sessions::Handle;
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
@@ -42,6 +42,15 @@ pub struct State {
     /// off the record when a session resumes: a vouch is a standing answer about a command,
     /// so re-asking about one already answered — or forgetting one — would both be wrong.
     pub programs: TrustedPrograms,
+    /// Which directories beyond the project this session has open, canonical.
+    ///
+    /// This front-end opens none: there is no `/add-dir` in the protocol, so a session begun
+    /// here is a session over one directory. It is still carried, because a session begun in
+    /// the terminal may have opened others and this is the half of that grant a trust rule
+    /// cannot express — an absolute path is refused unless its directory is open, whatever the
+    /// map says. Held so a turn taken here restores the reach beside the rules it inherited,
+    /// and so saving writes the grant back rather than dropping it on the session's behalf.
+    pub directories: Vec<PathBuf>,
     /// How the session is written down.
     ///
     /// `None` for a fresh session until its first turn creates it, so a window somebody
@@ -61,6 +70,7 @@ impl State {
             conversation: Conversation::new(),
             trust,
             programs: TrustedPrograms::new(),
+            directories: Vec::new(),
             handle: None,
             turns: 0,
             tokens: 0,
@@ -83,6 +93,7 @@ impl State {
             conversation: Conversation::restored(record.conversation.clone()),
             trust,
             programs: record.trusted_programs(),
+            directories: record.directories.iter().map(PathBuf::from).collect(),
             handle: Some(Handle::resuming(project, record)),
             turns: record.turns,
             tokens: record.tokens,
@@ -107,15 +118,22 @@ impl State {
     /// id is at once. It still writes nothing: like a session started fresh, a fork opened and
     /// abandoned leaves no record.
     ///
+    /// `directories` comes from the parent for the reason `trust` does: the child inherits the
+    /// rules, and a rule about a directory nothing can open is the half-grant upstream keeps both
+    /// halves of. The parent is left as it was either way — opening a directory is reach, not a
+    /// change to it.
+    ///
     /// `turns` and `todos` come from the parent, cut to the same place the conversation was, so
     /// the turn numbering the transcript shows carries on rather than restarting under a history
     /// that already has some. `tokens` starts at nothing: the figure answers "what has this
     /// session cost me", and this one has not run yet.
+    #[allow(clippy::too_many_arguments)]
     pub fn forked(
         handle: Handle,
         before: Snapshot,
         trust: TrustStore,
         programs: TrustedPrograms,
+        directories: Vec<PathBuf>,
         turns: usize,
         todos: BTreeMap<usize, Vec<Row>>,
         first_prompt: Option<String>,
@@ -124,6 +142,7 @@ impl State {
             conversation: Conversation::restored(before),
             trust,
             programs,
+            directories,
             handle: Some(handle),
             turns,
             tokens: 0,
