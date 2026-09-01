@@ -83,9 +83,25 @@ rustup default 1.88
 
 # --- Node 22+ -------------------------------------------------------------------------
 
+# Ubuntu 24.04 ships Node 18, which is under the floor, so the packages come from
+# NodeSource. Their own instructions pipe `setup_22.x` into a root shell; this adds their
+# key to a keyring and pins a source to it instead. Nothing off the network is executed —
+# `curl` feeds `gpg --dearmor` — and apt then checks every nodejs package against that key
+# on this install and on every later one, which the setup script never did.
 node_major() { node -p "process.versions.node.split('.')[0]" 2>/dev/null || echo 0; }
 if ! command -v node >/dev/null 2>&1 || [ "$(node_major)" -lt 22 ]; then
-  curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+  # The setup script used to pull these in on its own; doing the keyring by hand means
+  # asking for them, and a minimal image has neither.
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    ca-certificates gnupg
+  # `install -d` rather than `mkdir -p`: the mode is the point, and 24.04 has the
+  # directory already while 22.04 does not.
+  sudo install -m 0755 -d /etc/apt/keyrings
+  curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+    | sudo gpg --dearmor --yes -o /etc/apt/keyrings/nodesource.gpg
+  echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" \
+    | sudo tee /etc/apt/sources.list.d/nodesource.list >/dev/null
+  sudo apt-get update -y
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
 fi
 
