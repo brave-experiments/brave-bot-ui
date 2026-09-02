@@ -25,9 +25,9 @@ jobs:
     name: Typecheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
@@ -52,7 +52,7 @@ jobs:
       # the agent by path (`../../../bravebot/crates/...`) against a sibling checkout.
       # `actions/checkout` will not write outside the workspace, so the sibling pair is made
       # inside it rather than by cloning the agent to `..`.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: brave-bot-ui
 
@@ -60,18 +60,22 @@ jobs:
       # checkout usually is, so CI breaks when the agent breaks us rather than at the next
       # person's `npm run bridge`. The cost is that an upstream change can turn this
       # repository red without anything here having changed.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: brave-experiments/brave-user-agent
           path: bravebot
 
+      # `rustup` rather than `dtolnay/rust-toolchain`, which is what this was and what the
+      # agent's CI still uses. Brave's action-pinning rule wants a commit SHA followed by a
+      # three-part semver comment, and that action has no such tag to name — its only tag is
+      # `v1`, and `stable` is a branch. Rather than invent a version in the comment, the
+      # dependency goes: the runner image ships a stable toolchain already, and clippy is
+      # the one thing the action was being asked for.
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
+        run: rustup component add clippy
 
       - name: Cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: brave-bot-ui
 
