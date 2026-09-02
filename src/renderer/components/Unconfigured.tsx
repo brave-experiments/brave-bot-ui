@@ -18,8 +18,9 @@ export function Unconfigured({ detail }: { detail: string }): React.JSX.Element 
       </p>
       <ol>
         <li>
-          Make sure the agent checkout has credentials: copy <code>.envrc.example</code>{' '}
-          to <code>.envrc</code> and run <code>direnv allow</code> there.
+          Make sure the agent submodule has credentials: copy{' '}
+          <code>.envrc.example</code> to <code>.envrc</code> in{' '}
+          <code>vendor/bravebot</code> and run <code>direnv allow</code> there.
         </li>
         <li>
           Rebuild the bridge: <code>npm run bridge</code>
@@ -27,8 +28,9 @@ export function Unconfigured({ detail }: { detail: string }): React.JSX.Element 
         <li>Restart this app.</li>
       </ol>
       <p className="aside">
-        If the agent checkout is not a sibling named <code>bravebot</code>, set{' '}
-        <code>BRAVEBOT_DIR</code> before building.
+        If the <code>.envrc</code> lives in a separate agent checkout rather than in{' '}
+        <code>vendor/bravebot</code>, set <code>BRAVEBOT_DIR</code> to it before building.
+        The sources compiled are the submodule&apos;s either way.
       </p>
       <details>
         <summary>What the agent said</summary>

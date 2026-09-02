@@ -86,15 +86,15 @@ bravebot-ui/
 ```
 
 `crates/bravebot-bridge/Cargo.toml` depends on the agent as a normal Cargo dependency — a
-path dependency against a sibling checkout for development, pinned to a git rev for
-release builds:
+path dependency into `vendor/bravebot`, which is a git submodule, so the path says where the
+sources are and the committed gitlink says which revision they are:
 
 ```toml
 [dependencies]
-bravebot-agent = { path = "../../../bravebot/crates/agent" }
-bravebot-tui   = { path = "../../../bravebot/crates/tui" }
-bravebot-core  = { path = "../../../bravebot/crates/core" }
-bravebot-config = { path = "../../../bravebot/crates/config" }
+bravebot-agent = { path = "../../vendor/bravebot/crates/agent" }
+bravebot-tui   = { path = "../../vendor/bravebot/crates/tui" }
+bravebot-core  = { path = "../../vendor/bravebot/crates/core" }
+bravebot-config = { path = "../../vendor/bravebot/crates/config" }
 ```
 
 This works today, unmodified, and it was checked rather than assumed:
@@ -206,10 +206,11 @@ thing that matters.
 Two things follow, and both are needed:
 
 - **Build through direnv.** `scripts/build-bridge.sh` (what `npm run bridge` runs) finds
-  the agent checkout — `$BRAVEBOT_DIR` if set, otherwise a sibling named `bravebot` next
-  to this repository, which is the same path `crates/bravebot-bridge/Cargo.toml` depends
-  on — and builds via `direnv exec` when its `.envrc` is allowed, so the credentials are
-  captured. The path is canonicalised first: direnv's allow list is keyed on the physical
+  the agent — `$BRAVEBOT_DIR` if set, otherwise `vendor/bravebot`, which is the same tree
+  `crates/bravebot-bridge/Cargo.toml` depends on — and builds via `direnv exec` when its
+  `.envrc` is allowed, so the credentials are captured. `$BRAVEBOT_DIR` is credentials
+  only now that the submodule decides the sources: it can name an older sibling checkout
+  holding the `.envrc` without changing what gets compiled. The path is canonicalised first: direnv's allow list is keyed on the physical
   path of the `.envrc`, so a checkout reached through a symlink otherwise reads as
   un-allowed even after `direnv allow`. It warns loudly rather than silently producing a
   binary that cannot infer. Verified: a turn runs from a shell with all three variables
@@ -890,7 +891,7 @@ Two things the live run changed, neither of them visible from the design:
   Dropped rather than forwarded, so an interface does not draw a row of blank messages.
 
 
-0. `crates/bravebot-bridge` builds against a sibling `bravebot` checkout and a test
+0. `crates/bravebot-bridge` builds against the `vendor/bravebot` submodule and a test
    prints `bravebot_tui::BUILD`. This is the step that proves §2's zero-change claim, it takes
    an hour, and everything else assumes it. Do it first and stop if it fails.
 1. `wire.rs`: the §6 projections and their round-trip tests. Pure functions, no I/O.
@@ -925,17 +926,17 @@ Settled:
   project name as the secondary line — so `session.list` with no `directory` is the call
   the interface actually makes, not a convenience.
 - **Phase 1 is electron-vite + React + TypeScript.**
+- **The agent is pinned, by submodule.** `vendor/bravebot` is a git submodule and the path
+  dependencies point into it, so the revision compiled is the one this repository commits.
+  Path-dependency-against-a-sibling was right while the two were being written together and
+  wrong as soon as anybody else built this: an upstream field addition broke a checkout that
+  had changed nothing. What the bridge depends on carries no compatibility promise, so the
+  pin is load-bearing and moving it is a test pass rather than a version bump — which is
+  exactly what a pin buys, a break that arrives in a pull request instead of in somebody's
+  `npm run dev`.
 
 Still open:
 
-- **Path dependency or pinned git rev?** Currently a path dependency against a sibling
-  checkout, which is right for development and wrong for a release build. Needs deciding
-  before the first packaged build, along with §3.2's credential question.
-- **What happens when the agent's `pub` surface moves?** Nothing pins it: the bridge
-  depends on internals that carry no compatibility promise, and a rename upstream is a
-  build break here. That is the price of the zero-change constraint and it is the right
-  price, but it means the pinned rev is load-bearing and upgrades need a real test pass,
-  not a version bump.
 - **Tools missing from the agent's own describe table replay as bare "Tool".**
   `verb_for` and `target_key` in `crates/agent/src/tools.rs` do not know `ask_user`, so
   every stored call to it recounts as the word "Tool" with no target — visible in a real

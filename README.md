@@ -515,44 +515,52 @@ itself until the terminal had been run once would be depending on something it w
   its crates with an older toolchain fails in *its* sources, which is a confusing place to
   discover a version problem.
 - **Node 22+** and npm. Electron 44, React 19.
-- **A checkout of the agent as a sibling directory, named `bravebot`.**
-  [`brave-experiments/brave-bot`](https://github.com/brave-experiments/brave-bot).
-  `crates/bravebot-bridge` depends on it by path — `../../../bravebot/crates/*` — so it must
-  sit beside this checkout under the name `bravebot`.
+- **The agent, as the `vendor/bravebot` submodule.**
+  [`brave-experiments/brave-bot`](https://github.com/brave-experiments/brave-bot), pinned to
+  a revision by the gitlink this repository commits. `crates/bravebot-bridge` depends on it
+  by path — `../../vendor/bravebot/crates/*` — so a clone without submodules leaves an empty
+  directory and nothing compiles; `scripts/build-bridge.sh` says so rather than letting
+  cargo report a missing `Cargo.toml`.
 
-  **The repository is called `brave-bot` and the directory has to be called `bravebot`**, so
-  a plain `git clone` puts it in the wrong place and `cargo` fails on a missing path rather
-  than on anything that names the real problem. Clone it with the directory spelled out, as
-  the Setup below does. `scripts/build-bridge.sh` looks for credentials in that same
-  sibling by default (overridable with `BRAVEBOT_DIR`, which still wins) — though the
-  arrangement Credentials below recommends means it never has to look there at all. A
-  checkout reached through a symlink is resolved to its real path, because direnv's allow
-  list is keyed on that. If cargo's path dependencies and the credential checkout are not
-  the same tree, inference fails even when `.envrc` looks fine. If the agent lives somewhere
-  else, set `BRAVEBOT_DIR` *and* adjust the paths in
-  `crates/bravebot-bridge/Cargo.toml` to match.
+  The pin is the point. The bridge builds against the agent's internals, which carry no
+  compatibility promise: a field added to a struct it constructs is a build break here, with
+  nothing changed on this side. Before the submodule that break arrived at whatever moment a
+  developer next pulled the sibling checkout. Now it arrives when somebody moves the pin
+  deliberately:
 
-  A path dependency rather than a pinned git revision is deliberate for now: the two move
-  together, and pinning a revision while both are being written would mean a bump per
-  change. It is the wrong answer for a release build, and
-  [`docs/phase-0-rpc-protocol.md`](docs/phase-0-rpc-protocol.md) §14 is where that is
-  being decided.
+  ```bash
+  git -C vendor/bravebot fetch origin
+  git -C vendor/bravebot checkout <rev>       # or origin/main
+  cargo test --all                            # the upgrade is a test pass, not a version bump
+  git add vendor/bravebot && git commit
+  ```
+
+  After a `git pull` that moves the pin, run `git submodule update` — git leaves the
+  submodule where it was, and the build that follows would otherwise compile an agent
+  nobody chose. `npm run bridge` warns when the two disagree.
+
+  Credentials are read from `vendor/bravebot/.envrc` by default, though the arrangement
+  Credentials below recommends means the build never has to look there at all.
+  `BRAVEBOT_DIR` still wins and is now credentials only — if your `.envrc` lives in an older
+  sibling checkout, point it there and the submodule's sources are still what gets compiled.
+  The path is resolved to its real one, because direnv's allow list is keyed on the physical
+  path and a checkout reached through a symlink otherwise reads as un-allowed however many
+  times you allow it.
 - **`direnv`**, to pick up the agent's credentials at build time. See below.
 
 ## Setup
 
-The two checkouts sit side by side, and both directory names matter — the agent's because
-`Cargo.toml` points at it by path, this one only for the `cd`:
+One checkout, with the agent inside it. `--recurse-submodules` is not optional: without it
+`vendor/bravebot` is an empty directory and the bridge does not build.
 
 ```bash
-cd ~/repos
-git clone https://github.com/brave-experiments/brave-bot.git bravebot
-git clone https://github.com/brave-experiments/brave-bot-ui.git bravebot-ui
-
-cd bravebot-ui
+git clone --recurse-submodules https://github.com/brave-experiments/brave-bot-ui.git
+cd brave-bot-ui
 npm install
 npm run dev
 ```
+
+Already cloned without it? `git submodule update --init`.
 
 `npm run dev` builds `bravebot-rpc` first and then starts the app with hot reload.
 
@@ -568,7 +576,7 @@ environment. An app launched from Finder has no such environment, and an unconfi
 fails at the first inference request with `SERVICES_KEY_AICHAT is not set and was not built
 in`.
 
-So `scripts/build-bridge.sh` builds *through* `direnv` when the agent checkout has an
+So `scripts/build-bridge.sh` builds *through* `direnv` when the agent's submodule has an
 allowed `.envrc`, and says plainly what will happen when it does not. It also takes a
 shorter route when the variables are already in its own environment, and that is the
 arrangement to prefer — the values in one file outside every checkout, and a `.envrc` here
@@ -590,13 +598,14 @@ The names are the ones the agent's `.envrc.example` *exports* — `SERVICES_KEY_
 `case` builds them from. The first three are required and the build fails without them; the
 model name is not, and a build missing it quietly settles for `automatic`.
 
-Three things follow from keeping them there rather than in the agent's checkout, which also
-works and which `BRAVEBOT_DIR` still points at:
+Three things follow from keeping them there rather than in `vendor/bravebot/.envrc`, which
+also works and which `BRAVEBOT_DIR` can still point at:
 
 - **The secret outlives the checkout it was for.** A `.envrc` inside the agent's tree is one
-  `git clean -xdff` — or one re-clone, or one day when the agent stops being a sibling and
-  becomes a vendored dependency — away from being gone, and what you lose is the one file
-  you cannot get back from a remote.
+  `git clean -xdff`, or one re-clone, away from being gone, and what you lose is the one file
+  you cannot get back from a remote. The agent's move from a sibling checkout to a submodule
+  is the same lesson already collected once: that path changed, and anything kept under it
+  had to move with it.
 - **One file feeds the build and the run.** The build bakes the values in; separately, the
   agent lets a variable present at run time override a baked one, so an app started from
   this shell reaches the backend even when the binary it spawns was built without
