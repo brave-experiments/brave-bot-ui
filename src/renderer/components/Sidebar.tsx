@@ -1,5 +1,12 @@
 /**
- * The left column, and what it remembers about how it is arranged.
+ * The left column, the choice of which list is in it, and what it remembers about both.
+ *
+ * ## Why the hidden one stays mounted
+ *
+ * Switching tabs hides a list with `display: none` rather than unmounting it, which is the rule
+ * the context panels already follow and for the same reason: a filter somebody typed, a group they
+ * folded, a row they scrolled to are all things that should survive looking at something else for
+ * a moment. A column that forgot them would make the tabs cost something to press.
  *
  * ## Why what is remembered lives here
  *
@@ -14,8 +21,9 @@
  * what lasts as long as looking at it is the list's.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SessionSummary } from '../../shared/protocol'
+import type { Tab } from '../../shared/view'
 import { Sessions } from './Sessions'
 
 interface Props {
@@ -35,6 +43,7 @@ export function Sidebar({
   onNew,
   build,
 }: Props): React.JSX.Element {
+  const [tab, setTab] = useState<Tab>('sessions')
   const [grouped, setGrouped] = useState(false)
   // Which groups are shut, by directory. The shut ones rather than the open ones, so a checkout
   // that appears while the app is running arrives open rather than hidden.
@@ -49,6 +58,7 @@ export function Sidebar({
     void window.bravebot
       .readView()
       .then((view) => {
+        setTab(view.tab)
         setGrouped(view.grouped)
         setCollapsed(new Set(view.collapsed))
       })
@@ -58,15 +68,34 @@ export function Sidebar({
   useEffect(() => {
     if (!ready.current) return
     try {
-      window.bravebot.writeView({ grouped, collapsed: [...collapsed] })
+      window.bravebot.writeView({ tab, grouped, collapsed: [...collapsed] })
     } catch {
       // The column is still arranged the way it was asked to be, this session.
     }
-  }, [grouped, collapsed])
+  }, [tab, grouped, collapsed])
+
+  const show = useCallback((next: Tab) => setTab(next), [])
 
   return (
     <aside className="sessions" id="sessions-column">
-      <Sessions
+      {/* The label stays put and `aria-pressed` carries which is on, the disclosure discipline
+          every toggle in this window follows. No tooltips: the labels are the whole of what
+          these do, and a popup could only repeat them. */}
+      <div className="sidebar-tabs" role="group" aria-label="What the column shows">
+        <button
+          className="sidebar-tab"
+          aria-pressed={tab === 'sessions'}
+          onClick={() => show('sessions')}
+        >
+          Sessions
+        </button>
+        <button className="sidebar-tab" aria-pressed={tab === 'bots'} onClick={() => show('bots')}>
+          Bots
+        </button>
+      </div>
+
+      <div className="sidebar-body" hidden={tab !== 'sessions'}>
+        <Sessions
         sessions={sessions}
         openId={openId}
         forked={forked}
@@ -76,7 +105,13 @@ export function Sidebar({
         onGroup={setGrouped}
         collapsed={collapsed}
         onCollapse={setCollapsed}
-      />
+        />
+      </div>
+
+      {/* Empty until there is something to put in it. The tab is here now because the column's
+          shape — two bodies under one head, and which one is remembered — is the part that every
+          driver and every stylesheet rule has to agree about. */}
+      <div className="sidebar-body" hidden={tab !== 'bots'} />
 
       {build && (
         <footer className="build" title="The agent build these sessions are stamped with">
