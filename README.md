@@ -524,10 +524,11 @@ itself until the terminal had been run once would be depending on something it w
   a plain `git clone` puts it in the wrong place and `cargo` fails on a missing path rather
   than on anything that names the real problem. Clone it with the directory spelled out, as
   the Setup below does. `scripts/build-bridge.sh` looks for credentials in that same
-  sibling by default (overridable with `BRAVEBOT_DIR`, which still wins). A checkout
-  reached through a symlink is resolved to its real path, because direnv's allow list is
-  keyed on that. If cargo's path dependencies and the credential checkout are not the
-  same tree, inference fails even when `.envrc` looks fine. If the agent lives somewhere
+  sibling by default (overridable with `BRAVEBOT_DIR`, which still wins) — though the
+  arrangement Credentials below recommends means it never has to look there at all. A
+  checkout reached through a symlink is resolved to its real path, because direnv's allow
+  list is keyed on that. If cargo's path dependencies and the credential checkout are not
+  the same tree, inference fails even when `.envrc` looks fine. If the agent lives somewhere
   else, set `BRAVEBOT_DIR` *and* adjust the paths in
   `crates/bravebot-bridge/Cargo.toml` to match.
 
@@ -568,13 +569,45 @@ fails at the first inference request with `SERVICES_KEY_AICHAT is not set and wa
 in`.
 
 So `scripts/build-bridge.sh` builds *through* `direnv` when the agent checkout has an
-allowed `.envrc`, and says plainly what will happen when it does not. To set it up, in the
-agent checkout:
+allowed `.envrc`, and says plainly what will happen when it does not. It also takes a
+shorter route when the variables are already in its own environment, and that is the
+arrangement to prefer — the values in one file outside every checkout, and a `.envrc` here
+that reads them:
 
 ```bash
-cp .envrc.example .envrc     # then fill it in
+mkdir -p ~/.config/bravebot
+$EDITOR ~/.config/bravebot/env      # NAME=value lines, one per variable
+chmod 600 ~/.config/bravebot/env
+
+cd ~/repos/bravebot-ui
+echo 'dotenv_if_exists ~/.config/bravebot/env' > .envrc
 direnv allow
 ```
+
+The names are the ones the agent's `.envrc.example` *exports* — `SERVICES_KEY_AICHAT`,
+`BRAVE_SERVICES_KEY_ID`, `BRAVE_AI_CHAT_ENDPOINT`, `BRAVE_AI_CHAT_DEFAULT_MODEL`, and
+`BRAVE_AI_CHAT_PREMIUM_ENDPOINT` if you have one — rather than the `DEV_`/`PROD_` inputs its
+`case` builds them from. The first three are required and the build fails without them; the
+model name is not, and a build missing it quietly settles for `automatic`.
+
+Three things follow from keeping them there rather than in the agent's checkout, which also
+works and which `BRAVEBOT_DIR` still points at:
+
+- **The secret outlives the checkout it was for.** A `.envrc` inside the agent's tree is one
+  `git clean -xdff` — or one re-clone, or one day when the agent stops being a sibling and
+  becomes a vendored dependency — away from being gone, and what you lose is the one file
+  you cannot get back from a remote.
+- **One file feeds the build and the run.** The build bakes the values in; separately, the
+  agent lets a variable present at run time override a baked one, so an app started from
+  this shell reaches the backend even when the binary it spawns was built without
+  credentials. Those are two different failure modes and this answers both.
+- **One copy of the secret, in a directory no `git add -A` can reach.** `.envrc` is in this
+  repository's `.gitignore`, which matters more here than in the agent's tree: there, the
+  agent's own `.gitignore` was already covering for you.
+
+`.envrc` and `~/.config/bravebot/env` are per-machine. Neither is a substitute for building
+a release with the credentials present — see the note on `BRAVEBOT_ALLOW_UNCONFIGURED_BUILD`
+below.
 
 Without credentials the app still starts, lists sessions and opens them — only inference
 fails. That degraded mode is intentional, so the interface can be developed without
