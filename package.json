@@ -26,6 +26,9 @@
     "drive:fork": "npm run bridge && electron-vite build && node scripts/drive-fork.mjs",
     "drive:tree": "npm run bridge && electron-vite build && node scripts/drive-tree.mjs",
     "drive:theme": "npm run bridge && electron-vite build && node scripts/drive-theme.mjs",
+    "drive:bots": "npm run bridge && electron-vite build && node scripts/drive-bots.mjs",
+    "drive:bot-turn": "npm run bridge && electron-vite build && node scripts/drive-bot-turn.mjs",
+    "drive:bot-memory": "npm run bridge && electron-vite build && node scripts/drive-bot-memory.mjs",
     "drive:packaged": "node scripts/drive-packaged.mjs",
     "drive:astar": "npm run bridge && electron-vite build && node scripts/drive-astar.mjs",
     "demo": "npm run bridge && electron-vite build && node scripts/demo.mjs"
@@ -35,10 +38,12 @@
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
+    "@types/three": "^0.185.4",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^44.0.0",
     "electron-vite": "^5.0.0",
     "playwright-core": "^1.62.1",
+    "three": "^0.185.1",
     "typescript": "^5.7.2",
     "vite": "^6.0.5"
   },

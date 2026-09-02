@@ -40,9 +40,30 @@ const done = async (word) => {
   process.exit(0)
 }
 
+// The left column has two tabs and remembers which was last open, so a run after somebody left it
+// on the bots — or after a run of `drive-bots.mjs` that was interrupted before its teardown — would
+// find the session list present in the DOM and invisible, and every click below would time out
+// against an element that is right there. Everything here is about that list, so it is put back on
+// screen first: a driver leaves the window as the next one expects to find it, and does not assume
+// it was left that way.
+async function showSessions(page) {
+  await page
+    .locator('.sidebar-tab')
+    .first()
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .catch(() => undefined)
+  await page
+    .locator('.sidebar-tab')
+    .first()
+    .click({ timeout: 3000 })
+    .catch(() => undefined)
+  await page.waitForTimeout(250)
+}
+
 const app = await electron.launch({ args: ['.'], cwd: process.cwd(), timeout: 40000 })
 const page = await app.firstWindow()
 await page.waitForLoadState('domcontentloaded')
+await showSessions(page)
 page.on('pageerror', (e) => console.log('PAGE ERROR:', e.message))
 page.on('console', (m) => m.type() === 'error' && console.log('CONSOLE ERROR:', m.text()))
 await page.waitForTimeout(2200)
@@ -52,13 +73,36 @@ const request = (method, params) =>
   page.evaluate(([m, p]) => window.bravebot.request(m, p), [method, params])
 
 // A stored session with at least two prompts, so there is something in front of the second.
+//
+// Two kinds are passed over, and both for the same underlying reason: this driver counts prompts
+// in two currencies and every assertion below assumes they are worth the same.
+//
+//  - A session belonging to a bot. Those are drawn in the bots tab and deliberately kept out of
+//    the sessions list, so one picked here could never be found on screen.
+//  - A session containing `Contents of …` messages, which is how a file somebody named enters a
+//    conversation. The agent counts every user-role message as a prompt, and a fork's recorded
+//    ordinal is over *those*; the window draws an attachment as a line rather than a bubble,
+//    because nobody typed it, and this driver clicks the second *bubble*. In a session with an
+//    attachment in it those two numberings come apart, and the fix is not to translate between
+//    them in each of the four places below — it is to fork a session where there is nothing to
+//    translate.
+//
+// Filtering the attachments out of the count was tried first and is worse than useless: it makes
+// the *selection* agree with the window while leaving every later comparison counting the agent's
+// way, so the driver reports three failures about forking and none of them are about forking.
+const bots = await page.evaluate(() => window.bravebot.readBots())
+const theirs = new Set(bots.filter((bot) => bot.session).map((bot) => `${bot.directory}/${bot.session}`))
+
 const listed = await request('session.list', {})
 let target = null
 for (const session of listed.ok?.sessions ?? []) {
+  if (theirs.has(`${session.directory}/${session.id}`)) continue
   const opened = await request('session.open', { directory: session.directory, id: session.id })
-  const prompts = (opened.ok?.said ?? []).filter((line) => line.kind === 'user')
+  const said = opened.ok?.said ?? []
+  const prompts = said.filter((line) => line.kind === 'user')
+  const attached = prompts.some((line) => line.text.startsWith('Contents of '))
   await request('session.close', { session: opened.ok?.session })
-  if (prompts.length >= 2) {
+  if (prompts.length >= 2 && !attached) {
     target = { session, prompts }
     break
   }
@@ -125,7 +169,12 @@ restoreForks = () => {
   if (hadState === null) rmSync(stateFile, { force: true })
   else writeFileSync(stateFile, hadState, 'utf8')
 }
-const marked = (listed.ok?.sessions ?? []).find((s) => s.id !== parent.id) ?? parent
+// Any session but the parent — and not one belonging to a bot, which would be seeded with a mark
+// and then never drawn, since the sessions list deliberately leaves a bot's session to the bots.
+const marked =
+  (listed.ok?.sessions ?? []).find(
+    (s) => s.id !== parent.id && !theirs.has(`${s.directory}/${s.id}`),
+  ) ?? parent
 writeFileSync(
   stateFile,
   JSON.stringify({

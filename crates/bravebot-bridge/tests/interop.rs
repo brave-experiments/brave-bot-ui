@@ -561,3 +561,34 @@ fn two_forks_in_the_same_second_stay_two_sessions() {
 
     clean_up(&project);
 }
+
+/// A resumed session says how much compaction has already taken out of it.
+///
+/// This is the signal a front-end needs to know whether something it put at the top of a
+/// session is still in the session. The `compacting` phase cannot answer it: that is emitted
+/// before compaction is attempted, so it also fires when there was nothing worth compacting,
+/// and then on every round of a conversation that is over budget and cannot get under it. The
+/// archive is a count of what was actually taken, it only rises, and — the part that matters
+/// here — it is written into the record, so a session resumed in a new process knows it
+/// without having watched it happen.
+#[test]
+fn a_resumed_session_reports_what_compaction_took_out_of_it() {
+    let project = scratch("archived-count");
+    clean_up(&project);
+    std::fs::create_dir_all(&project).expect("a project directory");
+
+    let id = two_prompt_session(&project, None);
+    let (mut bridge, _) = harness();
+    let opened = call(
+        &mut bridge,
+        "session.open",
+        serde_json::json!({ "directory": project.display().to_string(), "id": &id }),
+    );
+
+    assert_eq!(
+        opened["archived"], 0,
+        "a conversation nothing has been taken out of has archived nothing"
+    );
+
+    clean_up(&project);
+}

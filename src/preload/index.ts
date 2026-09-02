@@ -26,6 +26,7 @@ import type { StoredPanels } from '../shared/state'
 import type { CommandId, ContextCommandId, ContextRef, WindowState } from '../shared/commands'
 import type { ExportOutcome, ExportRequest } from '../shared/export'
 import type { Fork } from '../shared/forks'
+import type { Bot } from '../shared/bots'
 import type { Listing, OpenOutcome } from '../shared/files'
 import type { Theme } from '../shared/theme'
 
@@ -157,6 +158,72 @@ const api = {
     return ipcRenderer.invoke('bravebot:forks:read') as Promise<Fork[]>
   },
 
+  /** The bots defined here, by slug. */
+  readBots(): Promise<Bot[]> {
+    return ipcRenderer.invoke('bravebot:bots:read') as Promise<Bot[]>
+  },
+
+  /**
+   * Define a bot, or change one that exists.
+   *
+   * Four fields cross and no more. The id of the session behind a bot and the count of what
+   * compaction has taken from it are both reports of what the *agent* did — the main process takes
+   * them off its answers, the way it takes the fork lineage off one — so there is no way to claim
+   * either from here. Neither is the slug: a name crosses, and the main process makes the thing
+   * that becomes a filename out of it, so a path segment is never a string that arrived as one.
+   */
+  writeBot(bot: {
+    slug?: string
+    name: string
+    purpose: string
+    directory: string
+  }): Promise<Bot | null> {
+    return ipcRenderer.invoke('bravebot:bots:write', bot) as Promise<Bot | null>
+  },
+
+  /** Forget a bot's definition. Its session and its memory file are left where they are. */
+  removeBot(slug: string): Promise<string | null> {
+    return ipcRenderer.invoke('bravebot:bots:remove', slug) as Promise<string | null>
+  },
+
+  /**
+   * What a bot's memory currently says, or `null` if it has none to read yet.
+   *
+   * The words, never the path — which is what keeps this side of the wall unable to name a file.
+   * The main process knows where a bot's memory lives because it put it there.
+   */
+  readBotMemory(slug: string): Promise<string | null> {
+    return ipcRenderer.invoke('bravebot:bots:memory', slug) as Promise<string | null>
+  },
+
+  /**
+   * Let go of the session behind a bot, for a record the agent no longer has.
+   *
+   * Names a bot and nothing else: what its session becomes is decided over there, and the only
+   * thing it can become is nothing.
+   */
+  releaseBotSession(slug: string): Promise<void> {
+    return ipcRenderer.invoke('bravebot:bots:release', slug) as Promise<void>
+  },
+
+  /**
+   * Send a turn as a bot.
+   *
+   * Separate from `request` above because a bot's turn carries files, and `turn.send` through that
+   * channel has its file lists removed — a window that could name a file to read would be a window
+   * that could have the planner read any file on the machine. So this names a *bot* and a moment:
+   * `grounded` says whether this is the turn that has to carry the briefing, and the main process
+   * decides what that means and which paths it is made of.
+   */
+  sendBotTurn(request: {
+    session: string
+    slug: string
+    prompt: string
+    grounded: boolean
+  }): Promise<Answer<{ turn: number }>> {
+    return ipcRenderer.invoke('bravebot:bots:send', request) as Promise<Answer<{ turn: number }>>
+  },
+
   /**
    * One directory of the folder a session is working in, or `null` for anything it may not see.
    *
@@ -246,6 +313,40 @@ const api = {
    */
   publishState(state: WindowState): void {
     ipcRenderer.send('bravebot:menu:state', state)
+  },
+
+  /**
+   * Listen for turns the main process sent on a bot's behalf, rather than a person.
+   *
+   * Two announcements over one channel pair: `consolidating` when such a turn goes out, and
+   * `consolidated` when it ends however it ends. The window needs both — the first because a
+   * transcript that drew a reply with no prompt above it would be a transcript with a hole in it,
+   * and the second because such a turn carries the briefing, so by the time it is over the session
+   * is grounded again and the next thing the user types must not carry it a second time.
+   *
+   * It carries a handle and a slug and no more. Nothing about what was said crosses here; the
+   * words arrive as ordinary events like everything else.
+   */
+  onBotConsolidation(
+    listener: (state: {
+      session: string
+      slug: string | null
+      running: boolean
+      delivered: boolean
+    }) => void,
+  ): () => void {
+    const started = (_event: IpcRendererEvent, at: { session: string; slug: string }) =>
+      listener({ ...at, running: true, delivered: false })
+    const ended = (
+      _event: IpcRendererEvent,
+      at: { session: string; slug: string | null; delivered: boolean },
+    ) => listener({ ...at, running: false })
+    ipcRenderer.on('bravebot:bots:consolidating', started)
+    ipcRenderer.on('bravebot:bots:consolidated', ended)
+    return () => {
+      ipcRenderer.off('bravebot:bots:consolidating', started)
+      ipcRenderer.off('bravebot:bots:consolidated', ended)
+    }
   },
 
   /** Listen for everything the agent announces. Returns an unsubscribe. */

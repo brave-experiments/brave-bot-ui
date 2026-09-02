@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } 
 import { spawn, spawnSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { INSTALL } from './overlay.mjs'
+import { projectsIn } from './world.mjs'
 
 // The two numbers the whole video is timed by, and the only two worth arguing about. They
 // started at 700/620, which watched back as dead air — a pause between two things happening
@@ -39,12 +40,25 @@ const stamp = (from) => {
 export async function launch(opts) {
   mkdirSync(SHOTS, { recursive: true })
 
-  // The world. `$HOME` is what the agent reads to find `~/.bravebot`, and what Electron
-  // derives `userData` from, so redirecting it puts the whole run — sessions, recents, column
-  // widths, the lot — inside a directory `world.mjs` laid out. Nothing real is on screen.
-  // `--real` opts out, for driving the demo against actual data while working on it.
+  // The world, and it takes *two* redirections rather than one.
+  //
+  // `$HOME` is what the agent reads to find `~/.bravebot` — sessions, history, standing
+  // instructions — and pointing it at the world sanitises all of that. It does not sanitise this
+  // app's own remembered state, which was the assumption here and is wrong on macOS: Electron
+  // derives `userData` from `NSHomeDirectory()`, which comes from the password database and not
+  // from the environment, so a run with `HOME` redirected still read and wrote the *real*
+  // `bravebot-ui.json`. Measured, not guessed — `app.getPath('userData')` under a redirected HOME
+  // answers with the actual user's Application Support directory.
+  //
+  // That put real things on camera: the recents list is real project paths, and File ▸ Open Recent
+  // is filmed; the bots list is real names, purposes and checkouts, and the bots tab is filmed.
+  // `--user-data-dir` is the switch that actually moves it, so the world now gets one of its own
+  // and the two halves of "nothing real is on screen" are finally both true.
+  //
+  // `--real` opts out of both, for driving the demo against actual data while working on it.
   const env = opts.world ? { ...process.env, HOME: opts.world } : process.env
-  const app = await electron.launch({ args: ['.'], cwd: process.cwd(), timeout: 40000, env })
+  const args = opts.world ? ['.', `--user-data-dir=${join(opts.world, 'userData')}`] : ['.']
+  const app = await electron.launch({ args, cwd: process.cwd(), timeout: 40000, env })
   const page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')
   page.on('pageerror', (e) => console.log('PAGE ERROR:', e.message))
@@ -91,6 +105,22 @@ export async function launch(opts) {
       return { canceled: false, filePath: path }
     }
   }, exports)
+
+  // The folder picker is a native panel and would hang the run behind a sheet nobody can dismiss,
+  // exactly as the save panel above would — so it answers itself too. Pointed at one of the
+  // world's own fixture checkouts, which is a path this run laid out rather than one the window
+  // composed, and which reads as a real project name on camera. `world.mjs` stubs the same call
+  // for the same reason while it is earning the sessions.
+  //
+  // A `--real` run has no fixtures, so it gets a scratch directory instead: filming this machine
+  // is for working on the demo, and a bot made during one should not appear in somebody's repo.
+  const chosenDirectory = opts.world
+    ? projectsIn(opts.world)[0]
+    : join(SHOTS, 'demo-checkout')
+  mkdirSync(chosenDirectory, { recursive: true })
+  await app.evaluate(({ dialog }, where) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [where] })
+  }, chosenDirectory)
 
   // The session list is filled by a round trip to the agent; nothing can be pointed at until
   // it lands. Deliberately not a `waitForSelector`, because a window with no sessions in it
@@ -325,6 +355,8 @@ export async function launch(opts) {
     shot,
     request,
     exports,
+    /** Where the stubbed folder picker answers with, for a scene that needs to name it. */
+    chosenDirectory,
     /**
      * Open an in-window menu and wait until it is actually there.
      *
@@ -388,6 +420,15 @@ export async function launch(opts) {
         await page.waitForTimeout(300)
       }
     }
+    // The left column has two lists now, and a scene that left it on the bots would hand the next
+    // one a session list that is present and invisible. Put back with the columns, for the same
+    // reason they are: a scene begins where a first-time viewer would find the window.
+    const sessionsTab = page.locator('.sidebar-tab').first()
+    if ((await sessionsTab.count()) && (await sessionsTab.getAttribute('aria-pressed')) !== 'true') {
+      await sessionsTab.click()
+      await page.waitForTimeout(250)
+    }
+
     const group = page.locator('.session-group')
     if ((await group.getAttribute('aria-pressed')) === 'true') {
       await group.click()

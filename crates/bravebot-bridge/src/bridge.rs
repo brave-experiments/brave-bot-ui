@@ -197,6 +197,10 @@ impl Bridge {
             },
             "said": said,
             "context": record.conversation.context,
+            // As on `turn.done`, and read straight off the record rather than off the restored
+            // conversation: it is written down, so a session resumed in a new process knows what
+            // compaction had already taken without having to watch it happen.
+            "archived": record.conversation.archive.len(),
             "todos": todos,
             "trust": {
                 "known": record.trust.is_some(),
@@ -438,6 +442,36 @@ impl Bridge {
                     .collect()
             })
             .unwrap_or_default();
+        // The same shape as `files`, and a different promise. A named file is workspace-relative
+        // and the agent reads it inside the project; a dropped one may sit anywhere, because the
+        // path came from a gesture rather than from anything a model said. That is what carries a
+        // bot's briefing, which lives beside this app's own settings and deliberately not inside
+        // the checkout the planner may write to.
+        let dropped: Vec<String> = request
+            .params
+            .get("dropped")
+            .and_then(Value::as_array)
+            .map(|entries| {
+                entries
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        // Whether this prompt is one a person will want back when they press up.
+        //
+        // `~/.bravebot/history` is recall, shared with the terminal front-end, and what belongs in
+        // it is what somebody typed. A turn a front-end sends on its own account — this app asking
+        // a bot to bring its memory up to date, after a compaction — is not that: putting it there
+        // would mean a person scrolling their own history through boilerplate they never wrote, in
+        // both front-ends, because one of them decided to do some house-keeping.
+        //
+        // Defaults to true, so every caller that predates this keeps the behaviour it had, and so
+        // the ordinary case needs no ceremony. It also decides whether the prompt may *title* the
+        // session, for the same reason and by the same argument: a name is another thing that
+        // should say what a person asked for.
+        let recall = request.flag("recall", true);
 
         self.reap(&handle);
 
@@ -507,6 +541,8 @@ impl Bridge {
                 workspace,
                 prompt,
                 files,
+                dropped,
+                recall,
                 turn: turn_number,
                 cancel,
                 pending,
@@ -742,6 +778,9 @@ struct Work {
     workspace: Workspace,
     prompt: String,
     files: Vec<String>,
+    dropped: Vec<String>,
+    /// Whether this prompt joins the shared recall history, and may name the session.
+    recall: bool,
     turn: usize,
     cancel: Cancel,
     pending: crate::turn::Pending,
@@ -764,6 +803,8 @@ fn work(work: Work) {
         workspace,
         prompt,
         files,
+        dropped,
+        recall,
         turn,
         cancel,
         pending,
@@ -781,6 +822,9 @@ fn work(work: Work) {
     let mut task = Task::new(&prompt).with_home(bravebot_agent::home::directory());
     for file in &files {
         task = task.with_file(file);
+    }
+    for path in &dropped {
+        task = task.with_dropped_text(path);
     }
 
     let mut reporter = BridgeReporter::new(emitter.clone(), &session);
@@ -808,10 +852,16 @@ fn work(work: Work) {
 
     // The prompt joins the history the terminal also reads, so recall works across both
     // front-ends. Best-effort by design upstream, and nothing here depends on it.
-    bravebot_tui::store::append_history(&prompt);
+    //
+    // Unless the front-end said this was not a prompt a person typed. See `recall` where it is
+    // parsed: the same flag holds back the session's name, because a conversation called after
+    // some house-keeping would be a conversation named for the one thing nobody in it asked.
+    if recall {
+        bravebot_tui::store::append_history(&prompt);
+    }
 
     state.turns = turn;
-    if state.first_prompt.is_none() {
+    if state.first_prompt.is_none() && recall {
         state.first_prompt = Some(prompt.clone());
     }
 
@@ -828,7 +878,7 @@ fn work(work: Work) {
             state.programs = outcome.programs.clone();
             state.tokens += outcome.tokens;
 
-            save(&project, &mut state, turn, sink.trail());
+            let archived = save(&project, &mut state, turn, sink.trail());
 
             let rules = rules_json(&state.trust);
 
@@ -847,11 +897,25 @@ fn work(work: Work) {
                     "outputTokens": outcome.output_tokens,
                     "notices": outcome.notices,
                     "trust": { "rules": rules },
+                    // The session's durable name, which is real from here and was not before:
+                    // `save` above is what wrote the record, and until a record exists there is
+                    // nothing for an id to point at. A front-end keeping its own note about a
+                    // session — which is the only way to keep one, the agent's record having no
+                    // field for anybody else's — learns it here rather than by guessing which
+                    // row in the list is the one it just made.
+                    "id": state.handle.as_ref().map(|handle| handle.id()),
+                    // How many messages compaction has taken out of this conversation, in total.
+                    // It only ever rises, and it rises exactly when the conversation stopped
+                    // carrying what was said before the summary — which is the moment anything
+                    // standing at the top of a session has to be said again. Reported rather than
+                    // inferred from the `compacting` phase, which is emitted before compaction is
+                    // attempted and so also fires when there was nothing worth compacting.
+                    "archived": archived,
                 }),
             ));
         }
         Err(error) => {
-            save(&project, &mut state, turn, sink.trail());
+            let _ = save(&project, &mut state, turn, sink.trail());
 
             let kind = match &error {
                 TurnError::Cancelled => "cancelled",
@@ -883,16 +947,26 @@ fn work(work: Work) {
 /// The same `Handle` the terminal uses, so a session written here is one `bravebot --resume`
 /// can pick up. Created on the first turn rather than when the window opened: an
 /// abandoned window should leave nothing behind.
-fn save(project: &std::path::Path, state: &mut State, turn: usize, trail: &bravebot_tui::audit::Trail) {
+fn save(
+    project: &std::path::Path,
+    state: &mut State,
+    turn: usize,
+    trail: &bravebot_tui::audit::Trail,
+) -> usize {
     let handle = state
         .handle
         .get_or_insert_with(|| Handle::begin(project));
 
     let first = state.first_prompt.clone().unwrap_or_default();
+    // Taken once and lent to both readers below. A snapshot copies the whole conversation, and
+    // the archive count wanted for `turn.done` is a field of the one being written down anyway —
+    // asking for a second copy to read one number off it would double the cost of every turn.
+    let snapshot = state.conversation.snapshot();
+    let archived = snapshot.archive.len();
     handle.save(
         &first,
         Standing {
-            conversation: &state.conversation.snapshot(),
+            conversation: &snapshot,
             turns: state.turns,
             tokens: state.tokens,
             todos: &state.todos,
@@ -906,6 +980,7 @@ fn save(project: &std::path::Path, state: &mut State, turn: usize, trail: &brave
         },
     );
     handle.append_audit(turn, trail.events());
+    archived
 }
 
 /// The task lists, keyed by turn as a string, because JSON object keys are.

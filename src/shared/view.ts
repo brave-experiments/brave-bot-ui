@@ -21,10 +21,21 @@ export interface StoredView {
    * ever collapsed.
    */
   collapsed: string[]
+  /**
+   * Which of the column's two lists is on screen.
+   *
+   * A sessions-and-bots pair rather than a boolean, because a third list is a thing a column like
+   * this grows and a `showingBots` flag would have to be replaced rather than extended.
+   */
+  tab: Tab
 }
 
+export const TABS = ['sessions', 'bots'] as const
+
+export type Tab = (typeof TABS)[number]
+
 /** What a file that has never been written means: the flat list the column always showed. */
-const FLAT: StoredView = { grouped: false, collapsed: [] }
+const FLAT: StoredView = { grouped: false, collapsed: [], tab: 'sessions' }
 
 /**
  * A view preference, always.
@@ -39,9 +50,27 @@ const FLAT: StoredView = { grouped: false, collapsed: [] }
  */
 export function parseView(value: unknown): StoredView {
   if (typeof value !== 'object' || value === null) return flat()
-  const { grouped, collapsed } = value as { grouped?: unknown; collapsed?: unknown }
+  const { grouped, collapsed, tab } = value as {
+    grouped?: unknown
+    collapsed?: unknown
+    tab?: unknown
+  }
   if (typeof grouped !== 'boolean') return flat()
-  return { grouped, collapsed: shut(collapsed) }
+  return { grouped, collapsed: shut(collapsed), tab: shown(tab) }
+}
+
+/**
+ * Which list to show.
+ *
+ * Repaired rather than refused, unlike the `grouped` flag above and like the paths below. A tab
+ * this build does not have — one written by a later version, or renamed since — should cost the
+ * person the tab they were on and not their grouping or their folds. The sessions list is the
+ * answer to every doubt because it is the one every launch before this had.
+ */
+function shown(value: unknown): Tab {
+  return typeof value === 'string' && (TABS as readonly string[]).includes(value)
+    ? (value as Tab)
+    : 'sessions'
 }
 
 /**

@@ -154,6 +154,16 @@ impl Request {
     pub fn optional_string(&self, name: &str) -> Option<String> {
         self.params.get(name).and_then(Value::as_str).map(str::to_string)
     }
+
+    /// An optional boolean parameter, and what it means when it is not there.
+    ///
+    /// Anything that is not a boolean reads as the default rather than as a failure. That is the
+    /// right shape for a flag whose whole purpose is that older callers, and callers that do not
+    /// care, get the behaviour they had before it existed — a front-end that has never heard of
+    /// the flag must not be able to trip over it by sending nothing.
+    pub fn flag(&self, name: &str, default: bool) -> bool {
+        self.params.get(name).and_then(Value::as_bool).unwrap_or(default)
+    }
 }
 
 /// The answer to one request.

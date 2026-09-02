@@ -278,7 +278,7 @@ dependencies = [
 
 [[package]]
 name = "bravebot-agent"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "bravebot-aichat",
@@ -293,7 +293,7 @@ dependencies = [
 
 [[package]]
 name = "bravebot-aichat"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bravebot-config",
  "bravebot-core",
@@ -319,19 +319,19 @@ dependencies = [
 
 [[package]]
 name = "bravebot-config"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "bravebot-core"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "bravebot-i18n"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "bravebot-net"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bravebot-core",
  "ureq",
@@ -339,7 +339,7 @@ dependencies = [
 
 [[package]]
 name = "bravebot-sandbox"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "landlock",
  "libc",
@@ -347,7 +347,7 @@ dependencies = [
 
 [[package]]
 name = "bravebot-signing"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "hmac",
@@ -356,7 +356,7 @@ dependencies = [
 
 [[package]]
 name = "bravebot-skus"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "challenge-bypass-ristretto",
  "hmac",
@@ -369,7 +369,7 @@ dependencies = [
 
 [[package]]
 name = "bravebot-tui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "bravebot-agent",

@@ -10,6 +10,8 @@ import { ForkIcon } from './ForkIcon'
 import { contextMenu } from './Sessions'
 import { Markdown } from './Markdown'
 import { PopMenu, type PopItem } from './PopMenu'
+import { BotAvatar } from './BotAvatar'
+import type { Bot } from '../../shared/bots'
 
 interface Live {
   handle: string
@@ -43,6 +45,8 @@ export type AnswerQuestions = (request: number, answers: AskAnswer[]) => void
 
 interface Props {
   live: Live | null
+  /** The bot whose session this is, if one is. Its name is what the header says instead of a title. */
+  bot: Bot | null
   pending: t.Asking | null
   problem: string | null
   collapsed: Record<Side, boolean>
@@ -113,6 +117,7 @@ function ColumnToggle({
 /** The middle column: the conversation, and everything the turn did inside it. */
 export function Transcript({
   live,
+  bot,
   pending,
   problem,
   collapsed,
@@ -196,7 +201,15 @@ export function Transcript({
         <div className="head-titles">
           {live && (
             <>
-              <h1>{live.summary.title}</h1>
+              {/* A bot's session is titled by whatever was asked first, like every session — but a
+                  bot is not an occasion, it is somebody, and a header saying "Hello." over a
+                  conversation with the Custodian names the wrong thing. So a bot's own name and
+                  face stand where the title would, and the title becomes the second line beside
+                  the checkout: still there, no longer pretending to say whose this is. */}
+              <h1>
+                {bot && <BotAvatar seed={bot.avatar} size={30} />}
+                {bot ? bot.name : live.summary.title}
+              </h1>
               {/* The same string in the tooltip, because this line ellipsises and the
                   half it drops is the end of the path — which is the half that says which
                   checkout of a project this is. */}
@@ -204,6 +217,7 @@ export function Transcript({
                 className="where"
                 title={`${live.summary.directory}${live.summary.branch ? ` · ${live.summary.branch}` : ''}`}
               >
+                {bot && `${live.summary.title} · `}
                 {live.summary.directory}
                 {live.summary.branch && ` · ${live.summary.branch}`}
               </span>
@@ -708,6 +722,23 @@ function Row({
 
     case 'narration':
       return <div className="narration">{entry.text}</div>
+
+    case 'attached':
+      // A line rather than a bubble, and the path rather than the contents. This is the same
+      // register the tool lines are in — something that happened on the way to the reply — which
+      // is what it is: a file somebody named, read at the top of a turn.
+      return (
+        <div className="attached" title={entry.path}>
+          Read {entry.path}
+        </div>
+      )
+
+    case 'consolidation':
+      // The same line register as the attachment above, and deliberately not a bubble. This is
+      // something that happened on the way to a reply rather than something anybody said, and the
+      // whole reason it has an entry of its own is that drawing it as a prompt would claim
+      // otherwise. See `CONSOLIDATION_MARK`.
+      return <div className="attached consolidation">Asked to bring its memory up to date</div>
 
     case 'error':
       return <div className="bubble failed">{entry.text}</div>

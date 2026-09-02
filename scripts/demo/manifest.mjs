@@ -7,8 +7,13 @@
 //
 // The order is a story rather than a feature list: find a session, watch a turn happen and be
 // questioned, then read the record it left, arrange the window around it, and look at what the
-// agent touched. Forking and export come last because they are things done to a conversation
+// agent touched. Forking and export come next because they are things done to a conversation
 // that already exists.
+//
+// The bots come last, after the menu, because they are the one thing here that is not about a
+// session at all — a second kind of thing in the same window, and easier to follow once the first
+// kind has been shown whole. They are two scenes for the reason `02-live` is its own: what a bot
+// looks like costs nothing to film, and what a bot *does* needs a model to answer.
 export const SCENES = [
   '00-open',
   '01-sessions',
@@ -25,5 +30,13 @@ export const SCENES = [
   '08-fork',
   '09-export',
   '10-commands',
+  '11-bots',
+  // `live: true` — filmed only with --live, and only after `11-bots`, which makes the bot this
+  // one opens.
+  '12-bot-memory',
+  // `live: true`, and after `12-bot-memory` because it reads the session that one leaves behind.
+  // It is about the memory a bot keeps when nobody has asked it to, so most of what it can show
+  // depends on what the take before it earned — and it bows out rather than films an empty frame.
+  '13-bot-remembering',
   '99-close',
 ]

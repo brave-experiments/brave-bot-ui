@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import type { SessionSummary } from '../../shared/protocol'
 import type { ContextTarget } from '../../shared/commands'
 import { keyOf } from '../../shared/forks'
@@ -13,7 +13,18 @@ interface Props {
   forked: ReadonlySet<string>
   onOpen: (summary: SessionSummary) => void
   onNew: (directory?: string) => void
-  build: string | null
+  /**
+   * How the list is arranged, and how to say it changed.
+   *
+   * Held by [`Sidebar`] rather than here, which is a departure from the note on `query` below and
+   * for the reason that note itself gives: this half is written to disk, and the column now has
+   * two lists sharing one file. One owner of what is remembered means one write, rather than two
+   * components racing to describe the same preference.
+   */
+  grouped: boolean
+  onGroup: (grouped: boolean) => void
+  collapsed: ReadonlySet<string>
+  onCollapse: (collapsed: ReadonlySet<string>) => void
 }
 
 /**
@@ -49,7 +60,10 @@ export function Sessions({
   forked,
   onOpen,
   onNew,
-  build,
+  grouped,
+  onGroup,
+  collapsed,
+  onCollapse,
 }: Props): React.JSX.Element {
   // Local rather than lifted into `App`. The convention there is that state lives in `App`,
   // but the reason given for the composer's draft is that the menu has to read it; nothing
@@ -64,37 +78,14 @@ export function Sessions({
   // seed `useState` — the same dance `columns.ts` documents — which is why the column
   // renders flat for a frame before adopting it. `ready` keeps that first frame from
   // writing the default back over what is on disk.
-  const [grouped, setGrouped] = useState(false)
-  // Which groups are shut, by directory. The shut ones rather than the open ones, so a
-  // checkout that appears while the app is running arrives open rather than hidden.
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
-  const ready = useRef(false)
-  useEffect(() => {
-    void window.bravebot
-      .readView()
-      .then((view) => {
-        setGrouped(view.grouped)
-        setCollapsed(new Set(view.collapsed))
-      })
-      .catch(() => undefined)
-      .finally(() => (ready.current = true))
-  }, [])
-  useEffect(() => {
-    if (!ready.current) return
-    try {
-      window.bravebot.writeView({ grouped, collapsed: [...collapsed] })
-    } catch {
-      // The list is still arranged the way it was asked to be, this session.
-    }
-  }, [grouped, collapsed])
-
-  const toggleGroup = useCallback((directory: string) => {
-    setCollapsed((was) => {
-      const next = new Set(was)
+  const toggleGroup = useCallback(
+    (directory: string) => {
+      const next = new Set(collapsed)
       if (!next.delete(directory)) next.add(directory)
-      return next
-    })
-  }, [])
+      onCollapse(next)
+    },
+    [collapsed, onCollapse],
+  )
 
   const groups = useMemo(() => (grouped ? grouping(shown) : []), [grouped, shown])
 
@@ -105,7 +96,7 @@ export function Sessions({
   const searching = query.trim().length > 0
 
   return (
-    <aside className="sessions" id="sessions-column">
+    <>
       <header className="sessions-head">
         <NewSession onNew={onNew} />
         <div className="session-tools">
@@ -133,7 +124,7 @@ export function Sessions({
             aria-pressed={grouped}
             aria-label="Group by project"
             title={grouped ? 'Show one flat list' : 'Group by project'}
-            onClick={() => setGrouped(!grouped)}
+            onClick={() => onGroup(!grouped)}
           >
             <span aria-hidden="true">▤</span>
           </button>
@@ -176,13 +167,7 @@ export function Sessions({
             />
           ))}
       </div>
-
-      {build && (
-        <footer className="build" title="The agent build these sessions are stamped with">
-          {build}
-        </footer>
-      )}
-    </aside>
+    </>
   )
 }
 

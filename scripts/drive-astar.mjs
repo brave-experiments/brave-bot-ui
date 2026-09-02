@@ -47,6 +47,26 @@ let shot = 0
 const capture = async (page, what) =>
   page.screenshot({ path: `${shots}/${String(++shot).padStart(2, '0')}-${what}.png` })
 
+// The left column has two tabs and remembers which was last open, so a run after somebody left it
+// on the bots — or after a run of `drive-bots.mjs` that was interrupted before its teardown — would
+// find the session list present in the DOM and invisible, and every click below would time out
+// against an element that is right there. Everything here is about that list, so it is put back on
+// screen first: a driver leaves the window as the next one expects to find it, and does not assume
+// it was left that way.
+async function showSessions(page) {
+  await page
+    .locator('.sidebar-tab')
+    .first()
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .catch(() => undefined)
+  await page
+    .locator('.sidebar-tab')
+    .first()
+    .click({ timeout: 3000 })
+    .catch(() => undefined)
+  await page.waitForTimeout(250)
+}
+
 const app = await electron.launch({ args: ['.'], cwd: process.cwd(), timeout: 60000 })
 
 // The folder picker is native, so Playwright cannot reach it. Answered in the main process
@@ -58,6 +78,7 @@ await app.evaluate(({ dialog }, directory) => {
 
 const page = await app.firstWindow()
 await page.waitForLoadState('domcontentloaded')
+await showSessions(page)
 page.on('pageerror', (e) => console.log('PAGE ERROR:', e.message))
 page.on('console', (m) => m.type() === 'error' && console.log('CONSOLE ERROR:', m.text()))
 await page.waitForTimeout(2500)
