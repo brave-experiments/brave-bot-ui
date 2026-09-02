@@ -30,6 +30,7 @@ export type Entry =
   | { kind: 'assistant'; id: string; text: string }
   | { kind: 'narration'; id: string; text: string }
   /** A tool call. `landing` arrives after the call finishes, so it fills in late. */
+  | { kind: 'attached'; id: string; path: string }
   | { kind: 'tool'; id: string; activity: Activity; landing: Landing | null }
   | { kind: 'quarantined'; id: string; shown: Shown }
   /** A write awaiting a decision, or the record of one already made. */
@@ -86,8 +87,21 @@ const nextId = (): string => `e${++counter}`
 export function fromSaid(said: Said[]): Entry[] {
   return said.map((entry) => {
     switch (entry.kind) {
-      case 'user':
+      case 'user': {
+        // A file the *user* named is put into the conversation as a user message, under a line
+        // saying whose contents follow. That is right for the planner and wrong for a person: the
+        // agent filters its own house-keeping messages out of a replayed transcript and does not
+        // filter this one, so a reopened session draws the file as though somebody had typed the
+        // whole of it into the composer.
+        //
+        // Drawn as an attachment instead. Matching on the wording is what this file is otherwise
+        // careful never to do, and it is a poor tool — but the alternative is drawing a lie, and
+        // an attachment shown as a prompt is the kind of lie that matters here: it says a person
+        // said something they did not.
+        const named = attached(entry.text)
+        if (named) return { kind: 'attached', id: nextId(), path: named } as const
         return { kind: 'user', id: nextId(), text: entry.text } as const
+      }
       case 'assistant':
         return { kind: 'assistant', id: nextId(), text: entry.text } as const
       case 'tool':
@@ -96,6 +110,17 @@ export function fromSaid(said: Said[]): Entry[] {
         return { kind: 'replayed-tool', id: nextId(), text: entry.text } as const
     }
   })
+}
+
+/** The prefix the agent puts in front of a file it was handed. Its wording, not ours. */
+const CONTENTS = 'Contents of '
+
+/** The path a message is the contents of, or `null` if it is not one. */
+function attached(text: string): string | null {
+  if (!text.startsWith(CONTENTS)) return null
+  const end = text.indexOf(':\n')
+  if (end === -1) return null
+  return text.slice(CONTENTS.length, end)
 }
 
 export const userSaid = (text: string): Entry => ({ kind: 'user', id: nextId(), text })

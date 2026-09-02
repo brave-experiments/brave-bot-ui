@@ -102,6 +102,161 @@ uses, rather than by assembling a string of HTML — so a reply's markdown is ga
 to paper by exactly what gates it on screen. See `src/main/export.ts` for why that is worth a
 whole extra window.
 
+### Bots
+
+The left column has two lists. The **Sessions** tab is everything above; the **Bots** tab is the
+people who have one.
+
+A bot is a name, a purpose somebody wrote, a memory it keeps, and one checkout it works in. Behind
+it is a single session that is *resumed* rather than begun again — so where a session is an
+occasion, a bot is somebody, and the tab holds the second because a list that answered both
+questions would answer neither well. A bot's sessions do not appear in the sessions list: one
+record openable from two places is one that could be open twice, each half of the window believing
+it had the conversation.
+
+Each bot has a face: a small three-dimensional figure, built with three.js from a seed minted when
+the bot was made, turning slowly. The seed is *stored* rather than derived from the name, because a
+face that changed when a bot was renamed would not be a face.
+
+The brief was friendly and approachable, and the figures take that literally — round, large-headed,
+big low-set eyes with a white catchlight in each, and no mouth, because a fixed mouth is either a
+grin that never fits what the bot just said or a line that reads as sullen.
+
+Each is painted in **one** colour from a fixed set, with its parts told apart by *shade* of it
+rather than by a second hue: the head is the colour itself, the body a deeper version, and the small
+pieces on top — an ear, a bobble, a collar — a paler one. So a bot is "the blue one" rather than
+"the blue and yellow one", which is a thing somebody can hold in their head about eight bots at
+once. The shades are far apart on purpose; one step of difference reads as a shadow rather than as a
+different part, and the figure goes back to being one blob at 38 pixels.
+
+The set is primaries and near-primaries — the colours of moulded plastic — and it deliberately holds
+**no orange and no brown**. They are muted rather than pure: each is its primary at roughly two
+thirds of full saturation, pulled a little toward mid lightness. Fully saturated versions came
+first and shouted — eight of them down a column, each small and each at maximum chroma, is a lot of
+noise beside a list of quiet grey text, and the avatar ends up competing with the name it belongs
+to. What is kept is the *hue*, which is the part doing the identifying: a bot is still recognisably
+the blue one or the green one. `yellow` and `lime` are the pair that needs watching, since muting
+moves everything toward grey and two hues 40° apart converge on the way — `lime` is pushed greener
+and darker than a straight muting would give it, to keep the two apart at 38 pixels. These were first built in the window's own accent, on
+the argument that every colour here means something and a bot picking a hue would say something it
+did not mean; that turned out to be wrong in practice for a reason the argument could not see. The
+accent is a warm orange, and a warm orange sphere with two eyes in it is not an abstract mark, it is
+a *face* — the whole thing read as skin. A figure this simple is read as a body before it is read as
+anything else, so the colour has to say "painted object" loudly enough to stop that, which a dusty
+blue does and no shade of orange can. A single hue makes that rule stricter rather than
+looser: there is no second colour to carry the signal if the first one fails to.
+
+The cost, stated plainly: the figures no longer follow a theme. A palette somebody writes repaints
+the window and leaves the bots alone. That is the right trade for a face — one that changed colour
+with the furniture would be a worse identity than one that does not — but it is a trade.
+
+What else differs between them is the head, what is on top of it, the ears, the set of the eyes, and
+the body.
+
+Two things about it are load-bearing rather than decorative:
+
+- **One WebGL context, however many bots.** A page gets a limited number — Chromium's cap is around
+  sixteen, and past it the *oldest* context is dropped rather than the newest refused, so a long
+  list would silently blank the rows at the top. There is one renderer drawing into one offscreen
+  canvas, and each avatar is a plain 2D canvas the result is copied into.
+- **The motion is a function of the clock, not of frames.** A figure turns at the same rate on a
+  busy machine as an idle one, a dropped frame is skipped rather than accumulated, and two avatars
+  mounted a minute apart are at the same point in the turn. Each one's offset into the cycle comes
+  from its seed, so a column of them does not move as a block. The loop stops when nothing is on
+  screen and when the window is hidden.
+
+Where there is no WebGL to be had, the same seed draws a flat mirrored mark instead, in the same
+colour and shades — a list of bots with no faces is a worse list, but a list that failed to draw its rows
+because of a graphics driver would be the tail wagging the dog. See `src/renderer/avatar/` and
+`src/renderer/components/BotAvatar.tsx`.
+
+#### How a purpose reaches the model
+
+The agent has no persona field, and it is not modified here. `Task` offers a prompt, some files and
+a home directory; the system prompt belongs to the build, and `AGENTS.md` is global or per-checkout
+rather than per-bot — writing one into somebody's repo would clobber theirs. Splicing a purpose
+into the prompt is out too: every prompt is appended to the shared `~/.bravebot/history`, and a
+charter poured into somebody's recall is not a feature.
+
+So a bot is handed a **file to read**, and there are two of them:
+
+- **The briefing**, `<userData>/bots/<slug>/ground.md`, composed by the main process from the bot's
+  name, its purpose, and whatever its memory currently says. It goes to a turn as `dropped`, which
+  is the read deliberately *not* confined to the workspace. It lives outside the checkout precisely
+  so the planner cannot rewrite what defines it — the agent may write inside the workspace and
+  nowhere else, and this is nowhere else.
+- **The memory**, `<checkout>/.bravebot-ui/bots/<slug>.md`, which is inside the checkout because
+  that is the only place the agent *can* write. That is the whole mechanism: the bot is told where
+  its memory is and asked to keep it current, and it edits the file with its ordinary write tool.
+  Nothing parses what a model said; the change the agent applied is the record. The folder ignores
+  itself, so it never becomes a change nobody made. What that write is *gated* on is below, and is
+  not what it looks like.
+
+Only one file is attached, and the memory is copied *into* the briefing rather than sent beside it.
+Every attached file becomes its own user message, and the agent's compaction keeps only the last
+two of those verbatim — two attachments would mean the window a compaction preserves is spent
+entirely on this app's own injections.
+
+#### When it is said again
+
+Compaction always cuts from the front, so a briefing at the top of a session is the first thing it
+takes. The signal that it has is **not** the `compacting` phase: that is emitted before compaction
+is attempted, so it also fires when there was nothing worth compacting, and then on every round of
+a conversation that is over budget and cannot get under it. A bot re-grounded off that would be
+re-grounded on every turn forever, which — given that each attachment stays in the conversation —
+makes the problem worse.
+
+What is watched instead is the size of the conversation's **archive**, which `turn.done` and
+`session.open` both report. It only rises, it rises exactly once per compaction that actually
+happened, and it is written into the record, so a session resumed in a new process knows it without
+having watched it happen. A bot is re-grounded when that figure has gone up, and when its session
+has just been opened.
+
+#### What a memory write is actually gated on
+
+Not on it being the memory. A memory write goes through the agent's ordinary write gate
+(`Policy::write_needs_approval`), whose rule is about **integrity** rather than about which file it
+is: *trusted data to a trusted path is written without a prompt*, because for data to be trusted the
+turn must have observed nothing untrusted, and the destination only gains trust by it.
+
+Both halves are true of a bot's memory in the ordinary case. The destination is trusted because this
+app *names* the file — naming is what vouches for it — and a turn that has only read its own
+checkout has seen nothing untrusted. So a bot exploring its project and writing down what it found
+**does so without asking**, and the record is the `Update` line in the transcript and the row in the
+Writes panel rather than a card somebody pressed.
+
+The prompt appears exactly where it matters. A turn that *has* touched untrusted content — a fetched
+page, a command's output, a quarantined file — is asked before it may write to the memory, because
+that write would turn a trusted path untrusted. The gate is on prompt injection reaching the memory,
+not on the memory changing.
+
+This section said the opposite first, and so did the briefing handed to the model: that every edit
+would be shown as a diff before it happened. It was false — found by filming it, watching the Writes
+panel say `APPLIED` with no card in the transcript. A false promise in a briefing is worse than
+none, since it is the model telling somebody something the app does not do. Tightening it further is
+not available from here: there is no "always ask about this path" upstream, and adding one would be
+a change to a repository this app does not modify. The briefing says what is true instead — that
+the edit is on the record rather than in front of a card.
+
+Two more things are honestly imperfect and worth knowing:
+
+- **The turn compaction happens in runs without the briefing.** It can fire on the first round.
+  Nothing can inject mid-turn, so the summary the agent writes is what carries the gist through;
+  the mitigation is keeping a purpose short enough that re-reading it is cheap.
+- **Memory the model wrote is re-admitted as trusted context.** Naming a file vouches for it, so
+  what the bot wrote about itself last week is trusted this week. Combined with the gate above, a
+  bot that has only ever read its own checkout accumulates memory nobody was asked about — visible
+  in the transcript every time, but not consented to each time.
+
+#### What the window cannot do
+
+`turn.send` takes two lists of file paths and admits both to the planner as trusted context.
+Nothing else a renderer can say has that reach — the file tree is confined to roots the main
+process learnt from the agent, the folder picker is native, and the preload has never carried a
+file's contents in either direction. So the renderer may not name either list: they are stripped
+from any `turn.send` arriving on the general channel, and a bot's turn goes through
+`bravebot:bots:send`, which is handed a *bot* and composes the paths itself.
+
 ### The name in the menu bar
 
 The bold word beside the Apple menu is the one part of the menu a template cannot set: AppKit
@@ -390,6 +545,8 @@ at, that a control keeps keyboard focus through an animation.
 | `npm run drive:fork` | Cutting a session in two: that the fork holds the right half and the session it came from is untouched |
 | `npm run drive:tree` | The file tree: listing, expanding, the dotfile toggle, the name filter, and that a session with no root and a symlink out of the project both list nothing |
 | `npm run drive:theme` | Themes: that previewing repaints before anything is written down, that Escape restores exactly, that every derived token survives a palette, that editing a palette repaints without a relaunch, and that a PDF stays white regardless |
+| `npm run drive:bots` | Bots: that the column has two lists and remembers which, that a bot survives a relaunch with what was typed into it, and that two bots have different faces while one bot keeps its own across a rename — asserted on the *form* the seed built, since the face is turning while it is looked at |
+| `npm run drive:bot-turn` | A live turn as a bot: that a purpose nobody typed reaches the model, that the memory file is real and in the checkout, and that reopening the bot resumes the same session |
 | `npm run drive:packaged` | A built `.app`: that a release hides the developer items and finds its agent |
 | `npm run drive:astar` | One long piece of real work, start to finish: a new session in an empty checkout, every question it puts answered yes, and what the window has to show for it |
 | `node scripts/drive-turn.mjs` | A live inference request through the window, to prove the binary carries its credentials rather than inheriting them |
@@ -413,8 +570,8 @@ follow-up to the session already there instead of building from nothing, and
 `ASTAR_INSPECT=1` opens that session and reports what the panels say without spending a turn.
 
 Each driver launches the app, prints a line per assertion and leaves screenshots in
-`/tmp/bravebot-ui/`. Six of them cost real tokens: `drive:markdown`, `drive:run`, `drive:ask`,
-`drive:astar`, `drive-turn.mjs` and `smoke-turn.sh` send an actual prompt, and `smoke-turn.sh` needs a shell where `direnv` has
+`/tmp/bravebot-ui/`. Seven of them cost real tokens: `drive:markdown`, `drive:run`, `drive:ask`,
+`drive:astar`, `drive:bot-turn`, `drive-turn.mjs` and `smoke-turn.sh` send an actual prompt, and `smoke-turn.sh` needs a shell where `direnv` has
 loaded the agent's `.envrc`.
 
 The drivers share `bravebot-ui.json`, so one that leaves a column folded — or a panel turned off —

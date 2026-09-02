@@ -20,7 +20,16 @@ import { noteProject, recents } from './recents'
 import { putBots, putLayout, putPanels, putTheme, putView, readState } from './state'
 import { parsePanels } from '../shared/state'
 import { isProjectPath } from '../shared/recents'
-import { bot, bots, saveBot } from './bots'
+import {
+  bot,
+  bots,
+  ground,
+  memory,
+  noteBotArchived,
+  noteBotSession,
+  releaseBotSession,
+  saveBot,
+} from './bots'
 import { isSlug, slugFor, withoutBot, type Bot } from '../shared/bots'
 import { forks, noteFork } from './forks'
 import { isSessionId, parseForkResult } from '../shared/forks'
@@ -39,6 +48,84 @@ import { printToPdf } from './export'
 import { readThemes, themesDirectory, watchThemes } from './theme'
 import { parseChosenTheme } from '../shared/theme'
 
+/**
+ * Which live session belongs to which bot, for the length of this run.
+ *
+ * A handle is per-process and means nothing on disk, so this is not written down. It exists to
+ * answer one question at the moment the agent answers it: a `turn.done` names a handle and carries
+ * the session's durable id and its compaction count, and this is what turns that into a bot.
+ *
+ * Keyed by handle rather than by bot, because the events arrive keyed that way and because a bot
+ * whose session was closed and reopened is a new handle for the same bot.
+ */
+const botHandles = new Map<string, string>()
+
+/** Why a bot's turn could not be sent, in the shape `bravebot:request` already answers with. */
+interface BotFailure {
+  code: string
+  message: string
+}
+
+/**
+ * Send a turn as a bot, which is the only path that may name a file.
+ *
+ * `turn.send` takes two lists of paths and admits both to the planner as trusted context, so
+ * *where* those paths come from is the whole security story of this feature — a window that could
+ * name one would be a window that could have the planner read anything on the machine. The caller
+ * hands over a bot; it does not hand over a path.
+ *
+ * `grounded` decides how much is attached, and is the only thing about it a window may say.
+ */
+async function sendBotTurn(
+  session: string,
+  held: Bot,
+  prompt: string,
+  grounded: boolean,
+): Promise<{ ok?: unknown; error?: BotFailure }> {
+  if (!bridge) return { error: { code: 'no_bridge', message: 'the agent is not running' } }
+
+  botHandles.set(session, held.slug)
+
+  const params: Record<string, unknown> = { session, prompt }
+  if (grounded) {
+    // Made afresh on the way into every send rather than once when the bot was created. A file a
+    // turn names and cannot read is not a smaller turn, it is a failed one — so a memory deleted
+    // by a `git clean`, or a branch switched to one that never had it, is repaired here instead of
+    // ending the turn inside the agent with a message about a path.
+    const paths = ground(held)
+    if (!paths) {
+      return {
+        error: {
+          code: 'no_checkout',
+          message: `${held.name} works in ${held.directory}, which cannot be written to`,
+        },
+      }
+    }
+    params.dropped = [paths.ground]
+    params.files = [paths.memory]
+  }
+
+  try {
+    return { ok: await bridge.request('turn.send', params) }
+  } catch (error) {
+    if (error instanceof BridgeError) {
+      return { error: { code: error.code, message: error.message } }
+    }
+    return { error: { code: 'internal', message: String(error) } }
+  }
+}
+
+/**
+ * Answer a compaction with a turn asking the bot to bring its memory up to date.
+ *
+ * Sent grounded, which is not an extra cost: the compaction has just made the briefing due, so the
+ * user's next prompt would have carried it anyway. This spends the round trip and the attachment
+ * together, and the window is told so it can stop expecting to send one.
+ *
+ * Everything about this is best-effort. A failure to consolidate is a memory that stays as it was,
+ * which is exactly where it would have stayed had none of this existed — so nothing here surfaces
+ * an error of its own, and the `turn.error` the window is about to receive is the whole report.
+ */
 let window: BrowserWindow | null = null
 let bridge: Bridge | null = null
 let stopWatchingThemes: (() => void) | null = null
@@ -75,6 +162,21 @@ function createWindow(): void {
   window.webContents.on('will-navigate', (event) => event.preventDefault())
 
   bridge = new Bridge((message) => {
+    // Two things a bot needs to remember are only ever said here, and only by the agent: the
+    // durable id of the session behind it — which becomes real on the turn that first writes a
+    // record, not before — and how much compaction has taken out of that session, which is what
+    // decides when its briefing has to be given again.
+    //
+    // Read off the event and never off anything a window asked for, the same promise the recents
+    // list and the fork lineage each make one screen up. The window can ask a bot to speak; it
+    // cannot tell this process what the answer was.
+    if (message.event === 'turn.done' && typeof message.session === 'string') {
+      const slug = botHandles.get(message.session)
+      if (slug) {
+        if (message.data.id) noteBotSession(slug, message.data.id)
+        noteBotArchived(slug, message.data.archived)
+      }
+    }
     window?.webContents.send('bravebot:event', message)
   })
 
@@ -325,11 +427,15 @@ app.whenReady().then(() => {
 
   ipcMain.handle('bravebot:view:write', (_event, value: unknown) => putView(parseView(value)))
 
-  // The bots. A read, a write and a remove, and the interesting one is the write: it accepts four
-  // keys and no more. Those four are a preference somebody typed and cross freely. The rest of the
-  // record — the slug that becomes a path segment, the seed the face is drawn from, and the two
-  // fields that will report what a conversation did — is composed or left alone on this side, and
-  // has no way in from a window.
+  // The bots. More channels than the usual read-and-write pair, and the extra ones are the point
+  // of the arrangement: a bot's turn cannot go through `bravebot:request` above, because a bot
+  // needs `files` and `dropped` on `turn.send` and `sanitised` removes those from anything a
+  // window sends. So the window names a *bot*, and this process — which holds the definitions and
+  // composes every path from a slug it has judged — names the files.
+  //
+  // The split inside `bravebot:bots:write` is the same idea one field down. Four keys are a
+  // preference somebody typed and cross freely; the session id and the compaction watermark are
+  // reports of what the agent did, are taken off its answers above, and have no way in from here.
 
   ipcMain.handle('bravebot:bots:read', () => bots())
 
@@ -374,6 +480,36 @@ app.whenReady().then(() => {
     return held.slug
   })
 
+
+  ipcMain.handle('bravebot:bots:memory', (_event, slug: unknown) => memory(slug))
+
+  // Asked for when the window finds a bot pointing at a session the agent no longer lists. What it
+  // becomes is not the window's to say — see `releaseBotSession`.
+  ipcMain.handle('bravebot:bots:release', (_event, slug: unknown) => releaseBotSession(slug))
+
+  /**
+   * Send a turn as a bot.
+   *
+   * `grounded` is the window's claim that this turn is the one that has to carry the briefing —
+   * the first of a session, or the first since a compaction. It decides how much is attached and
+   * nothing else; it cannot name what is attached, which is the whole reason this channel exists.
+   */
+  ipcMain.handle(
+    'bravebot:bots:send',
+    async (_event, value: unknown): Promise<{ ok?: unknown; error?: BotFailure }> => {
+      if (typeof value !== 'object' || value === null) {
+        return { error: { code: 'bad_request', message: 'not a request' } }
+      }
+      const { session, slug, prompt, grounded } = value as Record<string, unknown>
+      if (!isSessionId(session) || typeof prompt !== 'string') {
+        return { error: { code: 'bad_request', message: 'not a request' } }
+      }
+      const held = bot(slug)
+      if (!held) return { error: { code: 'no_such_bot', message: 'no bot by that name' } }
+
+      return sendBotTurn(session, held, prompt, grounded === true)
+    },
+  )
 
   ipcMain.handle('bravebot:panels:read', () => readState().panels)
 

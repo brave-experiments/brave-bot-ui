@@ -166,10 +166,11 @@ const api = {
   /**
    * Define a bot, or change one that exists.
    *
-   * Four fields cross and no more. The slug is not among them: a name crosses, and the main
-   * process makes the thing that becomes a filename out of it, so a path segment is never a string
-   * that arrived as one. Nor is anything reporting what a conversation did — that is the
-   * arrangement `readForks` above describes, kept for the fields that will need it.
+   * Four fields cross and no more. The id of the session behind a bot and the count of what
+   * compaction has taken from it are both reports of what the *agent* did — the main process takes
+   * them off its answers, the way it takes the fork lineage off one — so there is no way to claim
+   * either from here. Neither is the slug: a name crosses, and the main process makes the thing
+   * that becomes a filename out of it, so a path segment is never a string that arrived as one.
    */
   writeBot(bot: {
     slug?: string
@@ -180,10 +181,49 @@ const api = {
     return ipcRenderer.invoke('bravebot:bots:write', bot) as Promise<Bot | null>
   },
 
-  /** Forget a bot's definition, and nothing else. */
+  /** Forget a bot's definition. Its session and its memory file are left where they are. */
   removeBot(slug: string): Promise<string | null> {
     return ipcRenderer.invoke('bravebot:bots:remove', slug) as Promise<string | null>
   },
+
+  /**
+   * What a bot's memory currently says, or `null` if it has none to read yet.
+   *
+   * The words, never the path — which is what keeps this side of the wall unable to name a file.
+   * The main process knows where a bot's memory lives because it put it there.
+   */
+  readBotMemory(slug: string): Promise<string | null> {
+    return ipcRenderer.invoke('bravebot:bots:memory', slug) as Promise<string | null>
+  },
+
+  /**
+   * Let go of the session behind a bot, for a record the agent no longer has.
+   *
+   * Names a bot and nothing else: what its session becomes is decided over there, and the only
+   * thing it can become is nothing.
+   */
+  releaseBotSession(slug: string): Promise<void> {
+    return ipcRenderer.invoke('bravebot:bots:release', slug) as Promise<void>
+  },
+
+  /**
+   * Send a turn as a bot.
+   *
+   * Separate from `request` above because a bot's turn carries files, and `turn.send` through that
+   * channel has its file lists removed — a window that could name a file to read would be a window
+   * that could have the planner read any file on the machine. So this names a *bot* and a moment:
+   * `grounded` says whether this is the turn that has to carry the briefing, and the main process
+   * decides what that means and which paths it is made of.
+   */
+  sendBotTurn(request: {
+    session: string
+    slug: string
+    prompt: string
+    grounded: boolean
+  }): Promise<Answer<{ turn: number }>> {
+    return ipcRenderer.invoke('bravebot:bots:send', request) as Promise<Answer<{ turn: number }>>
+  },
+
 
   /**
    * One directory of the folder a session is working in, or `null` for anything it may not see.

@@ -2,9 +2,10 @@
  * The other list in the left column: the bots somebody has defined.
  *
  * A session is a conversation and is named after whatever was asked first. A bot is somebody who
- * has one — a name, a purpose and one checkout — so the list here is a list of *people* where the
- * one next door is a list of *occasions*. That is the whole reason it is a separate tab rather
- * than a filter over the same rows.
+ * has one — a name, a purpose, a memory, and one checkout — and the session behind it is resumed
+ * rather than begun again, so the list here is a list of *people* where the one next door is a
+ * list of *occasions*. That is the whole reason it is a separate tab rather than a filter over the
+ * same rows.
  *
  * What a row shows is what tells two bots apart when there are eight of them: the face, the name,
  * and the checkout it works in. Not the last thing it said, which is the session list's business,
@@ -15,17 +16,20 @@
  * something that takes one sentence to say.
  */
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { Bot } from '../../shared/bots'
 import { BotAvatar } from './BotAvatar'
 
 interface Props {
   bots: Bot[]
+  /** The slug of the bot whose session is on screen, if one is. */
+  openSlug: string | null
+  onOpen: (bot: Bot) => void
   onSave: (bot: { slug?: string; name: string; purpose: string; directory: string }) => void
   onRemove: (slug: string) => void
 }
 
-export function Bots({ bots, onSave, onRemove }: Props): React.JSX.Element {
+export function Bots({ bots, openSlug, onOpen, onSave, onRemove }: Props): React.JSX.Element {
   // Which bot's form is open, by slug, or `'new'` for one that does not exist yet. Local, and for
   // the reason the session filter is: nothing outside this list reads it, and a form half filled
   // in is not a preference anybody wants remembered.
@@ -47,7 +51,8 @@ export function Bots({ bots, onSave, onRemove }: Props): React.JSX.Element {
       <div className="session-list">
         {bots.length === 0 && editing !== 'new' && (
           <p className="empty">
-            No bots yet. A bot is a name, a purpose and one checkout it works in.
+            No bots yet. A bot is a name, a purpose and a memory, working in one checkout — and one
+            session that is resumed rather than started again.
           </p>
         )}
 
@@ -77,7 +82,13 @@ export function Bots({ bots, onSave, onRemove }: Props): React.JSX.Element {
               }}
             />
           ) : (
-            <BotRow key={bot.slug} bot={bot} onEdit={() => setEditing(bot.slug)} />
+            <BotRow
+              key={bot.slug}
+              bot={bot}
+              open={bot.slug === openSlug}
+              onOpen={onOpen}
+              onEdit={() => setEditing(bot.slug)}
+            />
           ),
         )}
       </div>
@@ -89,14 +100,24 @@ export function Bots({ bots, onSave, onRemove }: Props): React.JSX.Element {
  * One bot.
  *
  * Two buttons rather than a row with a control inside it, for the reason the session group heading
- * gives about its own plus: a button cannot be nested in a button, and the bigger of the two — the
- * row itself — is the one that gets the space. What pressing it does is nothing yet.
+ * gives about its own plus: a button cannot be nested in a button, and the bigger of the two —
+ * opening the bot — is the one that gets the whole row.
  */
-function BotRow({ bot, onEdit }: { bot: Bot; onEdit: () => void }): React.JSX.Element {
+function BotRow({
+  bot,
+  open,
+  onOpen,
+  onEdit,
+}: {
+  bot: Bot
+  open: boolean
+  onOpen: (bot: Bot) => void
+  onEdit: () => void
+}): React.JSX.Element {
   const where = bot.directory.split('/').pop() ?? bot.directory
   return (
-    <div className="bot">
-      <button className="bot-open-button" disabled>
+    <div className={`bot${open ? ' bot-open' : ''}`}>
+      <button className="bot-open-button" onClick={() => onOpen(bot)}>
         <BotAvatar seed={bot.avatar} />
         <span className="bot-said">
           <span className="bot-name">{bot.name}</span>
@@ -104,7 +125,7 @@ function BotRow({ bot, onEdit }: { bot: Bot; onEdit: () => void }): React.JSX.El
               tooltip rule here allows, which is text the layout took away. */}
           <span className="bot-where" title={bot.directory}>
             {where}
-            {' · not spoken to yet'}
+            {bot.session === null && ' · not spoken to yet'}
           </span>
         </span>
       </button>
@@ -142,6 +163,17 @@ function BotForm({
   const [name, setName] = useState(bot?.name ?? '')
   const [purpose, setPurpose] = useState(bot?.purpose ?? '')
   const [directory, setDirectory] = useState(bot?.directory ?? '')
+  const [memory, setMemory] = useState<string | null>(null)
+
+  // What the bot has remembered, read when the form opens rather than held in the list: it is a
+  // file on disk that the bot itself edits, so the copy worth showing is the one there now.
+  useEffect(() => {
+    if (!bot) return
+    void window.bravebot
+      .readBotMemory(bot.slug)
+      .then(setMemory)
+      .catch(() => undefined)
+  }, [bot])
 
   const choose = useCallback(async () => {
     // The same native picker the session list uses, and the same promise: this side never composes
@@ -194,6 +226,22 @@ function BotForm({
           </button>
         )}
       </div>
+
+      {/* Said before the folder is picked rather than after, because it is the one consequence of
+          making a bot that touches something the person owns. */}
+      {!bot && (
+        <p className="bot-note">
+          A <code>.bravebot-ui</code> folder will appear in the checkout, holding this bot’s memory.
+          It ignores itself, so it will not show up as a change.
+        </p>
+      )}
+
+      {bot && (
+        <div className="bot-field">
+          <span>Memory</span>
+          <pre className="bot-memory">{memory ?? 'Nothing remembered yet.'}</pre>
+        </div>
+      )}
 
       <div className="bot-actions">
         {onRemove && (

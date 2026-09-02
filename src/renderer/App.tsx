@@ -10,7 +10,6 @@ import type {
   TodoRow,
 } from '../shared/protocol'
 import { Sidebar } from './components/Sidebar'
-import type { Bot } from '../shared/bots'
 import { Transcript } from './components/Transcript'
 import { Context } from './components/Context'
 import { Gutter, useColumns } from './components/Gutter'
@@ -20,7 +19,8 @@ import { Unconfigured } from './components/Unconfigured'
 import { Notice } from './components/Notice'
 import type { ExportFormat } from '../shared/export'
 import { useCommandRouter, usePublishedState } from './commands'
-import { type Fork, forkOf, forkedSessions } from '../shared/forks'
+import { type Fork, forkOf, forkedSessions, keyOf } from '../shared/forks'
+import { botSessions, type Bot } from '../shared/bots'
 import * as t from './transcript'
 import { ThemePicker } from './components/ThemePicker'
 import { applyTheme, watchAppearance } from './theme'
@@ -66,6 +66,25 @@ interface Live {
    * that two sessions can both mean.
    */
   focus: number | null
+  /**
+   * The bot whose session this is, and whether it still knows it is one.
+   *
+   * `null` for an ordinary session. For a bot's, `grounded` says whether the conversation
+   * currently carries its briefing: false when the session has just been opened, and false again
+   * once compaction has taken the briefing out of it. The next prompt sent while it is false
+   * carries the briefing with it, which is the whole of what makes a bot persist.
+   */
+  bot: { slug: string; grounded: boolean } | null
+  /**
+   * How many messages compaction has taken out of this conversation, as of the last thing heard
+   * about it.
+   *
+   * Watched rather than the `compacting` phase, which is emitted before compaction is attempted
+   * and so also fires when there was nothing worth compacting — and then on every round of a
+   * conversation that is over budget and cannot get under it. This only rises, and it rises
+   * exactly once per compaction that actually happened.
+   */
+  archived: number
 }
 
 /**
@@ -127,9 +146,27 @@ async function call<T>(method: string, params?: Record<string, unknown>): Promis
   return answer.ok as T
 }
 
+/**
+ * Send a turn as a bot.
+ *
+ * The same failure handling as [`call`], over a different channel — and a different channel
+ * because this is the one kind of turn that carries files. See `bravebot:bots:send`.
+ */
+async function callBot(request: {
+  session: string
+  slug: string
+  prompt: string
+  grounded: boolean
+}): Promise<void> {
+  const answer = await window.bravebot.sendBotTurn(request)
+  if (answer.error) {
+    if (answer.error.code === 'config') throw new Unconfigurable(answer.error.message)
+    throw new Error(`${answer.error.code}: ${answer.error.message}`)
+  }
+}
+
 export function App(): React.JSX.Element {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
-  const [bots, setBots] = useState<Bot[]>([])
   const [live, setLive] = useState<Live | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [build, setBuild] = useState<string | null>(null)
@@ -150,6 +187,7 @@ export function App(): React.JSX.Element {
   const [includeTools, setIncludeTools] = useState(false)
 
   const [forks, setForks] = useState<Fork[]>([])
+  const [bots, setBots] = useState<Bot[]>([])
 
   /**
    * What this window is painted in, and whether the picker is open.
@@ -177,6 +215,11 @@ export function App(): React.JSX.Element {
   const handleRef = useRef<string | null>(null)
   handleRef.current = live?.handle ?? null
 
+  // The whole of what is on screen, for the same reason: `send` is installed once and has to know
+  // whether this session belongs to a bot and whether it still carries its briefing.
+  const liveRef = useRef<Live | null>(live)
+  liveRef.current = live
+
   // Read inside `open`, which is installed once for the same reason. The list lives in the
   // main process; this is the copy on screen, refreshed when it can have changed.
   const forksRef = useRef<Fork[]>(forks)
@@ -190,6 +233,22 @@ export function App(): React.JSX.Element {
   const readForks = useCallback(async () => {
     setForks(await window.bravebot.readForks().catch(() => []))
   }, [])
+
+  /**
+   * Read the bot list again.
+   *
+   * The main process owns it, and writes to it that this window did not make: a bot's session id
+   * and its compaction watermark are taken off what the agent answered. So this is asked for after
+   * a turn as well as after an edit — the copy on screen is a copy.
+   */
+  const readBots = useCallback(async () => {
+    setBots(await window.bravebot.readBots().catch(() => []))
+  }, [])
+
+  // Read inside the event listener and inside `send`, both installed once and neither able to
+  // close over a list that changes under them.
+  const botsRef = useRef<Bot[]>(bots)
+  botsRef.current = bots
 
   /**
    * The theme in force, kept as a ref so that the appearance watcher below has the current one
@@ -266,10 +325,6 @@ export function App(): React.JSX.Element {
     }
   }, [])
 
-  const readBots = useCallback(async () => {
-    setBots(await window.bravebot.readBots().catch(() => []))
-  }, [])
-
   useEffect(() => {
     void refresh()
     void readForks()
@@ -280,7 +335,12 @@ export function App(): React.JSX.Element {
       // looking at would grow without bound.
       if (message.event !== 'agent.ready' && message.session !== handleRef.current) return
       apply(message, setLive, setBuild, refresh)
+      // The list holds two things this window did not write — the session behind a bot and how
+      // much compaction has taken from it — and a turn is when either can have changed. Read back
+      // rather than assumed, since the main process is the one that saw the agent's answer.
+      if (message.event === 'turn.done') void readBots()
     })
+
     return stop
   }, [refresh, readForks, readBots])
 
@@ -294,7 +354,8 @@ export function App(): React.JSX.Element {
    * reads — to a scanner, and to anybody who does not know this file — as opening a browser
    * tab. A name that has to be recognised before it can be understood is the wrong name.
    */
-  const showSession = useCallback(async (summary: SessionSummary, focus?: number) => {
+  const showSession = useCallback(
+    async (summary: SessionSummary, focus?: number, bot?: { slug: string }) => {
     try {
       // Let go of the one being left first. The app shows a single session and already
       // drops events for any other (see the listener below), so a turn left running behind
@@ -331,6 +392,12 @@ export function App(): React.JSX.Element {
         // entirely, and the file the main process keeps is where that is written down.
         forkedFrom: cameFrom(forksRef.current, summary.directory, summary.id, sessionsRef.current),
         focus: focus ?? null,
+        // Ungrounded on purpose, even though this session has said the briefing before. What was
+        // said before is in the conversation only until compaction takes it, and a resumed session
+        // is exactly the case where nothing on screen can tell whether that has happened. One
+        // extra reading of a short file is cheaper than a bot that has quietly forgotten itself.
+        bot: bot ? { slug: bot.slug, grounded: false } : null,
+        archived: opened.archived,
       })
       setDraft('')
       const notes = [opened.branchNote, opened.buildNote].filter(Boolean) as string[]
@@ -338,9 +405,11 @@ export function App(): React.JSX.Element {
     } catch (error) {
       setProblem(String(error))
     }
-  }, [])
+    },
+    [],
+  )
 
-  const create = useCallback(async (directory?: string) => {
+  const create = useCallback(async (directory?: string, bot?: { slug: string }) => {
     // A directory only ever arrives here from a list somebody else handed over: File > Open
     // Recent and the chevron beside New session, which the main process keeps, or a group
     // heading in the session list, whose path came off a session the bridge reported. Never
@@ -370,6 +439,8 @@ export function App(): React.JSX.Element {
         askingTrust: chosen,
         forkedFrom: null,
         focus: null,
+        bot: bot ? { slug: bot.slug, grounded: false } : null,
+        archived: 0,
       })
       setProblem(null)
     } catch (error) {
@@ -391,11 +462,30 @@ export function App(): React.JSX.Element {
   const send = useCallback(async (prompt: string) => {
     const handle = handleRef.current
     if (!handle) return
+    // Read before the state below is changed, because that is what clears it: this is the turn
+    // that carries the briefing, and by the time it has been sent the session is grounded again.
+    const bot = liveRef.current?.bot ?? null
     setLive((old) =>
-      old ? { ...old, entries: [...old.entries, t.userSaid(prompt)], running: true } : old,
+      old
+        ? {
+            ...old,
+            entries: [...old.entries, t.userSaid(prompt)],
+            running: true,
+            bot: old.bot ? { ...old.bot, grounded: true } : null,
+          }
+        : old,
     )
     try {
-      await call('turn.send', { session: handle, prompt })
+      if (bot) {
+        // A bot's turn never goes through `call`. It needs files attached, and the main process
+        // strips those from anything a window sends — a window that could name a file to read
+        // would be a window that could have the planner read any file on the machine. So this
+        // names the bot and says whether the briefing is due, and the paths are composed over
+        // there from a definition this side cannot reach.
+        await callBot({ session: handle, slug: bot.slug, prompt, grounded: !bot.grounded })
+      } else {
+        await call('turn.send', { session: handle, prompt })
+      }
     } catch (error) {
       if (error instanceof Unconfigurable) {
         setUnconfigured(error.message)
@@ -403,7 +493,16 @@ export function App(): React.JSX.Element {
         return
       }
       setLive((old) =>
-        old ? { ...old, entries: [...old.entries, t.errored(String(error))], running: false } : old,
+        old
+          ? {
+              ...old,
+              entries: [...old.entries, t.errored(String(error))],
+              running: false,
+              // Put back. Nothing was sent, so nothing was said — a briefing marked delivered by a
+              // turn that failed would be one the bot never received.
+              bot: old.bot ? { ...old.bot, grounded: bot?.grounded ?? false } : null,
+            }
+          : old,
       )
     }
   }, [])
@@ -468,6 +567,84 @@ export function App(): React.JSX.Element {
   const { widths, collapsed, dragging, folding, start, reset, nudge, toggle } = useColumns()
 
   /** Which sessions in the list came out of another one, for the mark beside their names. */
+  const forked = useMemo(() => forkedSessions(forks), [forks])
+
+  /**
+   * The session list without the ones that belong to a bot.
+   *
+   * They have a tab of their own, and a session reachable from both would be one that could be
+   * opened twice — once as itself and once as its bot, each half of the window believing it had
+   * the conversation. A bot's session is also not a session anybody chose: it was made by opening
+   * the bot, and it is named after whatever was said to it first, which says nothing about whose
+   * it is.
+   */
+  const ownSessions = useMemo(() => {
+    const theirs = botSessions(bots)
+    return sessions.filter((session) => !theirs.has(keyOf(session.directory, session.id)))
+  }, [sessions, bots])
+
+  /**
+   * Show a bot.
+   *
+   * Two paths, and which one is taken says whether the bot has ever spoken. One that has is
+   * resumed — the same session, every time, which is the whole of what makes it persistent. One
+   * that has not has no session to resume: the agent writes no record until a first turn, so
+   * there is nothing on disk to open and a fresh one is begun in its checkout instead. Its
+   * durable id is learned when the turn that creates it finishes, by the main process, off what
+   * the agent answered.
+   */
+  /** The bot whose session is on screen, if one is — for the header, which names it. */
+  const openBotRecord = useMemo(
+    () => (live?.bot ? (bots.find((each) => each.slug === live.bot?.slug) ?? null) : null),
+    [live?.bot, bots],
+  )
+
+  const openBot = useCallback(
+    async (bot: Bot) => {
+      if (bot.session === null) {
+        await create(bot.directory, { slug: bot.slug })
+        return
+      }
+      // The agent's own list is what says whether the record is still there. A session deleted
+      // from `~/.bravebot` — or a checkout that has moved, which makes it a session in a
+      // directory nothing is looking in — would otherwise be a `no_such_session` reported as a
+      // code, when what happened is worth a sentence.
+      const record = sessions.find(
+        (each) => each.directory === bot.directory && each.id === bot.session,
+      )
+      if (!record) {
+        setProblem(
+          `${bot.name} had a session in ${bot.directory} that is no longer there. ` +
+            'Sending it a prompt will begin a new one.',
+        )
+        // Let go of the dead id before beginning, or the bot would keep it: the main process
+        // records the id of a first turn only for a bot that has none.
+        await window.bravebot.releaseBotSession(bot.slug).catch(() => undefined)
+        await readBots()
+        await create(bot.directory, { slug: bot.slug })
+        return
+      }
+      try {
+        await showSession(
+          {
+            id: bot.session,
+            directory: bot.directory,
+            project: bot.directory.split('/').pop() ?? bot.directory,
+            branch: null,
+            title: bot.name,
+            updated: bot.updated,
+            bytes: 0,
+          },
+          undefined,
+          { slug: bot.slug },
+        )
+      } catch (error) {
+        setProblem(String(error))
+      }
+    },
+    [create, showSession, sessions, readBots],
+  )
+
   const saveBot = useCallback(
     async (bot: { slug?: string; name: string; purpose: string; directory: string }) => {
       await window.bravebot.writeBot(bot).catch(() => null)
@@ -483,8 +660,6 @@ export function App(): React.JSX.Element {
     },
     [readBots],
   )
-
-  const forked = useMemo(() => forkedSessions(forks), [forks])
 
   /** Send whatever is in the composer, on the same terms the Send button uses. */
   const submit = useCallback(() => {
@@ -656,7 +831,15 @@ export function App(): React.JSX.Element {
       // Only a prompt. The menu offers this on nothing else, but the id arrives from outside
       // this component and a check here is cheaper than trusting the round trip.
       if (!entry || entry.kind !== 'user') return
-      const prompt = entries.slice(0, at).filter((before) => before.kind === 'user').length
+      // Counted over what the *conversation* holds rather than over what this column drew, and the
+      // two are not the same list: a file somebody named is a user message upstream, and is drawn
+      // here as an attachment line instead of as a prompt. The agent resolves this ordinal against
+      // its own messages and checks the text against it, so counting only the bubbles would put
+      // every fork in a session with an attachment one or more places out — refused rather than
+      // taken in the wrong place, which is the right failure and still a broken feature.
+      const prompt = entries
+        .slice(0, at)
+        .filter((before) => before.kind === 'user' || before.kind === 'attached').length
 
       try {
         const forked = await call<ForkedSession>('session.fork', {
@@ -688,7 +871,16 @@ export function App(): React.JSX.Element {
           tokens: 0,
           running: false,
           askingTrust: forked.trust.known ? null : forked.directory,
-          forkedFrom: {
+          // A fork is a session and not a bot, even when it was cut out of a bot's. A bot is one
+        // conversation resumed forever; a second one carrying its name would be a second bot
+        // wearing it, with the same memory file and no way to tell them apart in the list.
+        bot: null,
+        // A child begins with the archive its parent had at the cut, which the fork answer does
+        // not carry. Zero is the safe way to be wrong: it can only ask for a briefing that is not
+        // needed, where too high a figure would miss the one that is — and a fork is not a bot, so
+        // in this build it asks for nothing at all.
+        archived: 0,
+        forkedFrom: {
             directory: forked.parent.directory,
             id: forked.parent.id,
             title: forked.parent.title ?? live.summary.title,
@@ -797,12 +989,14 @@ export function App(): React.JSX.Element {
       }
     >
       <Sidebar
-        sessions={sessions}
+        sessions={ownSessions}
         openId={live?.summary.id ?? undefined}
         forked={forked}
         onOpen={showSession}
         onNew={create}
         bots={bots}
+        openSlug={live?.bot?.slug ?? null}
+        onOpenBot={openBot}
         onSaveBot={saveBot}
         onRemoveBot={removeBot}
         build={build}
@@ -817,6 +1011,7 @@ export function App(): React.JSX.Element {
         onNudge={nudge}
       />
       <Transcript
+        bot={openBotRecord}
         live={live}
         pending={pending}
         problem={problem}
@@ -923,11 +1118,17 @@ function apply(
         return { ...old, entries: [...old.entries, t.askedQuestions(message.data)] }
       case 'turn.done': {
         refresh()
+        // A rise means compaction summarised part of this conversation away, and what it takes it
+        // takes from the front — so a briefing put at the top of the session is the first thing
+        // gone. Saying the bot is no longer grounded is what makes the next prompt carry it again.
+        const compacted = message.data.archived > old.archived
         return {
           ...old,
           running: false,
           phase: null,
           entries: [...old.entries, t.replied(message.data.reply)],
+          archived: message.data.archived,
+          bot: old.bot && compacted ? { ...old.bot, grounded: false } : old.bot,
         }
       }
       case 'turn.error': {

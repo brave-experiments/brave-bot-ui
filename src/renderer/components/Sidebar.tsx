@@ -1,5 +1,5 @@
 /**
- * The left column, the choice of which list is in it, and what it remembers about both.
+ * The left column, and the choice of which list is in it.
  *
  * There are two: the sessions, which is every conversation the agent has a record of, and the
  * bots, which is the people who have one. They are separate tabs rather than one list with a mark
@@ -10,20 +10,17 @@
  *
  * Switching tabs hides a list with `display: none` rather than unmounting it, which is the rule
  * the context panels already follow and for the same reason: a filter somebody typed, a group they
- * folded, a row they scrolled to are all things that should survive looking at something else for
- * a moment. A column that forgot them would make the tabs cost something to press.
+ * folded, a form they were half way through are all things that should survive looking at
+ * something else for a moment. A column that forgot them would make the tabs cost something to
+ * press.
  *
  * ## Why what is remembered lives here
  *
- * The grouping and the folds were the session list's own, since nothing else read them and the
- * convention in this window is that state lives where it is used. This lifts them one level, and
- * the reason is not that anything else reads them today — it is that they are written to *disk*,
- * under a single key, and a key with more than one writer is a race waiting for a second one to
- * arrive. One component reading and writing the whole of `view` is one write.
- *
- * That leaves `Sessions` holding only what is nobody else's business — the search box, the row it
- * has scrolled to — which is the line this draws: what survives a relaunch is the column's, and
- * what lasts as long as looking at it is the list's.
+ * The grouping and the folds used to be the session list's own, since nothing else read them. Two
+ * lists sharing one file changes that: `view.json`'s key now holds which tab as well, and one
+ * component reading and writing all of it is one write. Two components each writing their half of
+ * the same key would race on every launch, which is the failure the `ready` ref below exists to
+ * prevent within a single one.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -40,6 +37,8 @@ interface Props {
   onOpen: (summary: SessionSummary) => void
   onNew: (directory?: string) => void
   bots: Bot[]
+  openSlug: string | null
+  onOpenBot: (bot: Bot) => void
   onSaveBot: (bot: { slug?: string; name: string; purpose: string; directory: string }) => void
   onRemoveBot: (slug: string) => void
   build: string | null
@@ -52,6 +51,8 @@ export function Sidebar({
   onOpen,
   onNew,
   bots,
+  openSlug,
+  onOpenBot,
   onSaveBot,
   onRemoveBot,
   build,
@@ -63,9 +64,9 @@ export function Sidebar({
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
 
   // The stored value arrives asynchronously and so cannot seed `useState` — the same dance
-  // `columns.ts` documents — which is why the column renders flat for a frame before adopting
-  // whatever was left. `ready` keeps that first frame from writing the default back over what is
-  // on disk.
+  // `columns.ts` documents — which is why the column renders on the sessions tab for a frame
+  // before adopting whichever was left. `ready` keeps that first frame from writing the default
+  // back over what is on disk.
   const ready = useRef(false)
   useEffect(() => {
     void window.bravebot
@@ -109,20 +110,26 @@ export function Sidebar({
 
       <div className="sidebar-body" hidden={tab !== 'sessions'}>
         <Sessions
-        sessions={sessions}
-        openId={openId}
-        forked={forked}
-        onOpen={onOpen}
-        onNew={onNew}
-        grouped={grouped}
-        onGroup={setGrouped}
-        collapsed={collapsed}
-        onCollapse={setCollapsed}
+          sessions={sessions}
+          openId={openId}
+          forked={forked}
+          onOpen={onOpen}
+          onNew={onNew}
+          grouped={grouped}
+          onGroup={setGrouped}
+          collapsed={collapsed}
+          onCollapse={setCollapsed}
         />
       </div>
 
       <div className="sidebar-body" hidden={tab !== 'bots'}>
-        <Bots bots={bots} onSave={onSaveBot} onRemove={onRemoveBot} />
+        <Bots
+          bots={bots}
+          openSlug={openSlug}
+          onOpen={onOpenBot}
+          onSave={onSaveBot}
+          onRemove={onRemoveBot}
+        />
       </div>
 
       {build && (

@@ -26,5 +26,8 @@ export const SCENES = [
   '09-export',
   '10-commands',
   '11-bots',
+  // `live: true` — filmed only with --live, and only after `11-bots`, which makes the bot this
+  // one opens.
+  '12-bot-memory',
   '99-close',
 ]

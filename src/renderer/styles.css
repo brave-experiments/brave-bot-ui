@@ -1681,6 +1681,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .theme-aside { margin: 6px 0 0; font-size: 11px; color: var(--ink-faint); }
 .theme-aside code { font-family: var(--mono); font-size: 10px; }
 
+
 /* ------------------------------------------------------------------ bots
 
    A bot is a name, a purpose, a memory and a checkout. What a row shows is what tells two of them
@@ -1795,6 +1796,20 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* What the bot has written about itself. Read-only here on purpose: it is the bot's own file, and
    the transcript is where its changes are read — a box that could be typed over would make this a
    second, quieter way to edit it that nothing records. */
+.bot-memory {
+  max-height: 160px;
+  overflow: auto;
+  margin: 0;
+  padding: 8px;
+  border-radius: 7px;
+  background: var(--code-bg);
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
 .bot-actions { display: flex; align-items: center; gap: 6px; }
 .bot-spacer { flex: 1; }
 .bot-actions button {
@@ -1813,3 +1828,16 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 /* A file put in front of the planner because somebody named it. The same quiet register the tool
    lines are in, because that is what it is: something that happened on the way to a reply. */
+.attached {
+  margin: 8px 2px;
+  color: var(--ink-faint);
+  font-size: 11px;
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A bot's name stands where a session's title does, with its face beside it. Aligned as a row so
+   the mark sits on the word rather than above it. */
+.transcript-head h1 { display: flex; align-items: center; gap: 7px; }
