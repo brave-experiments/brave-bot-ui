@@ -21,6 +21,7 @@ import type { ExportFormat } from '../shared/export'
 import { useCommandRouter, usePublishedState } from './commands'
 import { type Fork, forkOf, forkedSessions, keyOf } from '../shared/forks'
 import { botSessions, type Bot } from '../shared/bots'
+import type { Doing } from './components/BotAvatar'
 import * as t from './transcript'
 import { ThemePicker } from './components/ThemePicker'
 import { applyTheme, watchAppearance } from './theme'
@@ -627,6 +628,18 @@ export function App(): React.JSX.Element {
     [live?.bot, bots],
   )
 
+  /**
+   * What the open bot's face should be doing — for the header, and for its row in the list, which
+   * mirrors it. Working while a turn runs; `failed` if the last thing the transcript got was an
+   * error, which is what a `turn.error` leaves at the end of it; otherwise looking at the reader.
+   * The turn's completion is not a state of its own — the face nods on leaving `working`.
+   */
+  const openDoing: Doing = live?.running
+    ? 'working'
+    : live?.entries.at(-1)?.kind === 'error'
+      ? 'failed'
+      : 'open'
+
   const openBot = useCallback(
     async (bot: Bot) => {
       if (bot.session === null) {
@@ -1024,6 +1037,7 @@ export function App(): React.JSX.Element {
         onNew={create}
         bots={bots}
         openSlug={live?.bot?.slug ?? null}
+        openDoing={openDoing}
         onOpenBot={openBot}
         onSaveBot={saveBot}
         onRemoveBot={removeBot}
@@ -1040,6 +1054,7 @@ export function App(): React.JSX.Element {
       />
       <Transcript
         bot={openBotRecord}
+        doing={openDoing}
         live={live}
         pending={pending}
         problem={problem}

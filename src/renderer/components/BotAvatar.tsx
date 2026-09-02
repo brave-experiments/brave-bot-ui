@@ -13,7 +13,10 @@
  *
  * WebGL can be unavailable: software rendering, a driver that will not start, a machine with the
  * GPU process off. A list of bots with no faces in it is a worse list but still a list, so where
- * there is no renderer this draws the flat mark it used to — a mirrored grid from the same seed.
+ * there is no renderer this draws the same face flat — the head, the body, the two eyes and their
+ * catchlights, in the same shades, from the same seed. It used to be a mirrored grid, which was a
+ * mark rather than a face and a different visual language from the figure it stood in for; a bot
+ * seen on two machines should look like the same bot, allowing for one of them being a drawing.
  * Nothing about a bot depends on the picture, and a column that failed to render its rows because
  * of a driver would be the tail wagging the dog.
  *
@@ -27,24 +30,41 @@
  */
 
 import { useEffect, useRef } from 'react'
-import { available, show } from '../avatar/stage'
-import { paintsOf, signature } from '../avatar/figure'
+import { available, show, tell, type Doing } from '../avatar/stage'
+import { paintsOf, signature, traitsOf, type Traits } from '../avatar/figure'
+
+export type { Doing }
 
 interface Props {
   /** The bot's stored seed. Anything goes; this only ever hashes it. */
   seed: string
   /** The side of the square, in CSS pixels. */
   size?: number
+  /**
+   * What the bot is doing, which decides its posture — see `Doing` in `../avatar/stage`. Defaults
+   * to looking idly about, which is right for a row in a list that is not the one on screen.
+   */
+  doing?: Doing
 }
 
-export function BotAvatar({ seed, size = 38 }: Props): React.JSX.Element {
+export function BotAvatar({ seed, size = 38, doing = 'idle' }: Props): React.JSX.Element {
   const canvas = useRef<HTMLCanvasElement>(null)
+  // The state at mount goes in with the figure, so a bot that is already working when its row
+  // appears takes up the posture rather than blending into it from idle. Changes after that are
+  // told to the stage, which blends them. A ref rather than a dependency: a state change must not
+  // rebuild the figure, since rebuilding it would restart its turn.
+  const current = useRef(doing)
+  current.current = doing
 
   useEffect(() => {
     const element = canvas.current
     if (!element) return
-    return show(element, seed)
+    return show(element, seed, current.current)
   }, [seed])
+
+  useEffect(() => {
+    if (canvas.current) tell(canvas.current, doing)
+  }, [doing])
 
   if (!available()) return <FlatAvatar seed={seed} size={size} />
 
@@ -64,68 +84,77 @@ export function BotAvatar({ seed, size = 38 }: Props): React.JSX.Element {
   )
 }
 
-/** How many cells across the flat mark is. Odd, so the mirrored grid has a spine rather than a seam. */
-const GRID = 5
-const HALF = Math.ceil(GRID / 2)
+/** The head's half-widths, by trait, in a 100-unit square. The same proportions as the figure's. */
+const HEADS: Record<Traits['head'], { rx: number; ry: number }> = {
+  round: { rx: 30, ry: 29 },
+  squat: { rx: 33, ry: 25 },
+  tall: { rx: 27, ry: 33 },
+  boxy: { rx: 32, ry: 27 },
+}
 
 /**
- * The flat mark, for a machine that cannot draw the other one.
+ * The flat face, for a machine that cannot draw the other one.
  *
- * Painted in the same colour the figure would have been, in its three shades, so a bot is at least
- * recognisably *that* bot on a machine with no WebGL — the form is gone, but the colour is half of
- * what tells one from another and it costs nothing to keep.
+ * The same figure drawn as a picture rather than a model: the head in the colour itself, the body
+ * in the deep shade under it, the small pieces in the pale one, two dark eyes low on the face with a
+ * catchlight each, and the same drawn edge around everything. Read straight from the traits, so it
+ * is recognisably the bot the figure would have been — the same head shape, the same thing on top,
+ * the same set of the eyes — rather than a different mark in the same colour.
  */
 function FlatAvatar({ seed, size }: { seed: string; size: number }): React.JSX.Element {
-  let state = 0x811c9dc5
-  for (let at = 0; at < seed.length; at++) {
-    state ^= seed.charCodeAt(at)
-    state = Math.imul(state, 0x01000193)
-  }
-  state = state >>> 0 || 1
-  const next = (): number => {
-    state ^= state << 13
-    state ^= state >>> 17
-    state ^= state << 5
-    return (state >>> 0) / 0x100000000
-  }
-
-  const cells: { x: number; y: number; opacity: number }[] = []
-  for (let x = 0; x < HALF; x++) {
-    const spine = x === HALF - 1 && GRID % 2 === 1
-    for (let y = 0; y < GRID; y++) {
-      if (next() > (spine ? 0.78 : 0.44)) continue
-      const opacity = next() < 0.7 ? 1 : 0.5
-      cells.push({ x, y, opacity })
-      const mirror = GRID - 1 - x
-      if (mirror !== x) cells.push({ x: mirror, y, opacity })
-    }
-  }
-
+  const traits = traitsOf(seed)
   const paints = paintsOf(seed)
+  const head = HEADS[traits.head]
+  const cx = 50
+  const cy = 46
+  const top = cy - head.ry
+  // The eyes, low and wide-set as on the figure; `big` is bigger rather than further apart.
+  const spread = traits.eyes === 'wide' ? 15 : traits.eyes === 'close' ? 10 : 12.5
+  const eye = traits.eyes === 'big' ? 6.5 : 5.5
+  const edge = { stroke: paints.edge, strokeWidth: 3, strokeLinejoin: 'round' as const }
+
   return (
     <svg
       className="bot-avatar"
       width={size}
       height={size}
-      viewBox={`0 0 ${GRID} ${GRID}`}
+      viewBox="0 0 100 100"
       data-avatar={signature(seed)}
       aria-hidden="true"
       focusable="false"
     >
-      {cells.map((cell) => (
-        <rect
-          key={`${cell.x}-${cell.y}`}
-          className="bot-avatar-cell"
-          x={cell.x}
-          y={cell.y}
-          width="1"
-          height="1"
-          // The spine in the colour itself and the sides in its two other shades, which is the flat
-          // echo of a figure painted in one hue and separated by shade.
-          fill={cell.x === HALF - 1 ? paints.base : cell.opacity === 1 ? paints.deep : paints.pale}
-          // The shade carries the difference now, so the cells are all drawn solid.
-          opacity={1}
-        />
+      {/* The body, first so the head sits over it. Cropped by the chip at the bottom, like the figure. */}
+      <rect x={30} y={cy + head.ry - 8} width={40} height={40} rx={12} fill={paints.deep} {...edge} />
+      {traits.collar && (
+        <rect x={34} y={cy + head.ry - 6} width={32} height={7} rx={3.5} fill={paints.pale} {...edge} />
+      )}
+      {traits.ears &&
+        [-1, 1].map((side) => (
+          <ellipse key={side} cx={cx + side * head.rx} cy={cy} rx={5} ry={7} fill={paints.pale} {...edge} />
+        ))}
+      {/* The head. An ellipse for the three round ones and a rounded rect for the boxy one. */}
+      {traits.head === 'boxy' ? (
+        <rect x={cx - head.rx} y={top} width={head.rx * 2} height={head.ry * 2} rx={16} fill={paints.base} {...edge} />
+      ) : (
+        <ellipse cx={cx} cy={cy} rx={head.rx} ry={head.ry} fill={paints.base} {...edge} />
+      )}
+      {traits.crown === 'bobble' && <ellipse cx={cx} cy={top} rx={9} ry={7.5} fill={paints.pale} {...edge} />}
+      {traits.crown === 'antenna' && (
+        <>
+          <rect x={cx - 1.5} y={top - 9} width={3} height={10} fill={paints.pale} {...edge} />
+          <circle cx={cx} cy={top - 10} r={4.5} fill={paints.pale} {...edge} />
+        </>
+      )}
+      {traits.crown === 'tuft' &&
+        [-1, 0, 1].map((side) => (
+          <circle key={side} cx={cx + side * 8} cy={top + (side === 0 ? -3 : 0)} r={6} fill={paints.pale} {...edge} />
+        ))}
+      {/* The eyes and their catchlights, up and to the outside on both as on the figure. */}
+      {[-1, 1].map((side) => (
+        <g key={side}>
+          <circle cx={cx + side * spread} cy={cy + 8} r={eye} fill="#20222b" />
+          <circle cx={cx + side * spread + eye * 0.34} cy={cy + 8 - eye * 0.36} r={eye * 0.42} fill="#ffffff" />
+        </g>
       ))}
     </svg>
   )

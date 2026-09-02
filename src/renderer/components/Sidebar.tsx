@@ -26,6 +26,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SessionSummary } from '../../shared/protocol'
 import type { Bot } from '../../shared/bots'
+import type { Doing } from './BotAvatar'
 import type { Tab } from '../../shared/view'
 import { Sessions } from './Sessions'
 import { Bots } from './Bots'
@@ -38,6 +39,8 @@ interface Props {
   onNew: (directory?: string) => void
   bots: Bot[]
   openSlug: string | null
+  /** What that bot is doing, so its row's face can match the header's. */
+  openDoing: Doing
   onOpenBot: (bot: Bot) => void
   onSaveBot: (bot: { slug?: string; name: string; purpose: string; directory: string }) => void
   onRemoveBot: (slug: string) => void
@@ -52,6 +55,7 @@ export function Sidebar({
   onNew,
   bots,
   openSlug,
+  openDoing,
   onOpenBot,
   onSaveBot,
   onRemoveBot,
@@ -126,6 +130,7 @@ export function Sidebar({
         <Bots
           bots={bots}
           openSlug={openSlug}
+          openDoing={openDoing}
           onOpen={onOpenBot}
           onSave={onSaveBot}
           onRemove={onRemoveBot}

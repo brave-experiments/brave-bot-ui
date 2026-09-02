@@ -16,6 +16,14 @@
  *   difference between eyes that look at you and eyes that are holes.
  * - **It looks slightly up.** The head is tipped back a degree or two. Something looking fractionally
  *   up at the reader is open; something looking down is either sad or judging.
+ * - **A drawn edge.** Every painted piece has a thin dark line around it, the way a sticker or a
+ *   cartoon does. This is not decoration: the pale pieces — a bobble, an ear, a collar — sit
+ *   against the *page*, not against the head, and on a light theme a pale green bobble on an
+ *   off-white column is invisible. Two of the six traits were being thrown away in light mode.
+ *   The line also settles the figure against a dark column, where the deep body used to bleed into
+ *   the background, and it separates an ear from the head it is pressed against. It is drawn as an
+ *   inverted hull — a slightly bigger back-facing copy of each piece — which is the cheapest
+ *   outline there is and the one that survives being 38 pixels wide.
  *
  * ## Colour
  *
@@ -61,8 +69,22 @@ import * as THREE from 'three'
 
 export interface Figure {
   root: THREE.Group
+  /** The head and everything on it, so a nod or a look down moves the face and not the body. */
+  head: THREE.Group
+  /**
+   * Whatever is on top of the head, pivoted at the crown of the skull, or `null` for a bare one.
+   * Its own group so it can lag the head by a frame — a bobble that swings and an aerial that
+   * wobbles when the head turns, which is the cheapest thing that makes a figure read as a cartoon
+   * rather than a model.
+   */
+  crown: THREE.Group | null
   /** The eyes, together, so a blink can squash both at once. */
   eyes: THREE.Group
+  /**
+   * The catchlights, apart from the eyes they sit in. A reflection does not squash when a lid
+   * closes over it, it goes away — so a blink hides these rather than scaling them.
+   */
+  glints: THREE.Group
   dispose: () => void
 }
 
@@ -181,11 +203,14 @@ function shades(name: string): { base: THREE.Color; deep: THREE.Color; pale: THR
   }
 }
 
-/** The three shades a seed paints a bot in, as hex, for anything that is not three.js. */
-export function paintsOf(seed: string): { base: string; deep: string; pale: string } {
+/**
+ * The shades a seed paints a bot in, as hex, for anything that is not three.js — plus `edge`, the
+ * colour of the drawn line around it, which is the same darkening of `deep` the figure uses.
+ */
+export function paintsOf(seed: string): { base: string; deep: string; pale: string; edge: string } {
   const { base, deep, pale } = shades(traitsOf(seed).paint)
   const hex = (colour: THREE.Color): string => `#${colour.getHexString()}`
-  return { base: hex(base), deep: hex(deep), pale: hex(pale) }
+  return { base: hex(base), deep: hex(deep), pale: hex(pale), edge: hex(deep.clone().multiplyScalar(0.5)) }
 }
 
 /**
@@ -202,6 +227,7 @@ function palette(traits: Traits): {
   bright: THREE.Material
   spark: THREE.Material
   glint: THREE.Material
+  edge: THREE.Material
 } {
   const { base, deep, pale } = shades(traits.paint)
   // A little of the colour emitted as well as reflected, so the hue stays itself where the light
@@ -226,7 +252,45 @@ function palette(traits: Traits): {
     // The catchlight in each eye. White rather than a tint of the paint, and unlit like the eye it
     // sits in: it is standing in for a reflection of the room, which is not the colour of the bot.
     glint: new THREE.MeshBasicMaterial({ color: '#ffffff' }),
+    // The drawn edge. A very dark version of the bot's own colour rather than black: a neutral
+    // black line around a coloured toy reads as a hole cut in the page, and one in the hue reads as
+    // the same object seen against the light. Back faces only — see `outline` below.
+    edge: new THREE.MeshBasicMaterial({
+      color: deep.clone().multiplyScalar(0.5),
+      side: THREE.BackSide,
+    }),
   }
+}
+
+/**
+ * How far the edge stands off the surface, in figure units (the head is radius 1). A constant
+ * rather than a scale, so an ear gets the same width of line as the head does — a hull that is 5%
+ * bigger than its piece draws a bold line around a head and a hair around a bobble.
+ */
+const EDGE = 0.045
+
+/**
+ * The drawn edge around a piece: a copy of its geometry pushed out along its normals, wearing the
+ * back-facing material. Where the real piece is in front, its front faces are nearer than the
+ * hull's back faces and cover them; the hull shows only past the piece's own silhouette, which is
+ * exactly where a drawn line goes. Added as a child, so it turns, tips and blinks with the piece.
+ */
+function outline(mesh: THREE.Mesh, material: THREE.Material): THREE.BufferGeometry {
+  const geometry = mesh.geometry.clone()
+  const position = geometry.attributes.position as THREE.BufferAttribute | undefined
+  const normal = geometry.attributes.normal as THREE.BufferAttribute | undefined
+  if (position && normal) {
+    for (let i = 0; i < position.count; i++) {
+      position.setXYZ(
+        i,
+        position.getX(i) + normal.getX(i) * EDGE,
+        position.getY(i) + normal.getY(i) * EDGE,
+        position.getZ(i) + normal.getZ(i) * EDGE,
+      )
+    }
+  }
+  mesh.add(new THREE.Mesh(geometry, material))
+  return geometry
 }
 
 /** The head, by trait. Spheres scaled rather than four different geometries. */
@@ -234,9 +298,14 @@ function headMesh(traits: Traits, material: THREE.Material): THREE.Mesh {
   if (traits.head === 'boxy') {
     // The one flat-sided head, and still round: a box with a radius on every edge. A hard cube
     // among the spheres would be the one unfriendly face in the set.
+    //
+    // Pushed further toward the box than it first was. At 0.62 the corners were so soft that, at
+    // 38 pixels, a boxy head and a round one were the same head — a trait that cannot be seen is
+    // not a trait. Wider than it is tall as well, which is the other half of what makes a shape
+    // read as a box rather than a ball.
     const geometry = new THREE.SphereGeometry(1, 24, 20)
     const mesh = new THREE.Mesh(geometry, material)
-    mesh.scale.set(1.02, 0.94, 0.9)
+    mesh.scale.set(1.08, 0.9, 0.9)
     // Flattening the sphere's sides towards a rounded box, by hand, so there is still no seam.
     // `position` is optional on the attribute map's type; a sphere always has one, and a head
     // drawn as a plain sphere is a fine head, so the absence is skipped rather than asserted.
@@ -246,7 +315,7 @@ function headMesh(traits: Traits, material: THREE.Material): THREE.Mesh {
       const x = position.getX(i)
       const y = position.getY(i)
       const z = position.getZ(i)
-      const soften = (v: number) => Math.sign(v) * Math.pow(Math.abs(v), 0.62)
+      const soften = (v: number) => Math.sign(v) * Math.pow(Math.abs(v), 0.5)
       position.setXYZ(i, soften(x), soften(y), soften(z))
     }
     geometry.computeVertexNormals()
@@ -279,8 +348,12 @@ export function buildFigure(seed: string): Figure {
   const owned: (THREE.BufferGeometry | THREE.Material)[] = Object.values(materials)
 
   const root = new THREE.Group()
+  // Every painted piece gets its edge here, as it is kept. The eyes do not go through this: a
+  // pupil is already the darkest thing on the face, and a line around a catchlight would be a line
+  // around a reflection.
   const keep = <T extends THREE.Mesh>(mesh: T): T => {
     owned.push(mesh.geometry)
+    owned.push(outline(mesh, materials.edge))
     return mesh
   }
 
@@ -314,28 +387,42 @@ export function buildFigure(seed: string): Figure {
     }
   }
 
-  if (traits.crown === 'antenna') {
+  // The crown pivots where it meets the skull, so a swing rotates it about its base the way a
+  // thing stuck on top of a head would swing. Positions below are relative to that point.
+  const CROWN_AT = 0.95
+  let crown: THREE.Group | null = null
+  if (traits.crown !== 'none') {
+    crown = new THREE.Group()
+    crown.position.y = CROWN_AT
+    head.add(crown)
+  }
+
+  if (crown && traits.crown === 'antenna') {
     // Short. A tall one is the tallest thing in the set and would decide how far back the camera
     // has to sit for every other figure — one bot's aerial costing every other bot's face the
     // room it needed.
-    const stalk = keep(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.36, 8), materials.trim))
-    stalk.position.y = 1.06
-    head.add(stalk)
+    //
+    // Stalk and tip in the one shade. They were deep and pale respectively, which meant that on a
+    // dark column the stalk vanished and the tip floated, and on a light one the reverse — an
+    // aerial is one object, and it should read as one on either background.
+    const stalk = keep(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.36, 8), materials.bright))
+    stalk.position.y = 1.06 - CROWN_AT
+    crown.add(stalk)
     const tip = keep(new THREE.Mesh(new THREE.SphereGeometry(0.14, 14, 12), materials.bright))
-    tip.position.y = 1.28
-    head.add(tip)
-  } else if (traits.crown === 'bobble') {
+    tip.position.y = 1.28 - CROWN_AT
+    crown.add(tip)
+  } else if (crown && traits.crown === 'bobble') {
     const bobble = keep(new THREE.Mesh(new THREE.SphereGeometry(0.3, 18, 14), materials.bright))
-    bobble.position.y = 1.1
+    bobble.position.y = 1.1 - CROWN_AT
     bobble.scale.set(1, 0.82, 1)
-    head.add(bobble)
-  } else if (traits.crown === 'tuft') {
+    crown.add(bobble)
+  } else if (crown && traits.crown === 'tuft') {
     // Three small spheres in a row, which at this size reads as a tuft of hair rather than as
     // three spheres — and is the friendliest thing on offer to put on top of a head.
     for (const [index, side] of [-1, 0, 1].entries()) {
       const puff = keep(new THREE.Mesh(new THREE.SphereGeometry(0.2, 14, 12), materials.bright))
-      puff.position.set(side * 0.26, 1.0 + (index === 1 ? 0.12 : 0), 0)
-      head.add(puff)
+      puff.position.set(side * 0.26, 1.0 + (index === 1 ? 0.12 : 0) - CROWN_AT, 0)
+      crown.add(puff)
     }
   }
 
@@ -345,24 +432,31 @@ export function buildFigure(seed: string): Figure {
   const spread = traits.eyes === 'wide' ? 0.44 : traits.eyes === 'close' ? 0.29 : 0.37
   const size = traits.eyes === 'big' ? 0.23 : 0.18
 
+  // Not through `keep`: no edge on an eye. The geometries are owned by hand below.
   const eyes = new THREE.Group()
   eyes.position.set(0, -0.12, 0)
   head.add(eyes)
+  // The catchlights, in a group of their own at the same place, so a blink can hide them without
+  // squashing them. Same parent, same position, so they follow the head exactly as the eyes do.
+  const glints = new THREE.Group()
+  glints.position.copy(eyes.position)
+  head.add(glints)
 
   for (const side of [-1, 1]) {
-    const socket = new THREE.Group()
-    socket.position.set(side * spread, 0, 0.86)
-    eyes.add(socket)
-
-    const eye = keep(new THREE.Mesh(new THREE.SphereGeometry(size, 18, 14), materials.spark))
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(size, 18, 14), materials.spark)
+    owned.push(eye.geometry)
+    eye.position.set(side * spread, 0, 0.86)
     eye.scale.z = 0.55
-    socket.add(eye)
+    eyes.add(eye)
 
     // The highlight, up and toward the outside on both — the same place on each, because two
-    // highlights in different places make a face look cross-eyed.
-    const glint = keep(new THREE.Mesh(new THREE.SphereGeometry(size * 0.34, 10, 8), materials.glint))
-    glint.position.set(size * 0.34, size * 0.36, size * 0.4)
-    socket.add(glint)
+    // highlights in different places make a face look cross-eyed. Larger than the smallest thing
+    // that reads as a highlight at 128 pixels, because it is shown at 38: at a third of the pupil
+    // it was one device pixel and came and went with the turn.
+    const glint = new THREE.Mesh(new THREE.SphereGeometry(size * 0.42, 10, 8), materials.glint)
+    owned.push(glint.geometry)
+    glint.position.set(side * spread + size * 0.34, size * 0.36, 0.86 + size * 0.4)
+    glints.add(glint)
   }
 
   // No scaling or nudging here: the camera above decides the crop, and a figure that also moved
@@ -371,7 +465,10 @@ export function buildFigure(seed: string): Figure {
 
   return {
     root,
+    head,
+    crown,
     eyes,
+    glints,
     dispose: () => {
       for (const thing of owned) thing.dispose()
     },

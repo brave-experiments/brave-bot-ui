@@ -154,6 +154,17 @@ with the furniture would be a worse identity than one that does not — but it i
 What else differs between them is the head, what is on top of it, the ears, the set of the eyes, and
 the body.
 
+Every piece has a thin drawn edge around it, in a dark version of its own colour, and the whole
+figure sits on a faint neutral disc. Neither is decoration. The pale pieces — a bobble, an ear, a
+collar — sit against the *page* rather than against the head, and on a light theme pale paint on an
+off-white column was invisible: two of the six traits were being thrown away in light mode. The
+edge gives them a line to be seen by on any background and separates an ear from the head it is
+pressed against; the disc gives every avatar the same shape in the row and a surface behind it. The
+lighting is mostly flat — a strong key on a saturated colour clips a channel and drains the hue —
+with a hemisphere light to put the underside of the head into shadow so a sphere reads as a sphere
+rather than a disc; the numbers are set so that a surface facing the camera renders at exactly the
+paint's hex.
+
 Two things about it are load-bearing rather than decorative:
 
 - **One WebGL context, however many bots.** A page gets a limited number — Chromium's cap is around
@@ -163,12 +174,29 @@ Two things about it are load-bearing rather than decorative:
 - **The motion is a function of the clock, not of frames.** A figure turns at the same rate on a
   busy machine as an idle one, a dropped frame is skipped rather than accumulated, and two avatars
   mounted a minute apart are at the same point in the turn. Each one's offset into the cycle comes
-  from its seed, so a column of them does not move as a block. The loop stops when nothing is on
-  screen and when the window is hidden.
+  from its seed — as does the rate of its bob — so a column of them does not move as a block. The
+  loop stops when nothing is on screen and when the window is hidden, and it draws at thirty frames
+  a second rather than sixty: at a twenty-four-second turn the difference is a fraction of a pixel
+  a frame, and half the frames is half the GPU for the same picture.
 
-Where there is no WebGL to be had, the same seed draws a flat mirrored mark instead, in the same
-colour and shades — a list of bots with no faces is a worse list, but a list that failed to draw its rows
-because of a graphics driver would be the tail wagging the dog. See `src/renderer/avatar/` and
+The face also knows what its bot is doing, and shows it as posture rather than expression — what a
+person shows across a room. A bot in the list looks slowly about; one that has never been spoken to
+faces forward and only blinks; the one on screen looks at the reader and holds; one whose turn is
+running looks down and a little aside, as at a page, and blinks more often; and one whose last turn
+ended in an error tilts its head — "hm" — and lets it go over a few seconds. Coming out of a turn
+that did not fail, it nods, once. None of that is a mouth or an eyebrow: an animated expression
+beside a stack trace looks like the bot is apologising, and a posture does not. Two smaller things
+sell the rest: the blink is lopsided and every fourth one is a double, which is the one aperiodic
+thing in the motion; and whatever is on the head — a bobble, an aerial — is on a spring and lags
+the head by a frame, which is follow-through, the oldest trick in animation. Under
+`prefers-reduced-motion` the continuous motion stops; what is left is a still figure that blinks and
+takes up its posture when its state changes.
+
+Where there is no WebGL to be had, the same seed draws the same face flat instead — head, body, the
+two eyes and their catchlights, the same shades and the same drawn edge, read from the same traits —
+so a bot is recognisably itself on a machine with no GPU. A list of bots with no faces is a worse
+list, but a list that failed to draw its rows because of a graphics driver would be the tail wagging
+the dog. See `src/renderer/avatar/` and
 `src/renderer/components/BotAvatar.tsx`.
 
 #### How a purpose reaches the model

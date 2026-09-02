@@ -18,18 +18,20 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import type { Bot } from '../../shared/bots'
-import { BotAvatar } from './BotAvatar'
+import { BotAvatar, type Doing } from './BotAvatar'
 
 interface Props {
   bots: Bot[]
   /** The slug of the bot whose session is on screen, if one is. */
   openSlug: string | null
+  /** What that bot is doing, so its row's face can match the header's. */
+  openDoing: Doing
   onOpen: (bot: Bot) => void
   onSave: (bot: { slug?: string; name: string; purpose: string; directory: string }) => void
   onRemove: (slug: string) => void
 }
 
-export function Bots({ bots, openSlug, onOpen, onSave, onRemove }: Props): React.JSX.Element {
+export function Bots({ bots, openSlug, openDoing, onOpen, onSave, onRemove }: Props): React.JSX.Element {
   // Which bot's form is open, by slug, or `'new'` for one that does not exist yet. Local, and for
   // the reason the session filter is: nothing outside this list reads it, and a form half filled
   // in is not a preference anybody wants remembered.
@@ -86,6 +88,10 @@ export function Bots({ bots, openSlug, onOpen, onSave, onRemove }: Props): React
               key={bot.slug}
               bot={bot}
               open={bot.slug === openSlug}
+              // The open one does what its header does. The others look about, except one that has
+              // never been spoken to, which waits — the row already says so in words, and a face
+              // that has not started yet looking idly around would be saying something else.
+              doing={bot.slug === openSlug ? openDoing : bot.session === null ? 'waiting' : 'idle'}
               onOpen={onOpen}
               onEdit={() => setEditing(bot.slug)}
             />
@@ -106,11 +112,13 @@ export function Bots({ bots, openSlug, onOpen, onSave, onRemove }: Props): React
 function BotRow({
   bot,
   open,
+  doing,
   onOpen,
   onEdit,
 }: {
   bot: Bot
   open: boolean
+  doing: Doing
   onOpen: (bot: Bot) => void
   onEdit: () => void
 }): React.JSX.Element {
@@ -118,7 +126,7 @@ function BotRow({
   return (
     <div className={`bot${open ? ' bot-open' : ''}`}>
       <button className="bot-open-button" onClick={() => onOpen(bot)}>
-        <BotAvatar seed={bot.avatar} />
+        <BotAvatar seed={bot.avatar} doing={doing} />
         <span className="bot-said">
           <span className="bot-name">{bot.name}</span>
           {/* The whole path in the tooltip, because the column clips it — the one case the
