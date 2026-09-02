@@ -1080,6 +1080,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
   animation: spin 0.7s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+/* A bot's face in place of the spinner. No change to the padding: the row's height is the Cancel
+   button's, not the spinner's, so a 22px figure fits in the same line. The gap is a shade tighter
+   than the spinner's, because the figure has air of its own inside its disc. */
+.working-bot { gap: 7px; }
 .working .count { color: var(--ink-faint); }
 .working .cancel {
   margin-left: auto;
@@ -1740,12 +1744,24 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .bot-edit:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
 
 /* The avatar: a small figure turning slowly, drawn by the shared renderer in `avatar/stage.ts`.
-   Nothing here paints it — its colours come off the accent when it is built, so a theme reaches it
-   through `applyTheme` rather than through this sheet. See BotAvatar.tsx for why the form carries
-   the identity and the colour does not. */
-.bot-avatar { flex: none; display: block; }
-/* The flat mark, which is what a machine with no WebGL gets instead. Its cells carry their own
-   fill — the same two colours the figure would have been — so there is nothing to paint here. */
+   Nothing here paints the figure — its colours are its own, from a fixed set, and deliberately do
+   not follow the theme (see figure.ts for why). What this sheet does give it is the chip: a faint
+   neutral disc behind it, the shape every list of faces uses. It does two jobs. It makes every
+   avatar the same shape, so a tall head and a squat one sit in the row the same way, and it puts a
+   surface behind the pale pieces — a bobble, an ear — which on a light theme were otherwise pale
+   paint on a paler page. Mid-grey at low alpha, so it is a shade darker than a light column and a
+   shade lighter than a dark one, whichever the theme is. The canvas is transparent where there is
+   no figure, so the disc shows through around it and the body is cropped by the circle at the
+   bottom corners the way a headshot is. */
+.bot-avatar {
+  flex: none;
+  display: block;
+  border-radius: 50%;
+  background: rgba(127, 127, 127, 0.12);
+}
+/* The flat mark, which is what a machine with no WebGL gets instead. It carries its own fill — the
+   same shades the figure would have been — so there is nothing to paint here beyond the chip above,
+   which it shares. */
 
 /* Making a bot, or changing one. Inline in the list rather than in a sheet: it is two fields and
    a folder, and a modal would be a ceremony around one sentence. */

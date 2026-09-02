@@ -20,7 +20,9 @@
  * rate on a busy machine as on an idle one, a dropped frame is skipped rather than accumulated,
  * and two avatars mounted a minute apart are at the same point in the turn. Each figure's own
  * offset into that cycle comes from its seed, which is what keeps a column of them from moving as
- * one block.
+ * one block. The one thing that is not a pure function of the clock is what the bot is *doing* —
+ * see `Doing` — which arrives as an event and is remembered with the moment it arrived, so that
+ * the pose can still be computed from time: the time since the change.
  *
  * The loop stops when nothing is registered and when the window is hidden. An idle app should not
  * hold the GPU awake to rotate a picture nobody is looking at.
@@ -41,12 +43,79 @@ const SIZE = 128
 /** How long one full turn takes, in seconds. Slow enough to read as breathing, not as spinning. */
 const TURN = 24
 
+/**
+ * What a bot is doing, as far as its face is concerned.
+ *
+ * Not a mood. The figure has no mouth for the reason `figure.ts` gives — a fixed expression is
+ * wrong beside half of what a bot says — and an *animated* expression is worse: a worried face
+ * beside a stack trace looks like the bot is apologising. What the face can honestly show is
+ * posture, which is what a person shows across a room: whether they are looking at you, looking
+ * down at something, or waiting.
+ *
+ * - `idle`: in a list, not the one on screen. Looks slowly about.
+ * - `waiting`: never spoken to. Faces forward and only blinks — a thing that has not started yet.
+ * - `open`: the one on screen, or the one whose row is selected. Looks at the reader and holds.
+ * - `working`: a turn is running. Looks down and a little to one side, as at a page, and blinks
+ *   more often. Stops looking about, because something concentrating does.
+ * - `failed`: the last turn ended in an error. A tilt of the head — "hm" — that settles back to
+ *   `open` over a few seconds, rather than a held pose that would become a sulk.
+ *
+ * "Done" is not a state. It is the transition out of `working` into anything that is not
+ * `failed`, and it is a nod, once.
+ */
+export type Doing = 'idle' | 'waiting' | 'open' | 'working' | 'failed'
+
 /** One avatar waiting to be drawn. */
 interface Registered {
   canvas: HTMLCanvasElement
   figure: Figure
   /** Where in the cycle this one sits, so a column does not move in lockstep. */
   phase: number
+  /** How fast this one bobs, in radians a second. From the seed, so a column does not breathe as one. */
+  bobRate: number
+  /** Which way this one looks when it looks aside to work. From the seed, so a column varies. */
+  aside: 1 | -1
+  /** The head's built-in tilt, which every pose is relative to. */
+  restPitch: number
+  doing: Doing
+  /** What it was doing before, and when it changed, so the two can be blended and the change played. */
+  was: Doing
+  since: number
+  /** The crown's spring: its lean, and how fast the lean is changing. */
+  crown: { x: number; z: number; vx: number; vz: number; yaw: number; pitch: number }
+}
+
+/**
+ * Where a figure is asked to be: the parts of a pose that a state chooses, before the parts that
+ * every state shares (the blink) are put on.
+ */
+interface Pose {
+  /** Turn of the whole figure about the vertical, radians. Positive is the figure's left. */
+  yaw: number
+  /** Tilt of the head forward, radians. Positive looks down. */
+  pitch: number
+  /** Lean of the whole figure to one side, radians. */
+  roll: number
+  /** Height of the bob, figure units. */
+  bob: number
+  /** Seconds between blinks. */
+  blinkEvery: number
+}
+
+/**
+ * Whether the reader has asked for less motion. Read once and then watched, not asked on every
+ * frame. Honoured here the way the sheet honours it: the continuous motion — the turn, the bob,
+ * the nod, the swing of the crown — stops, and what is left is a still figure that blinks and
+ * takes up a posture when its state changes. A blink is not the kind of motion the setting is
+ * about, and a posture is information.
+ */
+let stillness = false
+if (typeof matchMedia === 'function') {
+  const query = matchMedia('(prefers-reduced-motion: reduce)')
+  stillness = query.matches
+  query.addEventListener('change', () => {
+    stillness = query.matches
+  })
 }
 
 let renderer: THREE.WebGLRenderer | null = null
@@ -93,23 +162,38 @@ function stage(): { renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: T
   // bottom of the frame the way a headshot crops at the shoulders. What is left in view is the
   // head, whatever is on top of it, and enough of the body to say there is one.
   //
+  // "Enough of the body" is the part that was wrong at first. With the camera at 6.1 and aimed at
+  // the eyes, the body was a strip four pixels tall at the foot of a 38-pixel square and the collar
+  // a sliver above it — two of the figure's six traits, drawn every frame and visible in none of
+  // them. Sitting a little further back and aiming a little lower puts the shoulders and the
+  // collar in the picture. The head is smaller for it, which is the trade, and it is still most of
+  // the square.
+  //
   // Slightly above and looking a little down, which is the angle a face is friendliest from: it
   // shows the roundness of the head where straight-on flattens it, and it keeps both eyes.
   camera = new THREE.PerspectiveCamera(28, 1, 0.1, 100)
-  camera.position.set(0, 0.5, 6.1)
-  camera.lookAt(0, 0.22, 0)
+  camera.position.set(0, 0.45, 6.9)
+  camera.lookAt(0, -0.02, 0)
 
   // Soft and frontal. A hard key light gives a face a hollow, dramatic look — which is the exact
   // opposite of approachable — so the strong light is broad and almost head-on, the fill is
   // generous, and there is a cool rim behind to lift the silhouette off the column.
   //
-  // Weighted heavily toward the ambient, which is not how one would light a photograph and is
+  // Weighted heavily toward the flat terms, which is not how one would light a photograph and is
   // exactly right here. Lambert adds every light into the surface colour, so a strong key on a
   // saturated colour clips one channel long before the other two and the hue drains out — the
   // figure goes pale and stops being the colour the window is in. A large flat term with a modest
   // key keeps the surface at the accent proper and spends the directional light only on saying
   // which way the head is turned. Closer to how a cartoon is painted than to how a room is lit,
   // and a cartoon is what this is.
+  //
+  // The flat term is split between an ambient and a hemisphere. Ambient alone left the figures
+  // flat — a red head at 38 pixels was a red disc — and the fix cannot be a stronger key, for the
+  // clipping reason above. A hemisphere light is the cartoonist's answer: a little brighter on top
+  // and a little darker underneath, everywhere, regardless of where the key is. The chin goes into
+  // shadow and the sphere turns back into a sphere, and because the sky and ground are neutral
+  // greys the hue does not move. A surface facing the camera is halfway between sky and ground and
+  // gets a fixed amount from it, which is the amount the ambient below was reduced by.
   //
   // The numbers are measured rather than chosen. With these, a surface facing the camera renders at
   // its material colour *exactly* — sample a pixel off an avatar and it is the hex from the paint
@@ -118,7 +202,10 @@ function stage(): { renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: T
   // and go pale. They are not intuitive, because the path from an intensity to a pixel runs through
   // three's colour management and Lambert's own scaling, so guessing lands nowhere near — if the
   // lighting is ever changed, check it by sampling a pixel rather than by eye.
-  scene.add(new THREE.AmbientLight(0xffffff, 1.9))
+  scene.add(new THREE.AmbientLight(0xffffff, 0.78))
+  const sky = new THREE.HemisphereLight(0xffffff, 0xcccccc, 1.4)
+  sky.position.set(0, 1, 0)
+  scene.add(sky)
   const key = new THREE.DirectionalLight(0xffffff, 0.78)
   key.position.set(2.2, 3.4, 5)
   scene.add(key)
@@ -132,40 +219,195 @@ function stage(): { renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: T
   return { renderer, scene, camera }
 }
 
+/** Zero to one, eased at both ends. */
+const smooth = (x: number): number => {
+  const c = Math.min(1, Math.max(0, x))
+  return c * c * (3 - 2 * c)
+}
+const mix = (a: number, b: number, k: number): number => a + (b - a) * k
+
+/**
+ * The slow look about. `sin` rather than a running angle: a figure that turned all the way round
+ * would spend half the time facing away, which is a picture of a bot's back. Raised to a power so
+ * it lingers near the centre and glances to each side and back — a plain sine does the opposite,
+ * dwelling at the extremes and hurrying through the middle, which is how a thing looks when it is
+ * scanning rather than when it is curious. A curious thing pauses on what is in front of it.
+ */
+function sweep(t: number): number {
+  const s = Math.sin(t * ((Math.PI * 2) / TURN))
+  return Math.sign(s) * Math.pow(Math.abs(s), 1.8)
+}
+
+/** How long a blend between two states takes, in seconds. */
+const BLEND = 0.35
+
+/** What one state asks for, at this moment. */
+function ask(entry: Registered, doing: Doing, t: number, elapsed: number): Pose {
+  const bob = stillness ? 0 : Math.sin(t * entry.bobRate)
+  switch (doing) {
+    case 'idle': {
+      const s = stillness ? 0 : sweep(t)
+      return { yaw: s * 0.55, pitch: 0, roll: s * 0.06, bob: bob * 0.045, blinkEvery: 5.3 }
+    }
+    case 'waiting':
+      return { yaw: 0, pitch: 0, roll: 0, bob: bob * 0.02, blinkEvery: 5.3 }
+    case 'open':
+      // A shade more up than the rest position: looking at somebody, not past them.
+      return { yaw: 0, pitch: -0.04, roll: 0, bob: bob * 0.045, blinkEvery: 5.3 }
+    case 'working': {
+      // Down and aside, at the page. With a very slow, very small drift, which is what eyes do
+      // over a page and is the difference between reading and a freeze-frame.
+      const drift = stillness ? 0 : Math.sin(t * 0.7) * 0.06
+      return {
+        yaw: entry.aside * 0.22 + drift,
+        pitch: 0.18,
+        roll: entry.aside * 0.03,
+        bob: bob * 0.03,
+        blinkEvery: 2.6,
+      }
+    }
+    case 'failed': {
+      // The tilt, held for a moment and then let go over a few seconds toward `open`. A held tilt
+      // stops being "hm" and becomes a pose, and a pose beside an error is a comment on it.
+      const settle = smooth((elapsed - 1.5) / 3)
+      const open = ask(entry, 'open', t, elapsed)
+      return {
+        yaw: mix(entry.aside * 0.08, open.yaw, settle),
+        pitch: mix(0.05, open.pitch, settle),
+        roll: mix(entry.aside * 0.14, open.roll, settle),
+        bob: mix(bob * 0.02, open.bob, settle),
+        blinkEvery: 5.3,
+      }
+    }
+  }
+}
+
+/**
+ * The blink.
+ *
+ * Rare, quick, and the one thing here that is not a smooth curve — which is what makes it read as
+ * alive rather than as a wobble. Lopsided, as a real one is: the lid comes down in a third of the
+ * time it takes to go back up. And every fourth one is a double, because a face that blinks on a
+ * metronome is a face on a timer, and the double is the one aperiodic thing in the whole motion.
+ * The period is not a whole number of anything else, so it never syncs up with the turn.
+ */
+function blink(t: number, every: number): number {
+  const at = t % every
+  const nth = Math.floor(t / every)
+  const one = (from: number): number => {
+    const b = at - from
+    if (b < 0 || b > 0.135) return 1
+    return Math.max(0.08, b < 0.045 ? 1 - b / 0.045 : (b - 0.045) / 0.09)
+  }
+  const first = one(0)
+  return nth % 4 === 3 ? Math.min(first, one(0.2)) : first
+}
+
 /**
  * Where a figure is at this moment.
  *
- * A slow turn that eases to a stop at each side rather than sweeping past, a small bob, and a tilt
- * that follows the turn — a head that leans slightly into the direction it is looking, the way a
- * person does when curious. Composed of sines of one clock so it never lands anywhere abrupt and
- * never needs a state machine.
+ * The state's own pose, blended over a moment from whatever the last state's pose would have been
+ * now — so a change is a movement rather than a cut — with the blink on top, and then the crown
+ * let catch up. Composed of sines of one clock wherever it can be, so it never lands anywhere
+ * abrupt; the state machine is the one place it cannot be, and it is as small as it can be.
  */
-function pose(figure: Figure, seconds: number): void {
-  const t = seconds
-  // `sin` rather than a running angle: a figure that turned all the way round would spend half the
-  // time facing away, which is a picture of a bot's back.
-  figure.root.rotation.y = Math.sin(t * ((Math.PI * 2) / TURN)) * 0.55
-  figure.root.rotation.z = Math.sin(t * ((Math.PI * 2) / TURN)) * 0.06
-  figure.root.position.y = Math.sin(t * 0.9) * 0.045
+function pose(entry: Registered, seconds: number, dt: number): void {
+  const { figure } = entry
+  const t = seconds + entry.phase
+  const elapsed = seconds - entry.since
+  const want = ask(entry, entry.doing, t, elapsed)
+  const k = stillness ? 1 : smooth(elapsed / BLEND)
+  // The old state as it would be now, had it gone on — and gone on a long while, so a `failed` that
+  // is being left has finished settling and the blend starts from where it was heading.
+  const had = k < 1 ? ask(entry, entry.was, t, elapsed + 60) : want
+  let yaw = mix(had.yaw, want.yaw, k)
+  let pitch = mix(had.pitch, want.pitch, k)
+  const roll = mix(had.roll, want.roll, k)
+  const bob = mix(had.bob, want.bob, k)
 
-  // The blink. Rare, quick, and the one thing here that is not a smooth curve — which is what makes
-  // it read as alive rather than as a wobble. A period that is not a whole number of anything else
-  // keeps it from ever syncing up with the turn.
-  const blink = t % 5.3
-  figure.eyes.scale.y = blink < 0.13 ? Math.max(0.08, Math.abs(blink - 0.065) / 0.065) : 1
+  // The nod: once, on coming out of `working` to anything but `failed`. Down and up over just under
+  // half a second, starting as the blend does, so the head comes up from the page and nods in one
+  // movement. "Done", without a word for it.
+  if (!stillness && entry.was === 'working' && entry.doing !== 'working' && entry.doing !== 'failed') {
+    const nod = elapsed / 0.45
+    if (nod < 1) pitch += Math.sin(nod * Math.PI) * 0.14
+  }
+
+  figure.root.rotation.y = yaw
+  figure.root.rotation.z = roll
+  figure.root.position.y = bob
+  figure.head.rotation.x = entry.restPitch + pitch
+
+  const open = blink(t, want.blinkEvery)
+  figure.eyes.scale.y = open
+  // The catchlight is a reflection, and a reflection is not squashed by a closing lid — it is
+  // covered. So it goes out for the closed half of the blink rather than shrinking with the pupil,
+  // which squashed it into a white line across a black one.
+  figure.glints.visible = open > 0.5
+
+  // The crown, a frame behind. A spring pulled toward leaning against the head's motion — turn the
+  // head and the bobble swings the other way and wobbles back — which is follow-through, the
+  // oldest trick in animation and the one that most cheaply says "this is a drawing, not a model".
+  // Underdamped on purpose: the wobble is the point. Simulated on real time so it is the same
+  // wobble at any frame rate, and clamped so a long pause between frames is not a catapult.
+  if (figure.crown) {
+    const spring = entry.crown
+    if (stillness || dt <= 0) {
+      spring.x = spring.z = spring.vx = spring.vz = 0
+    } else {
+      const step = Math.min(dt, 0.1)
+      // No rate on the first frame: the head is not moving, it is being placed.
+      const placed = Number.isFinite(spring.yaw)
+      const yawRate = placed ? (yaw - spring.yaw) / step : 0
+      const pitchRate = placed ? (pitch - spring.pitch) / step : 0
+      const towardZ = -yawRate * 0.28
+      const towardX = -pitchRate * 0.28
+      const K = 140
+      const C = 9
+      spring.vz += (-K * (spring.z - towardZ) - C * spring.vz) * step
+      spring.vx += (-K * (spring.x - towardX) - C * spring.vx) * step
+      spring.z += spring.vz * step
+      spring.x += spring.vx * step
+    }
+    spring.yaw = yaw
+    spring.pitch = pitch
+    figure.crown.rotation.z = Math.max(-0.5, Math.min(0.5, spring.z))
+    figure.crown.rotation.x = Math.max(-0.5, Math.min(0.5, spring.x))
+  }
 }
+
+/**
+ * The least time between two draws, in milliseconds. Thirty frames a second, not sixty: the turn
+ * takes twenty-four seconds and the bob about seven, so between one frame and the next at 30 a
+ * figure moves a fraction of a device pixel — nobody can see the difference, and a list of twenty
+ * bots is drawing twenty scenes a frame. Half the frames is half the GPU for the same picture.
+ */
+const AT_LEAST = 1000 / 30
+let drawn = 0
 
 function draw(): void {
   frame = null
   const built = stage()
   if (!built || registered.size === 0) return
 
-  const seconds = performance.now() / 1000
+  // Too soon since the last one: ask for the next frame and draw nothing. Cheaper than a timer,
+  // and it keeps the loop on the display's own clock so a draw is never mid-refresh. A little
+  // under the interval is allowed, since frames arrive at 16.7ms and a strict 33.3 would skip
+  // every third one and land at 20 a second.
+  const now = performance.now()
+  if (now - drawn < AT_LEAST - 4) {
+    schedule()
+    return
+  }
+  const dt = drawn === 0 ? 0 : (now - drawn) / 1000
+  drawn = now
+
+  const seconds = now / 1000
   for (const entry of registered.values()) {
     // One figure in the scene at a time. Adding all of them and moving the camera would mean every
     // draw paying for every other bot's geometry.
     built.scene.add(entry.figure.root)
-    pose(entry.figure, seconds + entry.phase)
+    pose(entry, seconds, dt)
     built.renderer.render(built.scene, built.camera)
     built.scene.remove(entry.figure.root)
 
@@ -192,7 +434,7 @@ function schedule(): void {
  * The figure is built once per canvas rather than per frame. Building one is a few dozen small
  * geometries, which is nothing to do once and wasteful to do sixty times a second.
  */
-export function show(canvas: HTMLCanvasElement, seed: string): () => void {
+export function show(canvas: HTMLCanvasElement, seed: string, doing: Doing = 'idle'): () => void {
   if (!stage()) return () => undefined
 
   const figure = buildFigure(seed)
@@ -202,6 +444,17 @@ export function show(canvas: HTMLCanvasElement, seed: string): () => void {
     // Spread over the whole cycle from the seed, so a column of bots is a group of individuals
     // rather than a chorus line. Deterministic, like everything else drawn from a seed.
     phase: hashPhase(seed) * TURN,
+    // A bob somewhere between five and a half and eight and a half seconds. With one rate for all
+    // of them the phase offset was not enough: the turn and the bob were both on the same clock
+    // and a column still rose and fell together.
+    bobRate: (Math.PI * 2) / (5.5 + hashPhase(`${seed}/bob`) * 3),
+    aside: hashPhase(`${seed}/aside`) < 0.5 ? -1 : 1,
+    restPitch: figure.head.rotation.x,
+    doing,
+    was: doing,
+    // Well in the past, so the first pose is taken up without a blend from nothing.
+    since: performance.now() / 1000 - 60,
+    crown: { x: 0, z: 0, vx: 0, vz: 0, yaw: NaN, pitch: NaN },
   })
   schedule()
 
@@ -209,6 +462,19 @@ export function show(canvas: HTMLCanvasElement, seed: string): () => void {
     registered.delete(canvas)
     figure.dispose()
   }
+}
+
+/**
+ * Tell an avatar what its bot is doing now. A no-op for a state it is already in, so a component
+ * can say so on every render without restarting a blend each time.
+ */
+export function tell(canvas: HTMLCanvasElement, doing: Doing): void {
+  const entry = registered.get(canvas)
+  if (!entry || entry.doing === doing) return
+  entry.was = entry.doing
+  entry.doing = doing
+  entry.since = performance.now() / 1000
+  schedule()
 }
 
 /** A number in `[0, 1)` from a seed, for the phase offset. */

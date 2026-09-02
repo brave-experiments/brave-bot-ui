@@ -10,7 +10,7 @@ import { ForkIcon } from './ForkIcon'
 import { contextMenu } from './Sessions'
 import { Markdown } from './Markdown'
 import { PopMenu, type PopItem } from './PopMenu'
-import { BotAvatar } from './BotAvatar'
+import { BotAvatar, type Doing } from './BotAvatar'
 import type { Bot } from '../../shared/bots'
 
 interface Live {
@@ -47,6 +47,8 @@ interface Props {
   live: Live | null
   /** The bot whose session this is, if one is. Its name is what the header says instead of a title. */
   bot: Bot | null
+  /** What that bot is doing, for its face in the header. Derived in `App`, where the turn is known. */
+  doing: Doing
   pending: t.Asking | null
   problem: string | null
   collapsed: Record<Side, boolean>
@@ -118,6 +120,7 @@ function ColumnToggle({
 export function Transcript({
   live,
   bot,
+  doing,
   pending,
   problem,
   collapsed,
@@ -207,7 +210,7 @@ export function Transcript({
                   face stand where the title would, and the title becomes the second line beside
                   the checkout: still there, no longer pretending to say whose this is. */}
               <h1>
-                {bot && <BotAvatar seed={bot.avatar} size={30} />}
+                {bot && <BotAvatar seed={bot.avatar} size={30} doing={doing} />}
                 {bot ? bot.name : live.summary.title}
               </h1>
               {/* The same string in the tooltip, because this line ellipsises and the
@@ -283,8 +286,17 @@ export function Transcript({
         )}
 
         {live.running && (
-          <div className="working">
-            <span className="spinner" />
+          <div className={`working${bot ? ' working-bot' : ''}`}>
+            {/* For a bot, the bot itself, looking down at the page — the one place in the transcript
+                its face carries something the header does not: it is *here*, at the point of
+                attention, only while something is happening, and its posture is the indicator. It
+                mounts already working, since the row exists only while a turn runs. A plain session
+                has no face and keeps the spinner. */}
+            {bot ? (
+              <BotAvatar seed={bot.avatar} size={22} doing="working" />
+            ) : (
+              <span className="spinner" />
+            )}
             {live.phase ? phaseWord(live.phase) : 'Working'}
             {live.tokens > 0 && <span className="count"> · {live.tokens} tokens written</span>}
             <button className="cancel" onClick={onCancel}>
