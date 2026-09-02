@@ -1,6 +1,6 @@
 // A bot, working — which is the only way to show the part that matters.
 //
-// `11-bots` can show the tab, the faces and the form without spending a token. It cannot show the
+// `12-bots` can show the tab, the faces and the form without spending a token. It cannot show the
 // three things the feature is actually for, because each of them needs a model to answer:
 //
 //  1. **A purpose reaches the planner without anybody typing it.** The bot is asked something
@@ -17,6 +17,10 @@
 //  3. **The briefing is a file, not a prompt.** Reopened, the transcript draws it as a file that
 //     was read rather than as something somebody typed into the composer.
 //
+// And, on the way, the rest of what a bot's face does — which `12-bots` could not show because a
+// bot made a moment ago is doing nothing: it looks at the reader once it is the one on screen, and
+// while a turn runs it stands where the spinner would at the foot of the transcript, looking down.
+//
 // So this is `live: true`, like `02-live`, and is filmed only when a run asks for it.
 //
 // It leaves a session behind — the bot's own, which is the point of a bot — in the demo world
@@ -24,7 +28,7 @@
 const NAME = 'Harbour Watch'
 
 export default {
-  id: '12-bot-memory',
+  id: '13-bot-memory',
   title: 'A bot at work',
   live: true,
 
@@ -39,7 +43,7 @@ export default {
     const row = page
       .locator('.bot')
       .filter({ has: page.locator('.bot-name', { hasText: new RegExp(`^${NAME}$`) }) })
-    if (!(await row.count())) s.skip(`"${NAME}" is not in the list — 11-bots makes it`)
+    if (!(await row.count())) s.skip(`"${NAME}" is not in the list — 12-bots makes it`)
 
     await s.say('Open it', 'A bot with no session yet begins one, in the checkout it is pinned to.', 2.4)
     await s.click(row.locator('.bot-open-button'))
@@ -52,13 +56,17 @@ export default {
     }
 
     // The header names the bot rather than the session's title, which is the small thing that
-    // says whose conversation this is.
+    // says whose conversation this is. The face beside the name is the same one as in the list,
+    // and now that this is the bot on screen it looks at the reader rather than about the room.
     const head = page.locator('.transcript-head h1')
     if (await head.count()) {
       await s.glideTo(head)
       await s.say('It is the bot speaking', 'The header says who, where a session would say what it was asked first.', 2.6)
       await s.spotlight(head, 1.8)
       await s.unspot()
+      if (await head.locator('.bot-avatar').count()) {
+        await s.say('And it looks at you', 'The one on screen faces the reader. The others, in the list, look about.', 2.6)
+      }
     }
 
     // --- the purpose, which nobody typed ----------------------------------------------------
@@ -66,15 +74,32 @@ export default {
     await s.say('Ask it something ordinary', 'Nothing in the prompt says what this bot is for.')
     await s.slowType('.composer textarea', 'What should I know about this checkout?')
     await s.click('.composer .send')
+
+    // While the turn runs, the bot's own face stands where the spinner would, at the foot of the
+    // transcript, looking down at the page — the one place in the conversation its face says
+    // something the header does not. Filmed now, because a first turn is the slowest one in the
+    // scene and this is the only moment the row is on screen. Bows out quietly if the turn was
+    // quicker than the glide: a fast answer is not a broken feature.
+    const working = page.locator('.working .bot-avatar')
+    if (await working.isVisible().catch(() => false)) {
+      await s.glideTo(working)
+      await s.say('It is working, and looks it', 'Its face stands in for the spinner, looking down at the page.', 2.8)
+      await s.spotlight(page.locator('.working'), 2.0)
+      await s.unspot()
+      await s.shot('13-bot-working')
+    }
     await s.say('The briefing goes with it', 'Its purpose and its memory, as a file the planner is handed.', 2.6)
 
     // A bot's first turn reads its briefing and its memory before it does anything else, so it is
     // the slowest one in the scene. Bowing out rather than failing: a turn that ran long is not a
     // broken video, it is a take to run again.
     if (!(await settle(s))) s.skip('the first turn did not finish in time')
+    // The nod on finishing is half a second long and over before `settle` has noticed the turn
+    // end, so it is said rather than pointed at. The face is back to looking at the reader by now,
+    // which is the thing that can be seen.
     await s.beat(1.2)
-    await s.shot('12-bot-reply')
-    await s.say('And it answers as itself', 'The purpose was never in the composer.', 2.4)
+    await s.shot('13-bot-reply')
+    await s.say('And it answers as itself', 'The purpose was never in the composer. It nodded, once, on finishing.', 2.8)
     await s.beat(1.0)
 
     // --- the memory, written and approved ----------------------------------------------------
@@ -101,7 +126,7 @@ export default {
       await s.say('This one it asks about', 'A turn that touched untrusted content, writing to a trusted path.', 3.0)
       await s.spotlight(card, 2.6)
       await s.unspot()
-      await s.shot('12-bot-memory-diff')
+      await s.shot('13-bot-memory-diff')
       const approve = card.locator('.confirm-actions .approve:not(.always)').first()
       await s.click((await approve.count()) ? approve : card.locator('.confirm-actions .approve').first())
       await page.waitForTimeout(900)
@@ -125,7 +150,7 @@ export default {
       await s.say('And listed under Writes', 'Every change to a bot’s memory is on the record, whether or not it stopped to ask.', 3.2)
       await s.spotlight(written, 2.2)
       await s.unspot()
-      await s.shot('12-bot-memory-written')
+      await s.shot('13-bot-memory-written')
     }
 
     // --- resumed -----------------------------------------------------------------------------
@@ -146,7 +171,7 @@ export default {
       await s.spotlight(attached, 2.0)
       await s.unspot()
     }
-    await s.shot('12-bot-resumed')
+    await s.shot('13-bot-resumed')
     await s.beat(1.0)
 
     console.log(`   note: this take left a session on "${NAME}" in the demo world`)

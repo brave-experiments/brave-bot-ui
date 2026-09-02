@@ -1,11 +1,12 @@
 // The part of the product everything else is furniture around: a real turn, and the questions
 // it stops to ask.
 //
-// Gated behind `--live`, and last in the running order, for two reasons. It calls the model,
-// so it costs tokens and takes as long as it takes. And it is the only scene whose timing is
-// not the demo's to decide — a turn can stall, or answer without needing to ask anything at
-// all — so putting it at the end means a bad take costs the tail of the video rather than the
-// whole of it.
+// Gated behind `--live`, because it calls the model, so it costs tokens and takes as long as it
+// takes — and it is the only scene besides the bots' whose timing is not the demo's to decide: a
+// turn can stall, or answer without needing to ask anything at all. It was last in the running
+// order for that reason, so a bad take cost the tail of the video rather than the whole of it;
+// it is third now, so a viewer meets the thing the app is for before the furniture around it
+// (`manifest.mjs` says why), and a bad take is a retake with `--from`.
 //
 // The shape of the scene is a loop rather than a script, because a turn asks as many questions
 // as it needs and the demo does not get to decide how many. Approving a command is not the end

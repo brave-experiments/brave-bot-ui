@@ -1,6 +1,6 @@
 // The half of a bot's memory nobody presses a key for.
 //
-// `12-bot-memory` films the memory being written because somebody asked for it in so many words,
+// `13-bot-memory` films the memory being written because somebody asked for it in so many words,
 // which is the version of this feature that is easy to show and was, for a while, the only version
 // there was. The instruction to write lives in the briefing; the briefing reaches a turn only when
 // that turn is grounded; and a session spends almost all of its life ungrounded. So a bot was told
@@ -19,11 +19,11 @@
 // So this films the evidence rather than the mechanism: the memory as it stands, and the line drawn
 // for a turn the app sent, if the world it inherited has one. It bows out where it has nothing —
 // `s.skip` is for a scene with nothing to show, and a bot that has not yet needed reminding is
-// exactly that. Filmed after `12-bot-memory`, whose session it reads.
+// exactly that. Filmed after `13-bot-memory`, whose session it reads.
 const NAME = 'Harbour Watch'
 
 export default {
-  id: '13-bot-remembering',
+  id: '14-bot-remembering',
   title: 'Remembering without being asked',
   live: true,
 
@@ -38,7 +38,7 @@ export default {
     const row = page
       .locator('.bot')
       .filter({ has: page.locator('.bot-name', { hasText: new RegExp(`^${NAME}$`) }) })
-    if (!(await row.count())) s.skip(`"${NAME}" is not in the list — 11-bots makes it`)
+    if (!(await row.count())) s.skip(`"${NAME}" is not in the list — 12-bots makes it`)
 
     // --- what it has kept ---------------------------------------------------------------------
 
@@ -56,7 +56,7 @@ export default {
       3.2,
     )
     await s.unspot()
-    await s.shot('13-bot-memory-kept')
+    await s.shot('14-bot-memory-kept')
     await s.beat(1.0)
 
     // Leave the form the way it was found. A driver can afford to end anywhere; a take cannot,
@@ -93,7 +93,7 @@ export default {
       'Not as a prompt — because saying somebody typed it would say something that is not true.',
       3.2,
     )
-    await s.shot('13-bot-consolidation')
+    await s.shot('14-bot-consolidation')
     await s.beat(1.0)
   },
 }

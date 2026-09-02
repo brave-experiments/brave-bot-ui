@@ -41,7 +41,7 @@ export default {
     await s.say('Fork from here', 'A new session holding everything said before this prompt.')
     await s.click(control)
     await page.waitForTimeout(1800 * s.speed)
-    await s.shot('07-fork')
+    await s.shot('08-fork')
 
     const composer = page.locator('.composer textarea')
     await s.glideTo(composer)
@@ -68,7 +68,7 @@ export default {
       await s.say('Back to the parent', 'Untouched — a fork takes nothing away from what it came from.')
       await s.click(banner.locator('.link'))
       await page.waitForTimeout(1600 * s.speed)
-      await s.shot('07-parent')
+      await s.shot('08-parent')
       await s.beat(1.2)
     }
 

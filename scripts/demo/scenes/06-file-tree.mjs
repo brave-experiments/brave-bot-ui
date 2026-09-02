@@ -52,7 +52,7 @@ export default {
 
     if (opened) {
       await s.say('Open a folder', 'It is read when you open it, not all at once up front.', 2)
-      await s.shot('05-tree')
+      await s.shot('06-tree')
     }
 
     await s.say('Dotfiles', 'Hidden entries sit behind a toggle.')

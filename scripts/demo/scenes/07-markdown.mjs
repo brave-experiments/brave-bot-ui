@@ -28,7 +28,7 @@ export default {
 
     await s.glideTo(reply)
     await s.say('Formatted replies', 'Headings, lists, tables and code, rather than a wall of text.', 2.2)
-    await s.shot('06-markdown')
+    await s.shot('07-markdown')
 
     for (const selector of RICH) {
       const found = page.locator(selector).first()

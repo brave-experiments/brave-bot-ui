@@ -7,7 +7,7 @@
 //
 //   npm run demo                       the whole thing, no model calls
 //   npm run demo -- --live             plus a real turn, an approval card and a question
-//   npm run demo -- --only 07-fork     one scene, for a retake
+//   npm run demo -- --only 08-fork     one scene, for a retake
 //   npm run demo -- --list             what it would film, in order
 //   npm run demo -- --rebuild          throw the demo world away and build it again
 //
