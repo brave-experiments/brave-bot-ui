@@ -539,11 +539,13 @@ itself until the terminal had been run once would be depending on something it w
   submodule where it was, and the build that follows would otherwise compile an agent
   nobody chose. `npm run bridge` warns when the two disagree.
 
-  Credentials are read from `vendor/bravebot/.envrc` by default. `BRAVEBOT_DIR` still wins
-  and is now credentials only — if your `.envrc` lives in an older sibling checkout, point
-  it there and the submodule's sources are still what gets compiled. The path is resolved
-  to its real one, because direnv's allow list is keyed on the physical path and a checkout
-  reached through a symlink otherwise reads as un-allowed however many times you allow it.
+  Credentials are read from `vendor/bravebot/.envrc` by default, though the arrangement
+  Credentials below recommends means the build never has to look there at all.
+  `BRAVEBOT_DIR` still wins and is now credentials only — if your `.envrc` lives in an older
+  sibling checkout, point it there and the submodule's sources are still what gets compiled.
+  The path is resolved to its real one, because direnv's allow list is keyed on the physical
+  path and a checkout reached through a symlink otherwise reads as un-allowed however many
+  times you allow it.
 - **`direnv`**, to pick up the agent's credentials at build time. See below.
 
 ## Setup
@@ -574,17 +576,47 @@ environment. An app launched from Finder has no such environment, and an unconfi
 fails at the first inference request with `SERVICES_KEY_AICHAT is not set and was not built
 in`.
 
-So `scripts/build-bridge.sh` builds *through* `direnv` when the agent has an allowed
-`.envrc`, and says plainly what will happen when it does not. To set it up:
+So `scripts/build-bridge.sh` builds *through* `direnv` when the agent's submodule has an
+allowed `.envrc`, and says plainly what will happen when it does not. It also takes a
+shorter route when the variables are already in its own environment, and that is the
+arrangement to prefer — the values in one file outside every checkout, and a `.envrc` here
+that reads them:
 
 ```bash
-cd vendor/bravebot
-cp .envrc.example .envrc     # then fill it in
+mkdir -p ~/.config/bravebot
+$EDITOR ~/.config/bravebot/env      # NAME=value lines, one per variable
+chmod 600 ~/.config/bravebot/env
+
+cd ~/repos/bravebot-ui
+echo 'dotenv_if_exists ~/.config/bravebot/env' > .envrc
 direnv allow
 ```
 
-`.envrc` is ignored by the agent's own `.gitignore`, so a configured submodule does not
-show up as a dirty one, and the secret is never a candidate for a commit here.
+The names are the ones the agent's `.envrc.example` *exports* — `SERVICES_KEY_AICHAT`,
+`BRAVE_SERVICES_KEY_ID`, `BRAVE_AI_CHAT_ENDPOINT`, `BRAVE_AI_CHAT_DEFAULT_MODEL`, and
+`BRAVE_AI_CHAT_PREMIUM_ENDPOINT` if you have one — rather than the `DEV_`/`PROD_` inputs its
+`case` builds them from. The first three are required and the build fails without them; the
+model name is not, and a build missing it quietly settles for `automatic`.
+
+Three things follow from keeping them there rather than in `vendor/bravebot/.envrc`, which
+also works and which `BRAVEBOT_DIR` can still point at:
+
+- **The secret outlives the checkout it was for.** A `.envrc` inside the agent's tree is one
+  `git clean -xdff`, or one re-clone, away from being gone, and what you lose is the one file
+  you cannot get back from a remote. The agent's move from a sibling checkout to a submodule
+  is the same lesson already collected once: that path changed, and anything kept under it
+  had to move with it.
+- **One file feeds the build and the run.** The build bakes the values in; separately, the
+  agent lets a variable present at run time override a baked one, so an app started from
+  this shell reaches the backend even when the binary it spawns was built without
+  credentials. Those are two different failure modes and this answers both.
+- **One copy of the secret, in a directory no `git add -A` can reach.** `.envrc` is in this
+  repository's `.gitignore`, which matters more here than in the agent's tree: there, the
+  agent's own `.gitignore` was already covering for you.
+
+`.envrc` and `~/.config/bravebot/env` are per-machine. Neither is a substitute for building
+a release with the credentials present — see the note on `BRAVEBOT_ALLOW_UNCONFIGURED_BUILD`
+below.
 
 Without credentials the app still starts, lists sessions and opens them — only inference
 fails. That degraded mode is intentional, so the interface can be developed without

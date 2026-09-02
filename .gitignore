@@ -5,3 +5,6 @@ dist/
 *.log
 output.txt
 .DS_Store
+
+# Credentials, read from a file outside every checkout. See the README on Credentials.
+.envrc
