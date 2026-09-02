@@ -48,22 +48,15 @@ jobs:
     name: Lint and test the bridge
     runs-on: ubuntu-latest
     steps:
-      # Two checkouts, side by side, because `crates/bravebot-bridge/Cargo.toml` depends on
-      # the agent by path (`../../../bravebot/crates/...`) against a sibling checkout.
-      # `actions/checkout` will not write outside the workspace, so the sibling pair is made
-      # inside it rather than by cloning the agent to `..`.
+      # One checkout, with submodules: the agent is `vendor/bravebot`, and
+      # `crates/bravebot-bridge/Cargo.toml` depends on it by path from inside this tree.
+      # The gitlink is the pin, so this job compiles the same agent revision a developer
+      # gets — an upstream commit cannot turn this repository red on its own, and a bump
+      # of the pin is a pull request that CI runs before it lands.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           path: brave-bot-ui
-
-      # No ref: this builds against the agent's `main`, which is what a developer's sibling
-      # checkout usually is, so CI breaks when the agent breaks us rather than at the next
-      # person's `npm run bridge`. The cost is that an upstream change can turn this
-      # repository red without anything here having changed.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          repository: brave-experiments/brave-user-agent
-          path: bravebot
+          submodules: true
 
       # `rustup` rather than `dtolnay/rust-toolchain`, which is what this was and what the
       # agent's CI still uses. Brave's action-pinning rule wants a commit SHA followed by a
@@ -80,8 +73,8 @@ jobs:
           workspaces: brave-bot-ui
 
       # No `--locked`. Cargo.lock here pins the agent's dependency tree as well as our own,
-      # and the agent moves independently: the first upstream dependency bump would fail
-      # every run in this repository for a reason no change here caused.
+      # and the lock is regenerated whenever the submodule pin moves; a run that fails on a
+      # stale lock file would be reporting the bump rather than the change under test.
       #
       # `BRAVEBOT_ALLOW_UNCONFIGURED_BUILD=1` is not set here — `.cargo/config.toml` in this
       # repository already sets it, and these jobs compile and test rather than producing a

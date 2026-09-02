@@ -20,13 +20,29 @@ set -uo pipefail
 # The default has to agree with the path dependencies in
 # crates/bravebot-bridge/Cargo.toml, which are what actually decide whose sources get
 # compiled. Reading credentials from one checkout while cargo builds another produces a
-# binary nobody asked for, so the default is derived from this script's own location
-# rather than written out a second time.
+# binary nobody asked for, so the default is the submodule those paths point at rather
+# than a second spelling of the same location.
 #
-# BUA_AGENT_DIR is still read, because it may well be set in a shell profile from before
-# the agent was renamed. BRAVEBOT_DIR wins where both are set.
+# BRAVEBOT_DIR (and BUA_AGENT_DIR, which may be set in a shell profile from before the
+# agent was renamed) still win, for the case where the .envrc lives in an older sibling
+# checkout. That is credentials only: cargo compiles the submodule either way.
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-AGENT="${BRAVEBOT_DIR:-${BUA_AGENT_DIR:-$REPO/../bravebot}}"
+AGENT="${BRAVEBOT_DIR:-${BUA_AGENT_DIR:-$REPO/vendor/bravebot}}"
+
+# An un-initialised submodule is an empty directory, and cargo's error for it names a
+# missing Cargo.toml rather than the one command that fixes it.
+if [ ! -f "$REPO/vendor/bravebot/Cargo.toml" ]; then
+  echo "error: vendor/bravebot is empty. Run: git submodule update --init" >&2
+  exit 1
+fi
+
+# A `git pull` that moves the pin leaves the submodule where it was, and the build that
+# follows compiles an agent nobody chose. `git submodule status` marks that with a leading
+# `+`, which is the only warning anyone gets otherwise.
+if git -C "$REPO" submodule status vendor/bravebot 2>/dev/null | grep -q '^+'; then
+  echo "warning: vendor/bravebot is not at the pinned revision." >&2
+  echo "         Run \`git submodule update\` to build what this branch pins." >&2
+fi
 
 # direnv's allow list is keyed on the physical path of the .envrc, so a checkout reached
 # through a symlink reads as un-allowed however many times you run `direnv allow` on it.
@@ -37,7 +53,7 @@ fi
 build() { cargo build -p bravebot-bridge "$@"; }
 
 if [ ! -d "$AGENT" ]; then
-  echo "warning: no agent checkout at $AGENT (set BRAVEBOT_DIR)." >&2
+  echo "warning: no credential checkout at $AGENT (set BRAVEBOT_DIR)." >&2
   echo "         Building without credentials; inference will fail at run time." >&2
   build "$@"
   exit $?
@@ -64,7 +80,9 @@ warning: building bravebot-rpc WITHOUT backend credentials.
   The app will start, list sessions, and open them. The first inference request will
   fail with "SERVICES_KEY_AICHAT is not set and was not built in".
 
-  To fix: copy .envrc.example to .envrc in the agent checkout, run `direnv allow` there,
-  then build again.
+  To fix: copy .envrc.example to .envrc in vendor/bravebot, run `direnv allow` there,
+  then build again. (.envrc is ignored by the agent's own .gitignore, so it does not
+  show up as a dirty submodule.) If you already have one in an older sibling checkout,
+  BRAVEBOT_DIR pointed at that checkout is read for credentials instead.
 MSG
 build "$@"

@@ -1,6 +1,9 @@
 [workspace]
 resolver = "3"
 members = ["crates/bravebot-bridge"]
+# The agent is a path dependency inside this tree (a submodule), and it is its own
+# workspace. Without this, cargo pulls its crates into ours and both complain.
+exclude = ["vendor"]
 
 [workspace.package]
 version = "0.1.0"
