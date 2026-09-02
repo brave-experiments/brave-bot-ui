@@ -35,7 +35,7 @@ export default {
     await s.say('Context', "Everything the session touched, beside the conversation that caused it.", 2)
     await s.spotlight('.context', 1.6)
     await s.unspot()
-    await s.shot('04-context')
+    await s.shot('05-context')
 
     // Everything off first, so each panel arrives on an empty column and is the only thing
     // moving when its turn comes.
@@ -59,7 +59,7 @@ export default {
       await s.say(title, line, 1.8)
     }
 
-    await s.shot('04-panels')
+    await s.shot('05-panels')
     await s.say('Context', 'A panel folds from its own heading, too.')
     const head = page.locator('.panel-head').first()
     if (await head.count()) {

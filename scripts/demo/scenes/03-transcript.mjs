@@ -25,7 +25,7 @@ export default {
     }
 
     await s.say('The conversation', 'What was asked, and what came back.', 1.8)
-    await s.shot('02-transcript')
+    await s.shot('03-transcript')
 
     const asked = page.locator('.bubble.user').first()
     if (await asked.count()) {
@@ -45,7 +45,7 @@ export default {
       await s.say('Steps, gathered', 'It folds away — and folds back.', 1)
       await s.click(run)
       await s.beat(1.2)
-      await s.shot('02-tool-run')
+      await s.shot('03-tool-run')
     }
 
     // Confined content, if this session has any. Worth going to look for: it is the one part
@@ -60,7 +60,7 @@ export default {
       )
       await s.spotlight(page.locator('.quarantine').first(), 1.6)
       await s.unspot()
-      await s.shot('02-confined')
+      await s.shot('03-confined')
     }
 
     const reply = page.locator('.bubble.assistant').last()

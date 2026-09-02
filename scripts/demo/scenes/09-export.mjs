@@ -34,7 +34,7 @@ export default {
     await s.say('Export', 'Beside Send — and in the File menu, which offers the same three.')
     if (!(await s.openMenu(trigger))) s.skip('the export menu would not stay open')
     await s.say('Three formats', 'Plain text, Markdown, or a PDF that keeps the window’s own bubbles.', 2.4)
-    await s.shot('08-menu')
+    await s.shot('09-menu')
 
     await s.say(
       'What it leaves out',
@@ -86,7 +86,7 @@ export default {
     await s.openMenu(trigger)
     await s.click(page.locator('[role="menuitem"]').filter({ hasText: 'PDF' }).first())
     await page.waitForTimeout(2600 * s.speed)
-    await s.shot('08-export')
+    await s.shot('09-export')
     await s.say('PDF', `Written to ${(await written()) ?? s.exports}`, 2.4)
     await s.dismissNotice({ hold: 1 })
   },

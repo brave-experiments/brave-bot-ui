@@ -22,7 +22,7 @@
 // product: real prompts against the fixture checkouts, once, cached in the world for every run
 // afterwards. It costs a few tokens the first time and nothing after that.
 import { _electron as electron } from 'playwright-core'
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
@@ -73,6 +73,57 @@ const RECIPES = [
 export const projectsIn = (world) =>
   RECIPES.map((recipe) => join(world, 'projects', recipe.project))
 
+/**
+ * The bots that live in the world before the bots scene makes one of its own.
+ *
+ * A list of one is not a list, and the scene's own bot is made and unmade every take. These two
+ * stay, so the tab opens on a column with faces already in it and the one made on camera joins
+ * them — three faces, told apart at a glance, which is the claim the faces make. Each in one of
+ * the two checkouts, so the second line under a name differs too.
+ *
+ * One of them has been spoken to and the other has not, and that is the point of having two. A
+ * bot with a session looks slowly about in the list where one that has never spoken faces forward
+ * and waits; a bot that has been asked to remember something has a memory file with words in it
+ * where a new one says "nothing remembered yet"; and the session behind it holds the record of the
+ * write — the `Update` line naming its own memory file. All three are things the bots scene can
+ * point at without spending a token, so long as the world has them, and none of them can be shown
+ * with a bot made a moment ago.
+ *
+ * Written through the window's own channel rather than into `bravebot-ui.json`, so the slug, the
+ * seed and the rest are made the way the app makes them; and by `ensureWorld` on every launch
+ * rather than by the seeding run alone, since a definition is four fields and costs no turn, so
+ * there is no reason to tie it to a `--rebuild`. The one turn Night Watch is owed is earned the
+ * same way the sessions are — driven once, in the world, and kept — and only when it has no
+ * session yet. It has to happen before the filmed window opens: the list is read when the window
+ * mounts and again when a turn ends, and a bot written between the two is not in it until then.
+ */
+export const RESIDENT_BOTS = [
+  {
+    name: 'Release Notes',
+    project: 'harbour-lights',
+    purpose:
+      'You write the release notes for the harbour-lights checkout. Keep them short, in the past ' +
+      'tense, and grouped by what a user would notice.',
+    // Never spoken to. The one that waits.
+    prompts: [],
+  },
+  {
+    name: 'Night Watch',
+    project: 'tide-tables',
+    purpose:
+      'You look after the tide-tables checkout overnight. Say what changed since yesterday and ' +
+      'whether any of it needs a person.',
+    // One turn, and it names the memory file outright for the reason `13-bot-memory` gives: asked
+    // to "remember", a bot may say it will and write nothing, which is a fine answer and no record.
+    // Asked for a line in the file, it writes one, and the write is what the scene points at.
+    prompts: [
+      'Run `ls data` here, then add one line to your memory file: the tables under data/ are ' +
+        'generated, and a failure there overnight is the one thing that needs a person by morning. ' +
+        'Change nothing else.',
+    ],
+  },
+]
+
 /** Has anything been filmed here before? A world with no sessions is a world with no video. */
 const seeded = (world) => {
   const sessions = join(world, '.bravebot', 'sessions')
@@ -103,12 +154,120 @@ function layOut(world, { rebuild }) {
  */
 export async function ensureWorld(world, opts) {
   layOut(world, opts)
-  if (seeded(world) && !opts.rebuild) return { world, built: false }
+  if (seeded(world) && !opts.rebuild) {
+    await ensureResidents(world)
+    return { world, built: false }
+  }
 
   console.log(`building the demo world in ${world}`)
   console.log('  this drives real turns against the fixture checkouts, once — later runs reuse them')
   const built = await build(world)
+  await ensureResidents(world)
   return { world, built }
+}
+
+/**
+ * What the residents still lack: the ones not defined yet, and the ones owed a turn that have no
+ * session. A read of this app's own state file, which is ours, not the agent's record format.
+ */
+function residentsWanting(world) {
+  let bots = []
+  try {
+    const state = JSON.parse(readFileSync(join(world, 'userData', 'bravebot-ui.json'), 'utf8'))
+    bots = state.bots ?? []
+  } catch {
+    // No state yet, or none that parses: everything is wanting, which is the right answer.
+  }
+  const missing = RESIDENT_BOTS.filter((bot) => !bots.some((have) => have.name === bot.name))
+  const unspoken = RESIDENT_BOTS.filter(
+    (bot) => bot.prompts.length && !bots.some((have) => have.name === bot.name && have.session),
+  )
+  return { missing, unspoken }
+}
+
+/**
+ * Bring the resident bots up to what the scene expects: defined, and the one owed a session with
+ * it. Launches the app to do both through the window, and closes it again. A few seconds when a
+ * definition is missing, a turn's worth when the session is, and nothing at all otherwise.
+ */
+async function ensureResidents(world) {
+  const { missing, unspoken } = residentsWanting(world)
+  if (!missing.length && !unspoken.length) return
+  if (missing.length) console.log(`  adding ${missing.map((bot) => bot.name).join(' and ')} to the world's bots`)
+
+  const app = await electron.launch({
+    args: ['.', `--user-data-dir=${join(world, 'userData')}`],
+    cwd: process.cwd(),
+    timeout: 40000,
+    env: { ...process.env, HOME: world },
+  })
+  try {
+    let page = await app.firstWindow()
+    await page.waitForLoadState('domcontentloaded')
+    page.on('pageerror', (e) => console.log('PAGE ERROR:', e.message))
+    await page.waitForTimeout(1500)
+
+    if (missing.length) {
+      const homes = Object.fromEntries(
+        missing.map((bot) => [bot.name, join(world, 'projects', bot.project)]),
+      )
+      await page.evaluate(
+        async ([bots, homes]) => {
+          for (const bot of bots) {
+            await window.bravebot.writeBot({ name: bot.name, purpose: bot.purpose, directory: homes[bot.name] })
+          }
+        },
+        [missing, homes],
+      )
+      await page.waitForTimeout(500)
+      if (unspoken.length) {
+        // The list is read when the window mounts, so a bot written since is not in it to be
+        // opened. Nothing is filmed here, so the window can simply start again.
+        await page.reload()
+        await page.waitForLoadState('domcontentloaded')
+        await page.waitForTimeout(2000)
+      }
+    }
+
+    if (unspoken.length) {
+      if (await page.locator('.unconfigured').isVisible().catch(() => false)) {
+        console.log('  the agent has no credentials built in, so the residents stay unspoken to')
+        return
+      }
+      await page.locator('.sidebar-tab').nth(1).click()
+      await page.waitForTimeout(600)
+      for (const bot of unspoken) {
+        const row = page
+          .locator('.bot')
+          .filter({ has: page.locator('.bot-name', { hasText: new RegExp(`^${bot.name}$`) }) })
+        if (!(await row.count())) {
+          console.log(`  ${bot.name} is not in the list; leaving it unspoken to`)
+          continue
+        }
+        await row.locator('.bot-open-button').click()
+        await page.waitForTimeout(1600)
+        if (await page.locator('.trust').isVisible().catch(() => false)) {
+          await page.locator('.trust-actions .approve').click()
+          await page.waitForTimeout(800)
+        }
+        for (const prompt of bot.prompts) {
+          console.log(`  ${bot.name}: ${prompt.slice(0, 62)}…`)
+          await page.locator('.composer textarea').fill(prompt)
+          await page.locator('.composer .send').click()
+          if (!(await settle(page))) {
+            console.log('    the turn did not finish in time; keeping what it managed')
+            break
+          }
+        }
+        // The bots tab again, for the next one — opening a bot shows its transcript and leaves
+        // the sessions list in the column.
+        await page.locator('.sidebar-tab').nth(1).click()
+        await page.waitForTimeout(400)
+      }
+    }
+  } finally {
+    await app.close()
+  }
 }
 
 /** Everything the seeding run needs to know about a turn that is still going. */

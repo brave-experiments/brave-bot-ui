@@ -37,7 +37,7 @@ export default {
     await openNewest(s, { hold: 1.2 })
 
     await s.say('Three columns', 'Sessions, the conversation, and what the session has touched.', 2)
-    await s.shot('03-columns')
+    await s.shot('04-columns')
 
     await s.say('Drag a divider', 'Either side resizes from the hairline between the columns.')
     await drag(s, '.gutter:not(.inert) >> nth=0', 110)
@@ -59,7 +59,7 @@ export default {
     await s.say('Fold a column away', 'The conversation takes the room.', 1.4)
     await s.click('.fold-toggle.right')
     await s.beat(1.4)
-    await s.shot('03-folded')
+    await s.shot('04-folded')
 
     await s.say('And back', 'Each returns to the width it left at — and would after a relaunch.')
     await s.click('.fold-toggle.right')

@@ -678,8 +678,9 @@ class names — but paced in beats rather than in milliseconds, and it films its
 ```bash
 npm run demo -- --record             # the whole product, no model calls, to a .mov
 npm run demo -- --record --live      # plus a real turn, an approval card, a question,
-                                     #   a bot writing its own memory, and what it kept
-npm run demo -- --only 07-fork       # one scene, for a retake
+                                     #   a bot at work — its face looking down at the page —
+                                     #   writing its own memory, and what it kept
+npm run demo -- --only 08-fork       # one scene, for a retake
 npm run demo -- --list               # what it would film, in order
 ```
 
@@ -720,7 +721,9 @@ file tree are all the world's. `/Users/Shared` rather than the home directory be
 it ends up on screen, and a home directory has somebody's name in it.
 
 The world holds two invented checkouts — `harbour-lights` and `tide-tables`, copied out of
-`scripts/demo/project/` — the sessions the demo earned in them, and the bot the bots scene makes in
+`scripts/demo/project/` — the sessions the demo earned in them, two resident bots (`RESIDENT_BOTS`:
+one never spoken to, one with a session and a line in its memory file, so the bots scene has a
+waiting face and a remembering one to point at), and the bot the bots scene makes in
 `harbour-lights` each time it plays. **Earned, not written.**
 Seeding the records by hand would mean encoding the agent's own on-disk format here: a format
 that is upstream, is not ours, and is rewritten after every turn. A demo that hard-coded it
