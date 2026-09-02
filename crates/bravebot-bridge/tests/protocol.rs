@@ -20,6 +20,36 @@ fn absent_params_read_as_an_empty_object() {
     assert!(request.optional_string("directory").is_none());
 }
 
+/// A flag whose absence has to mean the old behaviour, or adding one breaks every caller that
+/// predates it. `turn.send`'s `recall` is the case this exists for: a front-end that has never
+/// heard of it sends nothing and keeps its prompts in the history, where reading absence as
+/// `false` would silently empty the up-arrow for everybody who had not been told.
+#[test]
+fn an_optional_flag_reads_as_its_default_unless_it_is_really_there() {
+    let sent = Request::parse(r#"{"id":1,"method":"turn.send","params":{"recall":false}}"#)
+        .expect("should parse");
+    assert!(!sent.flag("recall", true));
+
+    let absent = Request::parse(r#"{"id":2,"method":"turn.send","params":{}}"#)
+        .expect("should parse");
+    assert!(absent.flag("recall", true));
+    assert!(!absent.flag("recall", false));
+
+    // Not a boolean is not an argument. A string "false" is a front-end with a bug, and the
+    // answer to it is the behaviour that was already promised rather than a turn that vanishes
+    // from somebody's history because of a quoting mistake.
+    for wrong in [
+        r#"{"id":3,"method":"turn.send","params":{"recall":"false"}}"#,
+        r#"{"id":4,"method":"turn.send","params":{"recall":0}}"#,
+        r#"{"id":5,"method":"turn.send","params":{"recall":null}}"#,
+    ] {
+        assert!(
+            Request::parse(wrong).expect("should parse").flag("recall", true),
+            "{wrong} should have read as the default"
+        );
+    }
+}
+
 /// A bad line with a recoverable id can be answered. One without cannot: the front-end is
 /// waiting on a number nobody knows, and inventing one would answer the wrong request.
 #[test]

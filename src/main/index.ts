@@ -133,6 +133,31 @@ const ALLOWED = new Set([
   'doctor',
 ])
 
+/**
+ * The params a method is allowed to have arrived with.
+ *
+ * `turn.send` now takes two lists of file paths — `files`, read inside the workspace, and
+ * `dropped`, which may be read anywhere on the disk — and both are admitted to the planner as
+ * *trusted* context. Nothing else a renderer can say has that reach: the file tree is confined to
+ * roots this process learnt from the agent, the folder picker is native, and the preload has never
+ * carried a file's contents in either direction.
+ *
+ * So they are removed here rather than trusted here. A window that could name a file to read would
+ * be a window that could have the planner read any file on the machine, and the way to be sure it
+ * cannot is that the general channel does not forward the words at all.
+ *
+ * `recall` joins them for a smaller reason. It decides whether a prompt is one a person can find
+ * again under the up-arrow, which is a claim about who asked — this process's to make, not a
+ * window's. Nothing worse than a lost history entry is at stake; it is here because the answer to
+ * "may the renderer say this?" is the same either way.
+ */
+function sanitised(method: string, params: unknown): Record<string, unknown> {
+  const held = (params ?? {}) as Record<string, unknown>
+  if (method !== 'turn.send') return held
+  const { files: _files, dropped: _dropped, recall: _recall, ...rest } = held
+  return rest
+}
+
 /** What the save sheet offers per format. */
 const FILTERS: Record<ExportFormat, Electron.FileFilter> = {
   txt: { name: 'Plain Text', extensions: ['txt'] },
@@ -177,7 +202,7 @@ app.whenReady().then(() => {
       return { error: { code: 'no_bridge', message: 'the agent is not running' } }
     }
     try {
-      const ok = await bridge.request(method, (params ?? {}) as Record<string, unknown>)
+      const ok = await bridge.request(method, sanitised(method, params))
       // Opening a session is the other way a project becomes recent, and this handler is
       // already the choke point that sees it. Reading one field it is forwarding anyway is
       // a smaller thing than a channel that would let the renderer write the list itself.

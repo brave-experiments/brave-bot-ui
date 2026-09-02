@@ -499,7 +499,7 @@ confirmation is **refused** (§8.4). Returns `{}` once the worker has joined.
 ```json
 { "id": 5, "method": "turn.send",
   "params": { "session": "s1", "prompt": "why does the parser drop trailing commas?",
-              "files": ["notes.md"] } }
+              "files": ["notes.md"], "dropped": ["/Users/me/briefing.md"] } }
 ```
 
 Builds a `Workspace` over the session's project, then re-opens any extra directories the
@@ -510,8 +510,23 @@ the workspace. One that has since moved or been deleted is left closed — the r
 causes is the one that was already happening, and this protocol has no way to say so
 outside a turn.
 
-Builds a `Task::new(prompt)`, applies `with_file` per entry of `files`, and
-`with_home(home::directory())`. Spawns the worker thread and calls `turn::resume` with an
+Builds a `Task::new(prompt)`, applies `with_file` per entry of `files`,
+`with_dropped_text` per entry of `dropped`, and `with_home(home::directory())`.
+
+Both lists are optional and both default to empty. They differ in where a path may point
+and in nothing else: `files` is workspace-relative and read inside the project, while
+`dropped` may name anything on the disk — upstream calls it the read that is not confined
+to the workspace, because a dropped path came from a gesture rather than from anything a
+model said. Both are trusted for the same reason, both are vouched for by being named
+(`policy.vouch_for_named_path`), and both land in the conversation as ordinary user
+messages reading `Contents of <path>: …`, which means **they accumulate**: a file attached
+to every turn is a copy of that file per turn.
+
+A path that cannot be read as text ends the turn — `turn.error` with `kind: "workspace"` —
+rather than being skipped. A caller that attaches a file it maintains has to make sure the
+file is there immediately before the send, not once when it was first named.
+
+Neither list may be named by a renderer in this app; see §9 and `src/main/index.ts`. Spawns the worker thread and calls `turn::resume` with an
 RPC `Confirmer`, an RPC `Reporter`, and a `Trail` sink — the same call shape as
 `crates/tui/src/app.rs:562`, differing only in where the three handles send.
 
@@ -519,7 +534,15 @@ Returns immediately: `{ "turn": 5 }`, the turn number within the session. Progre
 arrives as events; completion as `turn.done` or `turn.error`.
 
 The prompt is appended to `~/.bravebot/history` (via the moved `store::append_history`), so
-recall works across both front-ends.
+recall works across both front-ends, and it names the session if the session has no name yet.
+
+`recall` (optional, default `true`) governs both. A front-end that sends a turn **on its own
+account** rather than on a person's — the window asking a bot to bring its memory up to date after
+a compaction, say — sets it `false`, and the prompt then joins neither the history nor the title.
+Recall is for what somebody typed: boilerplate one front-end wrote would otherwise turn up under
+the up-arrow in the other, and a conversation would be named after the one thing nobody in it
+asked. Anything that is not a boolean reads as the default, so a caller that has never heard of it
+keeps the behaviour it had.
 
 **One turn at a time per session.** A second `turn.send` on a session with a turn in
 flight errors `turn_in_flight`. Different sessions run concurrently.
@@ -692,7 +715,8 @@ whose events all share one second cannot say which came first.
   "model": "claude-…", "steps": 3, "clean": true,
   "tokens": 51234, "outputTokens": 812,
   "notices": ["loaded AGENTS.md"],
-  "trust": { "rules": [ { "path": "…", "integrity": "untrusted" } ] }
+  "trust": { "rules": [ { "path": "…", "integrity": "untrusted" } ] },
+  "id": "0f1c…", "archived": 0
 } }
 ```
 
@@ -705,6 +729,23 @@ leave.
 records that path as untrusted, and the next turn must carry it forward or it would read
 the data back as trusted. The agent persists this itself; it is echoed so the client can
 show the change.
+
+`id` is the session's durable name, and this is the first moment it is one: a session
+writes no record until it has something to say, so `session.new` has nothing to hand back
+and the id is minted by the save below. `null` only where a record could not be written. A
+client keeping a note of its own about a session — which is the only way to keep one, the
+agent's record having no field for anybody else's — learns the name here rather than by
+guessing which row in a refreshed list is the one it just made.
+
+`archived` is how many messages compaction has taken out of this conversation, in total.
+It only ever rises, and it rises exactly when the conversation stopped carrying what was
+said before the summary. It is reported rather than inferred from the `compacting` phase
+because that phase is emitted *before* compaction is attempted — so it also fires when
+there was nothing worth compacting, and then on every round of a conversation that is over
+budget and cannot get under it. Anything a client puts at the top of a session and needs to
+stay there has to watch this figure, not that phase. `session.open` carries the same field,
+read off the record, so a session resumed in a new process knows it without having watched
+it happen.
 
 The record is saved (`Session::save` with a `Standing`) before this event is emitted, so
 a client that reloads on receipt sees the same thing on disk.

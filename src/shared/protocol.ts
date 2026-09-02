@@ -88,6 +88,14 @@ export interface OpenedSession {
   trust: { known: boolean; rules: { path: string; integrity: string }[] | null }
   branchNote: string | null
   buildNote: string | null
+  /**
+   * How many messages compaction has taken out of this conversation, in total.
+   *
+   * Only ever rises, and rises exactly when the session stopped carrying what was said before the
+   * summary. Anything a front-end put at the top of a session — a bot's briefing, say — has to be
+   * said again when this has gone up since it last looked.
+   */
+  archived: number
 }
 
 /**
@@ -142,6 +150,17 @@ export interface TurnDone {
   outputTokens: number
   notices: string[]
   trust: { rules: { path: string; integrity: string }[] }
+  /**
+   * The session's durable id, real from this event onwards.
+   *
+   * `null` only where a record could not be written. It is *this* turn that created one — a
+   * session writes nothing until it has something to say — so a front-end keeping a note of its
+   * own about a session learns its name here rather than by guessing which row in the list is
+   * the one it just made.
+   */
+  id: string | null
+  /** As on `OpenedSession`. */
+  archived: number
 }
 
 export interface TurnError {

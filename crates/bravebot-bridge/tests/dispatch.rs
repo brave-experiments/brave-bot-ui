@@ -300,3 +300,73 @@ fn forking_needs_a_numeric_prompt_and_the_words_that_go_with_it() {
         "the prompt's own words are how the ordinal is checked, so they are required too",
     );
 }
+
+/// The two lists of paths a turn can carry, and what a turn without them means.
+///
+/// `dropped` is new beside `files`, and the pair is what lets a front-end put a standing
+/// briefing in front of a session that has been compacted: a named file is read inside the
+/// workspace, a dropped one may sit anywhere. Neither is required, and a turn that names
+/// neither must behave exactly as every turn did before either existed — which is what the
+/// first half of this asserts, since a `dropped` that defaulted to anything but nothing
+/// would attach a file to every turn in the app.
+#[test]
+fn a_turn_may_name_files_or_none_and_none_is_the_default() {
+    let (mut bridge, _) = harness();
+    let opened = call(
+        &mut bridge,
+        "session.new",
+        json!({ "directory": std::env::temp_dir().display().to_string() }),
+    )
+    .expect("opens");
+    let handle = opened["session"].as_str().expect("a handle").to_string();
+    assert!(
+        call(&mut bridge, "trust.reply", json!({ "session": &handle, "trusted": false })).is_ok()
+    );
+
+    // Past the trust gate in both shapes. What stops it after that is configuration, which is
+    // not what this is about — the assertion is that naming paths is not itself a refusal, and
+    // that leaving them out is not one either.
+    let bare = call(&mut bridge, "turn.send", json!({ "session": &handle, "prompt": "hello" }));
+    assert_ne!(bare, Err(ErrorCode::BadRequest), "a turn naming nothing is still a turn");
+
+    let named = call(
+        &mut bridge,
+        "turn.send",
+        json!({
+            "session": &handle,
+            "prompt": "hello",
+            "files": ["README.md"],
+            "dropped": ["/tmp/briefing.md"],
+        }),
+    );
+    assert_ne!(named, Err(ErrorCode::BadRequest), "naming paths is not a refusal");
+}
+
+/// A `dropped` that is not a list of strings is ignored rather than fatal.
+///
+/// The same treatment `files` beside it has always had. These arrive from a front-end that may
+/// be newer or older than this bridge, and a malformed list is a turn that carries no briefing
+/// — which is a worse turn, not a refused one.
+#[test]
+fn a_malformed_dropped_list_costs_the_files_and_not_the_turn() {
+    let (mut bridge, _) = harness();
+    let opened = call(
+        &mut bridge,
+        "session.new",
+        json!({ "directory": std::env::temp_dir().display().to_string() }),
+    )
+    .expect("opens");
+    let handle = opened["session"].as_str().expect("a handle").to_string();
+    assert!(
+        call(&mut bridge, "trust.reply", json!({ "session": &handle, "trusted": false })).is_ok()
+    );
+
+    for wrong in [json!("a string"), json!(7), json!(null), json!([1, 2])] {
+        let sent = call(
+            &mut bridge,
+            "turn.send",
+            json!({ "session": &handle, "prompt": "hello", "dropped": wrong }),
+        );
+        assert_ne!(sent, Err(ErrorCode::BadRequest), "a bad list is not a bad request");
+    }
+}
