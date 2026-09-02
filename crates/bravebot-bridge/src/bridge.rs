@@ -877,6 +877,14 @@ fn work(work: Work) {
             // a set that came back smaller than it went in would be a lost permission.
             state.programs = outcome.programs.clone();
             state.tokens += outcome.tokens;
+            // Added to rather than set: a turn that compacted part way through has already put
+            // that cost here under the same number, and the breakdown has to add up to the total.
+            *state.spend.entry(turn).or_insert(0) += outcome.tokens;
+            // Left as it was when a turn never reached a server, so a record keeps the last model
+            // that actually answered rather than forgetting it to a turn that failed early.
+            if !outcome.model.is_empty() {
+                state.model = Some(outcome.model.clone());
+            }
 
             let archived = save(&project, &mut state, turn, sink.trail());
 
@@ -969,6 +977,8 @@ fn save(
             conversation: &snapshot,
             turns: state.turns,
             tokens: state.tokens,
+            spend: &state.spend,
+            model: state.model.as_deref(),
             todos: &state.todos,
             trust: &state.trust,
             programs: &state.programs,
