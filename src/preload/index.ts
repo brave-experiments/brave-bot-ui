@@ -224,7 +224,6 @@ const api = {
     return ipcRenderer.invoke('bravebot:bots:send', request) as Promise<Answer<{ turn: number }>>
   },
 
-
   /**
    * One directory of the folder a session is working in, or `null` for anything it may not see.
    *
@@ -314,6 +313,40 @@ const api = {
    */
   publishState(state: WindowState): void {
     ipcRenderer.send('bravebot:menu:state', state)
+  },
+
+  /**
+   * Listen for turns the main process sent on a bot's behalf, rather than a person.
+   *
+   * Two announcements over one channel pair: `consolidating` when such a turn goes out, and
+   * `consolidated` when it ends however it ends. The window needs both — the first because a
+   * transcript that drew a reply with no prompt above it would be a transcript with a hole in it,
+   * and the second because such a turn carries the briefing, so by the time it is over the session
+   * is grounded again and the next thing the user types must not carry it a second time.
+   *
+   * It carries a handle and a slug and no more. Nothing about what was said crosses here; the
+   * words arrive as ordinary events like everything else.
+   */
+  onBotConsolidation(
+    listener: (state: {
+      session: string
+      slug: string | null
+      running: boolean
+      delivered: boolean
+    }) => void,
+  ): () => void {
+    const started = (_event: IpcRendererEvent, at: { session: string; slug: string }) =>
+      listener({ ...at, running: true, delivered: false })
+    const ended = (
+      _event: IpcRendererEvent,
+      at: { session: string; slug: string | null; delivered: boolean },
+    ) => listener({ ...at, running: false })
+    ipcRenderer.on('bravebot:bots:consolidating', started)
+    ipcRenderer.on('bravebot:bots:consolidated', ended)
+    return () => {
+      ipcRenderer.off('bravebot:bots:consolidating', started)
+      ipcRenderer.off('bravebot:bots:consolidated', ended)
+    }
   },
 
   /** Listen for everything the agent announces. Returns an unsubscribe. */

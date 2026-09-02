@@ -30,7 +30,8 @@ The full argument, and the alternative that was rejected, is in
 Three columns, each side one resizable and foldable:
 
 - **Sessions** — everything under `~/.bravebot/sessions`, newest first, and a button to start a
-  new one against any directory.
+  new one against any directory. A second tab beside it holds the **bots**: named, persistent
+  agents with a purpose and a memory, each pinned to one checkout. See *Bots* below.
 - **Transcript** — the conversation, with the turn's tool calls gathered into runs that
   fold away, and confined content shown as what it is rather than as text the model read.
   Five kinds of question are put here and answered here: a **write** (as a diff), a
@@ -212,6 +213,44 @@ happened, and it is written into the record, so a session resumed in a new proce
 having watched it happen. A bot is re-grounded when that figure has gone up, and when its session
 has just been opened.
 
+#### When it is asked to write
+
+None of the above makes a bot *remember*. It only puts the instruction in front of it, and the
+instruction is in the briefing — so for as long as a session ran without being re-grounded, nothing
+was asking. In practice a memory changed when somebody said "remember that", and not otherwise.
+
+Two things close that, and neither of them attaches anything to an ordinary turn:
+
+- **A compaction is answered with a turn of the app's own.** A rise in the archive is the one moment
+  memory is unambiguously *for*, since it is the only thing that survived. Instead of waiting for
+  the next prompt to carry the briefing, the main process sends a turn saying so, grounded — which
+  is not an extra cost, because that prompt would have carried the briefing anyway. What it spends
+  is a round trip.
+- **A bot that has stopped writing is grounded early.** A count on the bot rises each time one of
+  its turns ends without its memory file's mtime moving, and at six the next turn carries the
+  briefing whether the window thought it was due or not, with one extra paragraph asking whether
+  anything since is worth keeping. It resets on the nudge as well as on a write, so a bot that
+  ignores it gets six more turns of quiet rather than a briefing stapled to everything it is asked.
+
+Both figures are main-written, like the session id and the archive watermark beside them: the form
+can say four things about a bot, and when it is reminded to remember is not one of them.
+
+Neither checks that the model wrote anything, because checking would mean parsing what it said, and
+the rule this feature is built on is that the change the agent applied is the record. The mtime is
+the only claim involved that nothing can be talked into.
+
+A turn the app sends is also kept out of `~/.bravebot/history`, which is recall and is shared with
+the terminal front-end. That is what `recall: false` on `turn.send` is for: what belongs under the
+up-arrow is what somebody typed, and boilerplate this window wrote turning up in the terminal's
+history would be this app spending somebody else's furniture. The same flag holds the prompt back
+from naming the session, by the same argument.
+
+A turn the app sent is **not drawn as one somebody typed**. It opens with a mark this app composes,
+the transcript draws a line for it rather than a prompt bubble, and a reopened session recognises it
+by that mark — the same judgement, for the same reason, that a handed-over file gets. The cost of
+recognising a turn by its first line is that typing that line oneself gets the same treatment; the
+mark is long and bracketed, so doing it is a thing somebody does on purpose.
+
 #### What a memory write is actually gated on
 
 Not on it being the memory. A memory write goes through the agent's ordinary write gate
@@ -235,8 +274,8 @@ would be shown as a diff before it happened. It was false — found by filming i
 panel say `APPLIED` with no card in the transcript. A false promise in a briefing is worse than
 none, since it is the model telling somebody something the app does not do. Tightening it further is
 not available from here: there is no "always ask about this path" upstream, and adding one would be
-a change to a repository this app does not modify. The briefing says what is true instead — that
-the edit is on the record rather than in front of a card.
+a change to a repository this app does not modify. The briefing now says what is true instead —
+that the edit is on the record rather than in front of a card.
 
 Two more things are honestly imperfect and worth knowing:
 
@@ -342,6 +381,7 @@ crates/bravebot-bridge/        the Rust library and the bravebot-rpc binary
   tests/                  eight integration suites, including the refusal guarantees
 src/main/                 Electron main: one window, one child process, a narrow channel
   menu.ts                 the application menu, built from the shared command list
+  bots.ts                 the bots, and the two files each one speaks through
   state.ts                bravebot-ui.json: everything remembered, one key per shape
   files.ts                listing and opening inside a session's own folder
   recents.ts              the projects opened before, which only this side writes
@@ -351,8 +391,13 @@ src/renderer/             the React app
   commands.ts             what a chosen menu item does — and what it deliberately cannot
   theme.ts                putting a palette on the window, as DOM rather than as a render
   components/ThemePicker.tsx  the picker, which previews on the window behind it
+  components/Sidebar.tsx  the left column, and the choice of which list is in it
+  components/BotAvatar.tsx  a bot's face, in a row
+  avatar/stage.ts         one WebGL context, however many avatars, and the clock they move on
+  avatar/figure.ts        what a friendly figure is made of, and what a seed varies
 src/shared/               types both sides agree on
   theme.ts                the palette format, ported from the agent's own theme.rs
+  bots.ts                 what a bot is, and which half of one a window may write
 scripts/                  the bridge build, a live smoke test, and the app drivers
 docs/                     the protocol design
 ```
@@ -368,6 +413,7 @@ One file, `bravebot-ui.json` under `app.getPath('userData')`, with a key per sha
 | `panels` | Which panels in the context column are turned **off** |
 | `recents` | The projects opened before, newest first |
 | `forks` | Which session came out of which |
+| `bots` | The bots defined here: name, purpose, avatar seed, checkout, session and compaction watermark |
 | `theme` | Which palette the window is painted in, by name |
 
 A file rather than `localStorage`, because the renderer is loaded from `file://` and Chromium
@@ -375,15 +421,23 @@ discards storage for that origin between launches — measured, not assumed.
 
 One file, but not one judgement: `src/shared/state.ts` decides nothing itself. It delegates each
 key whole to the validator that already owned that shape — `parseLayout`, `parseView`,
-`parsePanels`, `parseRecents`, `parseForks` — so a hand-edited grouping flag still cannot cost
+`parsePanels`, `parseRecents`, `parseForks`, `parseBots` — so a hand-edited grouping flag still cannot cost
 somebody their column widths. Every write goes through `src/main/state.ts`, which replaces exactly
 one key and leaves the rest of the file as it found it, and what lands on disk is always the parsed
 state rather than the object a caller passed.
 
-The renderer reaches four of those keys, and only through a channel of its own per shape:
-`layout`, `view`, `panels` and `theme`. `recents` and `forks` are written by the main process alone, from a
+The renderer reaches five of those keys, and only through a channel of its own per shape:
+`layout`, `view`, `panels`, `theme` and `bots`. `recents` and `forks` are written by the main process alone, from a
 native picker and from what the *agent* answered — the window can read them and has no way to
 write a line into either.
+
+`bots` is the one key that is written from both sides, and the split runs through the middle of a
+single record. A bot's name, purpose and checkout are a preference somebody types and cross from
+the window like any other. Its slug, its avatar seed, the id of the session behind it and the count
+of what compaction has taken from that session do not: the first two are minted in the main process
+so that a string arriving from a window never becomes a path segment, and the last two are read off
+what the *agent* answered on `turn.done`, which is the same promise the fork lineage makes one line
+up.
 
 This replaces `layout.json`, `view.json`, `recents.json` and `forks.json`. Those are read once, on
 the first launch after the change, so nobody loses their columns to a rename; they are then left
@@ -546,9 +600,10 @@ at, that a control keeps keyboard focus through an animation.
 | `npm run drive:tree` | The file tree: listing, expanding, the dotfile toggle, the name filter, and that a session with no root and a symlink out of the project both list nothing |
 | `npm run drive:theme` | Themes: that previewing repaints before anything is written down, that Escape restores exactly, that every derived token survives a palette, that editing a palette repaints without a relaunch, and that a PDF stays white regardless |
 | `npm run drive:bots` | Bots: that the column has two lists and remembers which, that a bot survives a relaunch with what was typed into it, and that two bots have different faces while one bot keeps its own across a rename — asserted on the *form* the seed built, since the face is turning while it is looked at |
-| `npm run drive:bot-turn` | A live turn as a bot: that a purpose nobody typed reaches the model, that the memory file is real and in the checkout, and that reopening the bot resumes the same session |
 | `npm run drive:packaged` | A built `.app`: that a release hides the developer items and finds its agent |
 | `npm run drive:astar` | One long piece of real work, start to finish: a new session in an empty checkout, every question it puts answered yes, and what the window has to show for it |
+| `npm run drive:bot-turn` | A live turn as a bot: that a purpose nobody typed reaches the model, that the memory file is real and in the checkout, and that reopening the bot resumes the same session |
+| `npm run drive:bot-memory` | That a bot is asked to keep its memory current without anybody asking it to: that one which has gone quiet is handed its briefing again with a line saying so, that the count resets on the nudge rather than on every turn, and that a turn the app sent is drawn as house-keeping in a reopened transcript rather than as a prompt |
 | `node scripts/drive-turn.mjs` | A live inference request through the window, to prove the binary carries its credentials rather than inheriting them |
 | `scripts/smoke-turn.sh` | A live turn straight through `bravebot-rpc`, no app |
 
@@ -570,8 +625,9 @@ follow-up to the session already there instead of building from nothing, and
 `ASTAR_INSPECT=1` opens that session and reports what the panels say without spending a turn.
 
 Each driver launches the app, prints a line per assertion and leaves screenshots in
-`/tmp/bravebot-ui/`. Seven of them cost real tokens: `drive:markdown`, `drive:run`, `drive:ask`,
-`drive:astar`, `drive:bot-turn`, `drive-turn.mjs` and `smoke-turn.sh` send an actual prompt, and `smoke-turn.sh` needs a shell where `direnv` has
+`/tmp/bravebot-ui/`. Eight of them cost real tokens: `drive:markdown`, `drive:run`, `drive:ask`,
+`drive:astar`, `drive:bot-turn`, `drive:bot-memory`, `drive-turn.mjs` and `smoke-turn.sh` send an
+actual prompt, and `smoke-turn.sh` needs a shell where `direnv` has
 loaded the agent's `.envrc`.
 
 The drivers share `bravebot-ui.json`, so one that leaves a column folded — or a panel turned off —
@@ -593,7 +649,8 @@ class names — but paced in beats rather than in milliseconds, and it films its
 
 ```bash
 npm run demo -- --record             # the whole product, no model calls, to a .mov
-npm run demo -- --record --live      # plus a real turn, an approval card and a question
+npm run demo -- --record --live      # plus a real turn, an approval card, a question,
+                                     #   a bot writing its own memory, and what it kept
 npm run demo -- --only 07-fork       # one scene, for a retake
 npm run demo -- --list               # what it would film, in order
 ```
@@ -623,15 +680,20 @@ A demo of this app is a demo of somebody's session list, and a session list is a
 what they have actually been doing: real project names, real prompts, real paths, and — in
 the file tree — the real contents of a real directory. So the demo does not film the machine.
 
-It launches with `$HOME` pointed at a **demo world** under `/Users/Shared/bravebot-ui-demo`.
-That is the whole mechanism: the agent finds `~/.bravebot` by reading `HOME` and nothing else
-(`crates/agent/src/home.rs`), and Electron derives `userData` from it too, so the session list,
-the recents, the column widths and the file tree are all the world's. `/Users/Shared` rather
-than the home directory because every path in it ends up on screen, and a home directory has
-somebody's name in it.
+It launches with `$HOME` pointed at a **demo world** under `/Users/Shared/bravebot-ui-demo`, and
+with `--user-data-dir` pointed inside it. Both, and it took both: the agent finds `~/.bravebot` by
+reading `HOME` and nothing else (`crates/agent/src/home.rs`), so that half sanitises the sessions —
+but on macOS Electron derives `userData` from the password database rather than from the
+environment, so with `HOME` alone a run still read and wrote the machine's *real*
+`bravebot-ui.json`. That put real things on camera: the recents list is real project paths and
+File ▸ Open Recent is filmed, and the bots list is real names and purposes and the bots tab is
+filmed. With both redirections the session list, the recents, the bots, the column widths and the
+file tree are all the world's. `/Users/Shared` rather than the home directory because every path in
+it ends up on screen, and a home directory has somebody's name in it.
 
 The world holds two invented checkouts — `harbour-lights` and `tide-tables`, copied out of
-`scripts/demo/project/` — and the sessions the demo earned in them. **Earned, not written.**
+`scripts/demo/project/` — the sessions the demo earned in them, and the bot the bots scene makes in
+`harbour-lights` each time it plays. **Earned, not written.**
 Seeding the records by hand would mean encoding the agent's own on-disk format here: a format
 that is upstream, is not ours, and is rewritten after every turn. A demo that hard-coded it
 would break silently on a bump, months later, in a recording somebody was about to publish. So

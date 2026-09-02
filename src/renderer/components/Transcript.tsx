@@ -44,9 +44,9 @@ export type Answer = (
 export type AnswerQuestions = (request: number, answers: AskAnswer[]) => void
 
 interface Props {
+  live: Live | null
   /** The bot whose session this is, if one is. Its name is what the header says instead of a title. */
   bot: Bot | null
-  live: Live | null
   pending: t.Asking | null
   problem: string | null
   collapsed: Record<Side, boolean>
@@ -116,8 +116,8 @@ function ColumnToggle({
 
 /** The middle column: the conversation, and everything the turn did inside it. */
 export function Transcript({
-  bot,
   live,
+  bot,
   pending,
   problem,
   collapsed,
@@ -217,6 +217,7 @@ export function Transcript({
                 className="where"
                 title={`${live.summary.directory}${live.summary.branch ? ` · ${live.summary.branch}` : ''}`}
               >
+                {bot && `${live.summary.title} · `}
                 {live.summary.directory}
                 {live.summary.branch && ` · ${live.summary.branch}`}
               </span>
@@ -731,6 +732,13 @@ function Row({
           Read {entry.path}
         </div>
       )
+
+    case 'consolidation':
+      // The same line register as the attachment above, and deliberately not a bubble. This is
+      // something that happened on the way to a reply rather than something anybody said, and the
+      // whole reason it has an entry of its own is that drawing it as a prompt would claim
+      // otherwise. See `CONSOLIDATION_MARK`.
+      return <div className="attached consolidation">Asked to bring its memory up to date</div>
 
     case 'error':
       return <div className="bubble failed">{entry.text}</div>

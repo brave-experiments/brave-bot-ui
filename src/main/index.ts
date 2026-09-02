@@ -8,9 +8,9 @@
  */
 
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
+import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { randomUUID } from 'node:crypto'
 import { Bridge, BridgeError } from './bridge'
 import { parseLayout } from '../shared/layout'
 import { parseView } from '../shared/view'
@@ -20,18 +20,23 @@ import { noteProject, recents } from './recents'
 import { putBots, putLayout, putPanels, putTheme, putView, readState } from './state'
 import { parsePanels } from '../shared/state'
 import { isProjectPath } from '../shared/recents'
+import { forks, noteFork } from './forks'
 import {
   bot,
   bots,
   ground,
   memory,
   noteBotArchived,
+  noteBotMemory,
+  noteBotNudged,
   noteBotSession,
+  nudgeDue,
   releaseBotSession,
   saveBot,
+  consolidationPrompt,
+  AFTER_COMPACTION,
 } from './bots'
 import { isSlug, slugFor, withoutBot, type Bot } from '../shared/bots'
-import { forks, noteFork } from './forks'
 import { isSessionId, parseForkResult } from '../shared/forks'
 import { forgetRoot, list, noteRoot, open as openInApp } from './files'
 import { isSubpath } from '../shared/files'
@@ -60,39 +65,62 @@ import { parseChosenTheme } from '../shared/theme'
  */
 const botHandles = new Map<string, string>()
 
+/**
+ * The handles currently running a turn this app sent rather than a person.
+ *
+ * One job: a consolidation ends in a `turn.done` like any other, and the hook that decides to send
+ * one is reading `turn.done`. Without this a compaction would be answered by a turn, whose own
+ * completion would be answered by another, forever — and each would be grounded, so the loop would
+ * also be the most expensive one available.
+ *
+ * Not written down, for the same reason `botHandles` is not: a handle means nothing across runs,
+ * and a consolidation left running when the process died is not one this process can finish.
+ */
+const consolidating = new Set<string>()
+
 /** Why a bot's turn could not be sent, in the shape `bravebot:request` already answers with. */
 interface BotFailure {
   code: string
   message: string
 }
 
+let window: BrowserWindow | null = null
+let bridge: Bridge | null = null
+let stopWatchingThemes: (() => void) | null = null
+
 /**
  * Send a turn as a bot, which is the only path that may name a file.
  *
- * `turn.send` takes two lists of paths and admits both to the planner as trusted context, so
- * *where* those paths come from is the whole security story of this feature — a window that could
- * name one would be a window that could have the planner read anything on the machine. The caller
- * hands over a bot; it does not hand over a path.
+ * Two callers and one composition on purpose. `turn.send` takes two lists of paths and admits both
+ * to the planner as trusted context, so *where* those paths come from is the whole security story
+ * of this feature — a window that could name one would be a window that could have the planner read
+ * anything on the machine. Both callers hand over a bot; neither hands over a path.
  *
- * `grounded` decides how much is attached, and is the only thing about it a window may say.
+ * `grounded` decides how much is attached. `nudge` decides only what the briefing says once it has
+ * been decided to attach it, and is meaningless without it.
  */
 async function sendBotTurn(
   session: string,
   held: Bot,
   prompt: string,
   grounded: boolean,
+  nudge = false,
+  recall = true,
 ): Promise<{ ok?: unknown; error?: BotFailure }> {
   if (!bridge) return { error: { code: 'no_bridge', message: 'the agent is not running' } }
 
   botHandles.set(session, held.slug)
 
-  const params: Record<string, unknown> = { session, prompt }
+  // `recall` is left off entirely in the ordinary case rather than sent as `true`. The agent
+  // defaults it that way, and a parameter that only ever appears when it is doing something is a
+  // parameter somebody reading the wire can see the point of.
+  const params: Record<string, unknown> = recall ? { session, prompt } : { session, prompt, recall }
   if (grounded) {
     // Made afresh on the way into every send rather than once when the bot was created. A file a
     // turn names and cannot read is not a smaller turn, it is a failed one — so a memory deleted
     // by a `git clean`, or a branch switched to one that never had it, is repaired here instead of
     // ending the turn inside the agent with a message about a path.
-    const paths = ground(held)
+    const paths = ground(held, nudge)
     if (!paths) {
       return {
         error: {
@@ -126,9 +154,42 @@ async function sendBotTurn(
  * which is exactly where it would have stayed had none of this existed — so nothing here surfaces
  * an error of its own, and the `turn.error` the window is about to receive is the whole report.
  */
-let window: BrowserWindow | null = null
-let bridge: Bridge | null = null
-let stopWatchingThemes: (() => void) | null = null
+/**
+ * Tell the window a consolidation is over, and whether the briefing went with it.
+ *
+ * `delivered` is the whole of what the window does with this. A consolidation that ran carried the
+ * briefing, so the session is grounded again and the next thing somebody types must not carry it a
+ * second time — but one that never left, because the checkout is gone or a turn was already in
+ * flight, delivered nothing, and saying otherwise would cost the bot its briefing over a turn that
+ * did not happen.
+ */
+function ended(session: string, slug: string | null, delivered: boolean): void {
+  window?.webContents.send('bravebot:bots:consolidated', { session, slug, delivered })
+}
+
+async function consolidate(session: string, slug: string): Promise<void> {
+  const held = bot(slug)
+  if (!held) return
+  // Set before the send rather than after it, because the answer can arrive before an `await`
+  // resumes and a flag set late is a flag that was never set.
+  consolidating.add(session)
+  window?.webContents.send('bravebot:bots:consolidating', { session, slug })
+  const answer = await sendBotTurn(
+    session,
+    held,
+    consolidationPrompt(held, AFTER_COMPACTION),
+    true,
+    false,
+    // Nobody typed this, so it is not something anybody should find by pressing up — in this
+    // window or in the terminal front-end, which shares the same history file. It does not name
+    // the session either. See `recall` in `bridge.rs`.
+    false,
+  ).catch(() => ({ error: { code: 'internal', message: 'consolidation failed' } }))
+  if (answer.error) {
+    consolidating.delete(session)
+    ended(session, slug, false)
+  }
+}
 
 function createWindow(): void {
   window = new BrowserWindow({
@@ -162,6 +223,9 @@ function createWindow(): void {
   window.webContents.on('will-navigate', (event) => event.preventDefault())
 
   bridge = new Bridge((message) => {
+    // What this app has to say about the event, held until the event itself has been sent. See
+    // the note where it is called.
+    let after: (() => void) | null = null
     // Two things a bot needs to remember are only ever said here, and only by the agent: the
     // durable id of the session behind it — which becomes real on the turn that first writes a
     // record, not before — and how much compaction has taken out of that session, which is what
@@ -171,13 +235,41 @@ function createWindow(): void {
     // list and the fork lineage each make one screen up. The window can ask a bot to speak; it
     // cannot tell this process what the answer was.
     if (message.event === 'turn.done' && typeof message.session === 'string') {
-      const slug = botHandles.get(message.session)
+      const handle = message.session
+      const slug = botHandles.get(handle)
       if (slug) {
         if (message.data.id) noteBotSession(slug, message.data.id)
+        // Read before `noteBotArchived` moves it, because the comparison *is* the signal: the
+        // archive rises exactly once per compaction that actually happened, which is the only
+        // reliable way to learn that one did. See the note on `Bot.archived`.
+        const before = bot(slug)?.archived ?? 0
         noteBotArchived(slug, message.data.archived)
+        // Whether the bot wrote anything down during the turn that has just ended. Asked of every
+        // turn including a consolidation's own, so a consolidation that worked is what resets the
+        // count that would otherwise have nudged.
+        noteBotMemory(slug)
+
+        // A consolidation ending is the end of it. Answering it with another would be a loop.
+        if (consolidating.delete(handle)) after = () => ended(handle, slug, true)
+        else if (message.data.archived > before) after = () => void consolidate(handle, slug)
       }
     }
+    // A turn this app sent can fail like any other, and a flag left set would mean the next
+    // compaction went unanswered in silence. Cleared without a word to the window beyond the
+    // ordinary `turn.error` it is about to receive.
+    if (message.event === 'turn.error' && typeof message.session === 'string') {
+      const handle = message.session
+      if (consolidating.delete(handle)) {
+        after = () => ended(handle, botHandles.get(handle) ?? null, true)
+      }
+    }
+
+    // The event first, and this app's own announcement after it. Both arrive as messages to the
+    // same window in the order they are sent, and the wrong order here is visible: a consolidation
+    // announced before the `turn.done` that provoked it draws its line above the reply it comes
+    // after, which reads as though the app interrupted rather than followed.
     window?.webContents.send('bravebot:event', message)
+    after?.()
   })
 
   // Watching the palettes directory, so that editing one is an editing loop rather than a relaunch
@@ -238,31 +330,6 @@ const ALLOWED = new Set([
   'doctor',
 ])
 
-/**
- * The params a method is allowed to have arrived with.
- *
- * `turn.send` now takes two lists of file paths — `files`, read inside the workspace, and
- * `dropped`, which may be read anywhere on the disk — and both are admitted to the planner as
- * *trusted* context. Nothing else a renderer can say has that reach: the file tree is confined to
- * roots this process learnt from the agent, the folder picker is native, and the preload has never
- * carried a file's contents in either direction.
- *
- * So they are removed here rather than trusted here. A window that could name a file to read would
- * be a window that could have the planner read any file on the machine, and the way to be sure it
- * cannot is that the general channel does not forward the words at all.
- *
- * `recall` joins them for a smaller reason. It decides whether a prompt is one a person can find
- * again under the up-arrow, which is a claim about who asked — this process's to make, not a
- * window's. Nothing worse than a lost history entry is at stake; it is here because the answer to
- * "may the renderer say this?" is the same either way.
- */
-function sanitised(method: string, params: unknown): Record<string, unknown> {
-  const held = (params ?? {}) as Record<string, unknown>
-  if (method !== 'turn.send') return held
-  const { files: _files, dropped: _dropped, recall: _recall, ...rest } = held
-  return rest
-}
-
 /** What the save sheet offers per format. */
 const FILTERS: Record<ExportFormat, Electron.FileFilter> = {
   txt: { name: 'Plain Text', extensions: ['txt'] },
@@ -296,6 +363,35 @@ function noteOpenedRoot(method: string, params: unknown, ok: unknown): void {
       ? (record as { directory?: unknown }).directory
       : answer.directory
   noteRoot(answer.session, directory)
+}
+
+/**
+ * The params a method is allowed to have arrived with.
+ *
+ * `turn.send` takes two lists of file paths — `files`, read inside the workspace, and `dropped`,
+ * read anywhere on the disk — and both are admitted to the planner as *trusted* context. Nothing
+ * else the renderer can say has that reach: the file tree is confined to roots this process learnt
+ * from the agent, the folder picker is native, and the preload has never carried a file's contents
+ * in either direction. A window that could name either list would be a window that could read any
+ * file on the machine and have the planner read it too, which is a larger change than any feature
+ * is worth.
+ *
+ * So they are removed here rather than trusted here. A bot's turn needs both, and gets them from
+ * `bravebot:bots:send` below — which composes the paths itself, from a definition this process
+ * holds, and never from anything that crossed the bridge from a window.
+ *
+ * Stripped silently. There is no legitimate caller to warn, and a message saying which key was
+ * removed would be a message telling a compromised renderer what to try next.
+ */
+function sanitised(method: string, params: unknown): Record<string, unknown> {
+  const held = (params ?? {}) as Record<string, unknown>
+  if (method !== 'turn.send') return held
+  // `recall` joins the two lists for a smaller reason than theirs. It decides whether a prompt is
+  // one a person can find again, and that is a claim about who asked — which this process makes
+  // and a window does not get to. Nothing worse than a lost history entry is at stake; it is here
+  // because the answer to "may the renderer say this?" is the same either way.
+  const { files: _files, dropped: _dropped, recall: _recall, ...rest } = held
+  return rest
 }
 
 app.whenReady().then(() => {
@@ -334,7 +430,12 @@ app.whenReady().then(() => {
       noteOpenedRoot(method, params, ok)
       if (method === 'session.close') {
         const closing = (params as { session?: unknown } | null)?.session
-        if (isSessionId(closing)) forgetRoot(closing)
+        if (isSessionId(closing)) {
+          forgetRoot(closing)
+          botHandles.delete(closing)
+          // A session being released takes any turn of its with it, this app's own included.
+          consolidating.delete(closing)
+        }
       }
       return { ok }
     } catch (error) {
@@ -427,15 +528,16 @@ app.whenReady().then(() => {
 
   ipcMain.handle('bravebot:view:write', (_event, value: unknown) => putView(parseView(value)))
 
-  // The bots. More channels than the usual read-and-write pair, and the extra ones are the point
-  // of the arrangement: a bot's turn cannot go through `bravebot:request` above, because a bot
-  // needs `files` and `dropped` on `turn.send` and `sanitised` removes those from anything a
+  // The bots. Three channels rather than the usual read-and-write pair, and the extra one is the
+  // point of the arrangement: a bot's turn cannot go through `bravebot:request` above, because a
+  // bot needs `files` and `dropped` on `turn.send` and `sanitised` removes those from anything a
   // window sends. So the window names a *bot*, and this process — which holds the definitions and
   // composes every path from a slug it has judged — names the files.
   //
   // The split inside `bravebot:bots:write` is the same idea one field down. Four keys are a
-  // preference somebody typed and cross freely; the session id and the compaction watermark are
-  // reports of what the agent did, are taken off its answers above, and have no way in from here.
+  // preference somebody typed and cross freely; the session id, the compaction watermark and the
+  // two figures that decide when a bot is reminded to write are reports of what the agent did, are
+  // taken off its answers and off the filesystem below, and have no way in from here.
 
   ipcMain.handle('bravebot:bots:read', () => bots())
 
@@ -446,7 +548,8 @@ app.whenReady().then(() => {
     if (!name.trim() || !purpose.trim()) return null
     if (!isProjectPath(directory)) return null
 
-    // An existing bot keeps everything this channel cannot say — its seed, when it was made. A new one is given a slug composed here from the name, so the thing that
+    // An existing bot keeps everything this channel cannot say — its id, its watermark, its seed,
+    // when it was made. A new one is given a slug composed here from the name, so the thing that
     // becomes a path segment is never a string that arrived as one.
     const held = isSlug(slug) ? bot(slug) : null
     const next: Bot = held
@@ -460,9 +563,13 @@ app.whenReady().then(() => {
           // two bots do not share one.
           avatar: randomUUID(),
           directory,
-          // Nothing has spoken to it, so there is nothing yet to report about a conversation.
           session: null,
           archived: 0,
+          // Nothing has been remembered and nothing has gone unremembered, so a new bot starts
+          // owing no nudge. See `noteBotMemory`, which takes its first reading when its first
+          // turn ends.
+          remembered: 0,
+          quiet: 0,
           created: Date.now(),
           updated: Date.now(),
         }
@@ -474,12 +581,13 @@ app.whenReady().then(() => {
   ipcMain.handle('bravebot:bots:remove', (_event, slug: unknown) => {
     const held = bot(slug)
     if (!held) return null
-    // The definition goes and nothing else does. Removing a row from a list is not a destructive
-    // act, and it should not become one as this record grows things pointing at the disk.
+    // The definition goes and nothing else does. Its session is a session like any other and stays
+    // in the agent's own store, and its memory is a file in somebody's checkout that this app did
+    // not put there on its own account. Deleting either would make a bot's removal a destructive
+    // act, which is not what removing a row from a list looks like.
     putBots(withoutBot(bots(), held.slug))
     return held.slug
   })
-
 
   ipcMain.handle('bravebot:bots:memory', (_event, slug: unknown) => memory(slug))
 
@@ -507,7 +615,12 @@ app.whenReady().then(() => {
       const held = bot(slug)
       if (!held) return { error: { code: 'no_such_bot', message: 'no bot by that name' } }
 
-      return sendBotTurn(session, held, prompt, grounded === true)
+      // The window's claim is that the briefing is due; this may decide it is due when the window
+      // did not. It is never the other way round — a window saying "grounded" is answering a
+      // question about *its* session, which this process cannot see, so that answer stands.
+      const nudge = grounded !== true && nudgeDue(held)
+      if (nudge) noteBotNudged(held.slug)
+      return sendBotTurn(session, held, prompt, grounded === true || nudge, nudge)
     },
   )
 

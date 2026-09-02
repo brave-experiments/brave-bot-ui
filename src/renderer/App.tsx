@@ -341,7 +341,35 @@ export function App(): React.JSX.Element {
       if (message.event === 'turn.done') void readBots()
     })
 
-    return stop
+    // Turns nobody on this side asked for. The main process answers a compaction by asking the bot
+    // to bring its memory up to date, and the window learns about it here rather than by inferring
+    // it from a `turn.started` it did not cause — an inference that would be wrong the moment
+    // anything else ever sends a turn.
+    //
+    // `turn.started` already sets `running`, so the composer locks itself and nothing here needs
+    // to. What is added is the line above the reply, and the note that the briefing has been said.
+    const stopConsolidation = window.bravebot.onBotConsolidation(({ session, running, delivered }) => {
+      if (session !== handleRef.current) return
+      setLive((old) =>
+        old
+          ? {
+              ...old,
+              entries: running ? [...old.entries, t.consolidating()] : old.entries,
+              // Only when it actually ran. Such a turn carries the briefing, so the session is
+              // grounded again and the next prompt must not carry it twice — but one that never
+              // left delivered nothing, and marking it said would cost the bot the briefing over
+              // a turn that did not happen.
+              bot: old.bot && !running && delivered ? { ...old.bot, grounded: true } : old.bot,
+            }
+          : old,
+      )
+      if (!running) void readBots()
+    })
+
+    return () => {
+      stop()
+      stopConsolidation()
+    }
   }, [refresh, readForks, readBots])
 
   /**

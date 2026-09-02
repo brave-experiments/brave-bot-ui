@@ -24,13 +24,29 @@ import type {
   VouchRequest,
 } from '../shared/protocol'
 import type { ExportTurn } from '../shared/export'
+import { CONSOLIDATION_MARK } from '../shared/bots'
 
 export type Entry =
   | { kind: 'user'; id: string; text: string }
   | { kind: 'assistant'; id: string; text: string }
   | { kind: 'narration'; id: string; text: string }
-  /** A tool call. `landing` arrives after the call finishes, so it fills in late. */
+  /**
+   * A file that was put in front of the planner because somebody named it.
+   *
+   * The path and not the contents: a person reading a transcript wants to know the file was there,
+   * and the file itself is on their disk. Drawing the whole of it would bury the exchange the
+   * transcript is for — which is what happens without this.
+   */
   | { kind: 'attached'; id: string; path: string }
+  /**
+   * A turn this app sent on the bot's behalf, drawn as the house-keeping it is.
+   *
+   * It carries no text, because there is no version of showing the words that is an improvement:
+   * the prompt is boilerplate this file composed, the reply that follows says what came of it, and
+   * a bubble full of the app talking to itself would push the conversation off the screen.
+   */
+  | { kind: 'consolidation'; id: string }
+  /** A tool call. `landing` arrives after the call finishes, so it fills in late. */
   | { kind: 'tool'; id: string; activity: Activity; landing: Landing | null }
   | { kind: 'quarantined'; id: string; shown: Shown }
   /** A write awaiting a decision, or the record of one already made. */
@@ -100,6 +116,19 @@ export function fromSaid(said: Said[]): Entry[] {
         // said something they did not.
         const named = attached(entry.text)
         if (named) return { kind: 'attached', id: nextId(), path: named } as const
+        // The same judgement one line up, for the same reason, on a string with none of that
+        // one's difficulty: this app composed it, so the prefix is exact by construction rather
+        // than a guess at somebody else's wording. A consolidation drawn as a prompt would say a
+        // person asked for it, and nobody did.
+        //
+        // It errs in the other direction if somebody types those words into the composer
+        // themselves, which is the same hazard the line above carries and is answered the same
+        // way: the mark is long, dull and bracketed, so typing it is a thing somebody does on
+        // purpose, and what they get for it is their prompt drawn as the house-keeping they were
+        // imitating.
+        if (entry.text.startsWith(CONSOLIDATION_MARK)) {
+          return { kind: 'consolidation', id: nextId() } as const
+        }
         return { kind: 'user', id: nextId(), text: entry.text } as const
       }
       case 'assistant':
@@ -124,6 +153,7 @@ function attached(text: string): string | null {
 }
 
 export const userSaid = (text: string): Entry => ({ kind: 'user', id: nextId(), text })
+export const consolidating = (): Entry => ({ kind: 'consolidation', id: nextId() })
 export const narrated = (text: string): Entry => ({ kind: 'narration', id: nextId(), text })
 export const errored = (text: string): Entry => ({ kind: 'error', id: nextId(), text })
 export const quarantined = (shown: Shown): Entry => ({ kind: 'quarantined', id: nextId(), shown })

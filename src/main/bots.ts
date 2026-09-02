@@ -48,8 +48,32 @@
  * would be shown as a diff before it happened. That was false, and a false promise in a briefing is
  * worse than none: it is the model telling somebody something the app does not do. Tightening it is
  * not available from here — there is no "always ask about this path" upstream, and adding one would
- * be a change to a repository this app does not modify. So the briefing says what is true instead:
- * the edit is on the record rather than in front of a card.
+ * be a change to a repository this app does not modify. So the briefing now says what is true: the
+ * edit is on the record rather than in front of a card.
+ *
+ * ## When a bot is asked to write
+ *
+ * Nothing above makes a bot *remember*; it only makes remembering cheap once it decides to. The
+ * instruction to do it lives in one place — the ground file — and the ground file reaches a turn
+ * only when that turn is grounded, which is the first of a session and the first after each
+ * compaction. Everything between those carried no reminder at all, and in practice a memory only
+ * changed when somebody asked for it in so many words.
+ *
+ * Two things close that, and neither of them attaches anything to an ordinary turn:
+ *
+ * - **A compaction is answered with a turn of this app's own.** A rise in `archived` is the one
+ *   moment memory is unambiguously *for*, since it is the only thing that survived it. The main
+ *   process sends a grounded turn saying so — see `consolidationPrompt` — instead of waiting for
+ *   the user's next prompt to carry the briefing. That prompt would have carried it anyway, so
+ *   what this costs is a round trip and not an extra attachment.
+ * - **A bot that has stopped writing is grounded early.** `quiet` counts turns since the memory
+ *   file's mtime last moved, and at `QUIET_MAX` the next turn is grounded whether the window
+ *   thought so or not, with one extra paragraph in the briefing. It resets on the nudge as well as
+ *   on a write, so ignoring it buys silence rather than a briefing on everything.
+ *
+ * Both are honest about what they can do. Neither checks that a model wrote anything, because
+ * checking would mean parsing what it said, and the one rule this file has is that the change the
+ * agent applied is the record.
  *
  * One file goes to the turn rather than two, and that is not tidiness. Every attached file is
  * pushed into the conversation as its own user message, and the agent's compaction keeps only the
@@ -69,7 +93,7 @@
 import { app } from 'electron'
 import { mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { type Bot, botOf, isSlug, withBot } from '../shared/bots'
+import { type Bot, botOf, CONSOLIDATION_MARK, isSlug, withBot } from '../shared/bots'
 import { putBots, readState } from './state'
 
 /** Where a bot's files live inside the checkout it works in, relative to that checkout. */
@@ -84,6 +108,21 @@ const HOME = '.bravebot-ui'
  * short of anything that could crowd out a conversation.
  */
 const MEMORY_MAX = 64 * 1024
+
+/**
+ * How many of a bot's turns may finish without its memory changing before it is reminded.
+ *
+ * A briefing costs one attachment, and every attachment stays in the conversation and is counted
+ * against the two a compaction keeps verbatim — so this cannot be one. It also cannot be very
+ * large, because the thing it guards against is a bot that has quietly stopped writing anything
+ * down, and by the time a conversation is thirty turns old the material worth keeping has already
+ * gone past. Six is roughly a working exchange: long enough that a bot doing the job is never
+ * interrupted, short enough that one that has stopped is caught inside the same sitting.
+ *
+ * It is a nudge and not a demand. Nothing here can make a model write, and nothing here checks
+ * that it did — what the reminder buys is the instruction being in front of it again.
+ */
+const QUIET_MAX = 6
 
 /** Every bot defined. Never throws; an unreadable file is no bots. */
 export function bots(): Bot[] {
@@ -158,6 +197,98 @@ function memoryFile(directory: string, slug: string): string {
   return join(directory, HOME, 'bots', `${slug}.md`)
 }
 
+/**
+ * When a bot's memory file last changed, in milliseconds, or `0` if there is nothing to look at.
+ *
+ * Deliberately the mtime and not the contents. Whether the memory has moved is a question about
+ * the file, and answering it by reading and comparing 64K of text on the end of every turn would
+ * be paying a great deal to learn something the filesystem already knows. A file that has been
+ * rewritten with the same words counts as changed, which is the harmless direction to be wrong in:
+ * it costs one nudge that was not needed.
+ */
+function memoryStamp(bot: Bot): number {
+  try {
+    return statSync(memoryFile(bot.directory, bot.slug)).mtimeMs
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * Note whether a bot's memory moved during the turn that has just finished.
+ *
+ * Called from the one place that sees a bot's turn end. Two outcomes and no third: the file is
+ * newer than the mark, so the bot wrote and the count goes back to nothing — or it is not, and one
+ * more turn has gone by without it.
+ *
+ * A stamp that has gone *backwards* is adopted rather than ignored, unlike `archived` above. That
+ * is a different kind of figure: an archive only rises, so a fall means somebody is describing
+ * another conversation, where an mtime falls perfectly ordinarily when a file is restored from a
+ * checkout or a branch is switched. What matters is only that it differs from the mark.
+ */
+export function noteBotMemory(slug: string): void {
+  const held = bot(slug)
+  if (!held) return
+  const stamp = memoryStamp(held)
+  if (stamp !== held.remembered) saveBot({ ...held, remembered: stamp, quiet: 0 })
+  else saveBot({ ...held, quiet: held.quiet + 1 })
+}
+
+/**
+ * Whether this bot has gone long enough without writing to be handed its briefing again.
+ *
+ * Asked on the way into a send, of a turn the window did not think needed grounding.
+ */
+export function nudgeDue(bot: Bot): boolean {
+  return bot.quiet >= QUIET_MAX
+}
+
+/**
+ * Note that a bot has just been reminded, so it is not reminded again on the next turn.
+ *
+ * Reset on the *nudge* rather than on a write, which is what makes this self-quieting in both
+ * directions. A bot that takes the hint resets through `noteBotMemory` and never comes back here;
+ * one that ignores it gets another `QUIET_MAX` turns of peace rather than a briefing attached to
+ * everything it is ever asked, which is the failure that would make this worse than nothing.
+ */
+export function noteBotNudged(slug: string): void {
+  const held = bot(slug)
+  if (!held || held.quiet === 0) return
+  saveBot({ ...held, quiet: 0 })
+}
+
+/**
+ * What this app says to a bot when it sends a turn nobody typed.
+ *
+ * Written as one short instruction rather than as a briefing, because the briefing is attached
+ * alongside it and saying the same thing twice in one turn is how a model learns to skim both. It
+ * opens with `CONSOLIDATION_MARK` so that a transcript — this run's, or one reopened next year —
+ * can tell it from something a person asked for.
+ *
+ * `why` is the sentence that differs between the occasions this is sent, and is the only part a
+ * caller supplies. Nothing here interpolates anything a model said.
+ */
+export function consolidationPrompt(bot: Bot, why: string): string {
+  return [
+    CONSOLIDATION_MARK,
+    '',
+    why,
+    '',
+    `Look back over this conversation and bring \`${memoryPath(bot.slug)}\` up to date: add what`,
+    'has turned out to be durable — a decision and why, a constraint, how something here is',
+    'arranged — and prune whatever has stopped being true. If nothing in it needs changing, say so',
+    'in one line and change nothing; an honest "no" is a better answer than an invented entry.',
+    '',
+    'Do not do any other work in this turn, and do not answer whatever was being discussed.',
+    '',
+  ].join('\n')
+}
+
+/** Why a consolidation was sent after a compaction, in the one sentence that turn opens with. */
+export const AFTER_COMPACTION =
+  'Your conversation has just been summarised, and the detail behind that summary is now the only' +
+  ' thing your memory can still be written from.'
+
 /** What a memory file says before anything has been remembered in it. */
 function emptyMemory(bot: Bot): string {
   return [
@@ -180,7 +311,7 @@ function emptyMemory(bot: Bot): string {
  * this is read as a document somebody handed over — which is the strongest framing available
  * without changing the agent, and an honest one: it *is* a document somebody handed over.
  */
-function groundText(bot: Bot, memory: string): string {
+function groundText(bot: Bot, memory: string, nudge: boolean): string {
   return [
     `# ${bot.name}`,
     '',
@@ -205,6 +336,13 @@ function groundText(bot: Bot, memory: string): string {
     'Editing it does not usually stop to ask, though every edit is on the record: the transcript',
     'draws it and the Writes panel lists it. Write it as something the user would want to read',
     'back, because they will.',
+    ...(nudge
+      ? [
+          '',
+          'You have not changed it in a while. Before going further, consider whether anything you',
+          'have learnt since is worth keeping — and leave it alone if it is not.',
+        ]
+      : []),
     '',
     'It currently says:',
     '',
@@ -253,7 +391,7 @@ export interface Grounding {
  * would fail inside the agent with a message about a path, where this can say the bot's checkout
  * is gone.
  */
-export function ground(bot: Bot): Grounding | null {
+export function ground(bot: Bot, nudge = false): Grounding | null {
   const memory = memoryFile(bot.directory, bot.slug)
   try {
     mkdirSync(join(bot.directory, HOME, 'bots'), { recursive: true })
@@ -268,7 +406,7 @@ export function ground(bot: Bot): Grounding | null {
 
     const ground = join(ownDirectory(bot.slug), 'ground.md')
     mkdirSync(ownDirectory(bot.slug), { recursive: true })
-    writeFileSync(ground, groundText(bot, held.slice(0, MEMORY_MAX)), 'utf8')
+    writeFileSync(ground, groundText(bot, held.slice(0, MEMORY_MAX), nudge), 'utf8')
     return { ground, memory: memoryPath(bot.slug) }
   } catch {
     return null

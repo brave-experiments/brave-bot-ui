@@ -9,6 +9,9 @@
 //  4. A bot's face is the *same* face after a relaunch and after a rename. That is the whole
 //     reason the seed is stored rather than derived from the name, and it is exactly the sort of
 //     thing that works until somebody simplifies it into `hash(bot.name)` a year from now.
+//  5. The two figures that decide when a bot is nudged to write its memory survive a relaunch and
+//     survive the form being saved. They are main-written, like the session id and the compaction
+//     watermark beside them, and a window that could reset them could decide when a bot forgets.
 //
 // What is not here: sending a bot a turn. That needs credentials and a model, which the drivers
 // do not have — `smoke-turn.sh` is where a real turn is driven.
@@ -164,7 +167,7 @@ check(
 )
 check(
   (await mine.locator('.bot-where').textContent())?.includes('not spoken to yet'),
-  'a bot nothing has spoken to says so, rather than showing a time it was never at',
+  'a bot that has never spoken says so rather than showing a time it was never at',
 )
 
 // The form the seed chose — `round-antenna-ears-wide-dome-collar` — rather than the pixels. The
@@ -186,6 +189,10 @@ await page.screenshot({ path: '/tmp/bravebot-ui/21-bots-listed.png' })
 await mine.locator('.bot-edit').click()
 await page.waitForTimeout(300)
 check((await page.locator('.bot-form').count()) === 1, 'the edit control opens the form')
+check(
+  (await page.locator('.bot-memory').count()) === 1,
+  'and the form shows what the bot has remembered',
+)
 await page.screenshot({ path: '/tmp/bravebot-ui/23-bots-form.png' })
 await page.locator('.bot-form input').fill('Release Notes (weekly)')
 await page.locator('.bot-save').click()
@@ -198,6 +205,18 @@ check((await faceOf(renamed)) === first, 'and keeps the face it had — the poin
 // --- and a relaunch ----------------------------------------------------------------------
 
 await app.close()
+
+// The two figures that decide when a bot is reminded to write its memory down. Seeded here rather
+// than earned, because earning them needs a model and this driver deliberately spends no tokens —
+// what is being checked is that they round-trip and that the window cannot touch them, which are
+// both questions about the record and not about a turn.
+const seed = { remembered: 1717171717171, quiet: 4 }
+putKey(
+  'bots',
+  (readState().bots ?? []).map((bot) =>
+    bot.slug === MINE[0] ? { ...bot, ...seed } : bot,
+  ),
+)
 
 const second_app = await launch()
 const back = await second_app.firstWindow()
@@ -225,6 +244,28 @@ check(
   'and the same face, built from a seed on disk rather than from the name',
 )
 await back.screenshot({ path: '/tmp/bravebot-ui/22-bots-relaunched.png' })
+
+// --- what the window may not write --------------------------------------------------------
+
+const onDisk = (slug) => (readState().bots ?? []).find((bot) => bot.slug === slug) ?? null
+
+check(
+  onDisk(MINE[0])?.remembered === seed.remembered && onDisk(MINE[0])?.quiet === seed.quiet,
+  'the memory watermark and the quiet count come back off disk as they were written',
+)
+
+// Saving the form is the one way a window can write a bot at all, and it may say four things. A
+// save that reset either of these would hand the renderer a lever over when a bot is asked to
+// remember — the same reason the session id and the compaction watermark are not its to set.
+await backMine.locator('.bot-edit').click()
+await back.waitForTimeout(300)
+await back.locator('.bot-form input').fill('Release Notes (weekly)')
+await back.locator('.bot-save').click()
+await back.waitForTimeout(600)
+check(
+  onDisk(MINE[0])?.remembered === seed.remembered && onDisk(MINE[0])?.quiet === seed.quiet,
+  'and saving the form does not disturb them — the window has no way to say either',
+)
 
 // --- forgetting one ----------------------------------------------------------------------
 

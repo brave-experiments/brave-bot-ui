@@ -28,6 +28,7 @@
     "drive:theme": "npm run bridge && electron-vite build && node scripts/drive-theme.mjs",
     "drive:bots": "npm run bridge && electron-vite build && node scripts/drive-bots.mjs",
     "drive:bot-turn": "npm run bridge && electron-vite build && node scripts/drive-bot-turn.mjs",
+    "drive:bot-memory": "npm run bridge && electron-vite build && node scripts/drive-bot-memory.mjs",
     "drive:packaged": "node scripts/drive-packaged.mjs",
     "drive:astar": "npm run bridge && electron-vite build && node scripts/drive-astar.mjs",
     "demo": "npm run bridge && electron-vite build && node scripts/demo.mjs"

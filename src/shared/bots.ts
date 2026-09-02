@@ -67,6 +67,23 @@ export interface Bot {
    * purpose stopped being in the conversation. Main-written.
    */
   archived: number
+  /**
+   * The modification time its memory file had, last time a turn of its finished.
+   *
+   * Not a copy of the memory and not a judgement about it — only the answer to "has it changed
+   * since I last looked", which is the one question `quiet` below needs asked. Zero means nobody
+   * has looked yet. Main-written, and read off the filesystem rather than off anything a model
+   * said: the file's mtime is the only claim here nothing can be talked into.
+   */
+  remembered: number
+  /**
+   * How many of its turns have finished since that mtime last moved.
+   *
+   * The whole of the nudge: a bot keeping its memory current sits at zero forever and is never
+   * reminded, and one that has stopped writing is handed its briefing again once this reaches
+   * `QUIET_MAX` rather than waiting for a compaction. Main-written.
+   */
+  quiet: number
   /** When it was made, in milliseconds. */
   created: number
   /** When anything about it last changed, in milliseconds. */
@@ -84,6 +101,21 @@ export interface StoredBots {
  * unlike a fork a bot is made deliberately, one at a time, by somebody filling in a form.
  */
 export const BOTS_MAX = 100
+
+/**
+ * The first line of a prompt this app sent on a bot's behalf rather than a person typing it.
+ *
+ * Lives here rather than beside the text it prefixes because two sides need it: the main process
+ * writes it, and the transcript reads it back off a *reopened* session to tell a turn nobody asked
+ * for from one somebody did. `transcript.ts` already refuses to draw an attachment as a prompt on
+ * the grounds that saying a person said something they did not is the lie that matters here, and a
+ * consolidation drawn as a user bubble is exactly that lie.
+ *
+ * Matching on wording is otherwise the thing that file is careful never to do — but this is a
+ * string this app composes, not one it guesses at from upstream, so the match is exact by
+ * construction rather than by hope.
+ */
+export const CONSOLIDATION_MARK = '[bravebot-ui] Keeping your memory current.'
 
 /** The characters a slug may be made of, which is the whole of why it is safe as a path segment. */
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
@@ -155,6 +187,8 @@ export function parseBots(value: unknown): StoredBots {
       directory,
       session,
       archived,
+      remembered,
+      quiet,
       created,
       updated,
     } = entry as Record<string, unknown>
@@ -182,6 +216,14 @@ export function parseBots(value: unknown): StoredBots {
       // re-grounding, where dropping the bot over it costs the bot.
       archived:
         typeof archived === 'number' && Number.isInteger(archived) && archived >= 0 ? archived : 0,
+      // Both clamped rather than refused, for the reason above them: these decide when a bot is
+      // reminded to write, and a nonsense figure costs one needless briefing where dropping the
+      // row over it costs the bot. Absent is the ordinary case — every bot written before this
+      // existed has neither.
+      remembered: typeof remembered === 'number' && Number.isFinite(remembered) && remembered >= 0
+        ? remembered
+        : 0,
+      quiet: typeof quiet === 'number' && Number.isInteger(quiet) && quiet >= 0 ? quiet : 0,
       created: at,
       updated: typeof updated === 'number' ? updated : at,
     })
