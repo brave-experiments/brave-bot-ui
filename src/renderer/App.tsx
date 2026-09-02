@@ -9,7 +9,7 @@ import type {
   Shown,
   TodoRow,
 } from '../shared/protocol'
-import { Sessions } from './components/Sessions'
+import { Sidebar } from './components/Sidebar'
 import { Transcript } from './components/Transcript'
 import { Context } from './components/Context'
 import { Gutter, useColumns } from './components/Gutter'
@@ -773,7 +773,7 @@ export function App(): React.JSX.Element {
         } as React.CSSProperties
       }
     >
-      <Sessions
+      <Sidebar
         sessions={sessions}
         openId={live?.summary.id ?? undefined}
         forked={forked}
