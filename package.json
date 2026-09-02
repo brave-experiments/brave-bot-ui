@@ -39,13 +39,13 @@
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
     "@types/three": "^0.185.4",
-    "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-react": "^5.2.0",
     "electron": "^44.0.0",
     "electron-vite": "^5.0.0",
     "playwright-core": "^1.62.1",
     "three": "^0.185.1",
     "typescript": "^5.7.2",
-    "vite": "^6.0.5"
+    "vite": "^7.3.6"
   },
   "dependencies": {
     "react": "^19.0.0",
