@@ -25,5 +25,6 @@ export const SCENES = [
   '08-fork',
   '09-export',
   '10-commands',
+  '11-bots',
   '99-close',
 ]

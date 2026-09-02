@@ -1680,3 +1680,136 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .theme-aside { margin: 6px 0 0; font-size: 11px; color: var(--ink-faint); }
 .theme-aside code { font-family: var(--mono); font-size: 10px; }
+
+/* ------------------------------------------------------------------ bots
+
+   A bot is a name, a purpose, a memory and a checkout. What a row shows is what tells two of them
+   apart at a glance: the face, the name, and where it works. */
+
+.bot { display: flex; align-items: center; gap: 2px; }
+
+.bot-open-button {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  /* Tighter than it looks: the figure is drawn with air around it inside its own square, so a gap
+     matched to the text would leave the name floating away from the face. */
+  gap: 6px;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.bot-open-button:hover { background: rgba(127, 127, 127, 0.08); }
+.bot-open-button:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+/* The same mark an open session gets, so "this is the one on screen" reads the same in both
+   tabs. */
+.bot-open .bot-open-button { background: var(--accent-quiet); color: var(--accent-ink); }
+.bot-open .bot-where { color: var(--accent-ink); opacity: 0.75; }
+
+.bot-said { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+.bot-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bot-where {
+  font-size: 11px;
+  color: var(--ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bot-edit {
+  flex: none;
+  width: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-faint);
+  font: inherit;
+  /* Shown on hover or focus only. A row of eight bots with eight always-visible controls on the
+     right is a column of furniture; the name is what the list is for. */
+  opacity: 0;
+}
+.bot:hover .bot-edit, .bot-edit:focus-visible { opacity: 1; }
+.bot-edit:hover { color: var(--ink); background: rgba(127, 127, 127, 0.12); }
+.bot-edit:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+
+/* The avatar: a small figure turning slowly, drawn by the shared renderer in `avatar/stage.ts`.
+   Nothing here paints it — its colours come off the accent when it is built, so a theme reaches it
+   through `applyTheme` rather than through this sheet. See BotAvatar.tsx for why the form carries
+   the identity and the colour does not. */
+.bot-avatar { flex: none; display: block; }
+/* The flat mark, which is what a machine with no WebGL gets instead. Its cells carry their own
+   fill — the same two colours the figure would have been — so there is nothing to paint here. */
+
+/* Making a bot, or changing one. Inline in the list rather than in a sheet: it is two fields and
+   a folder, and a modal would be a ceremony around one sentence. */
+.bot-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 4px 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--bg);
+}
+
+.bot-field { display: flex; flex-direction: column; gap: 4px; }
+.bot-field > span { font-size: 11px; color: var(--ink-dim); }
+.bot-field input, .bot-field textarea {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+}
+.bot-field input:focus, .bot-field textarea:focus { outline: none; border-color: var(--accent); }
+
+.bot-choose, .bot-fixed {
+  margin: 0;
+  padding: 5px 8px;
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bot-choose:hover { color: var(--ink); border-color: var(--accent); }
+
+.bot-note { margin: 0; font-size: 11px; color: var(--ink-faint); line-height: 1.4; }
+.bot-note code { font-family: var(--mono); }
+
+/* What the bot has written about itself. Read-only here on purpose: it is the bot's own file, and
+   the transcript is where its changes are read — a box that could be typed over would make this a
+   second, quieter way to edit it that nothing records. */
+.bot-actions { display: flex; align-items: center; gap: 6px; }
+.bot-spacer { flex: 1; }
+.bot-actions button {
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 12px;
+}
+.bot-actions button:hover:not(:disabled) { color: var(--ink); border-color: var(--accent); }
+.bot-save[disabled] { opacity: 0.4; }
+.bot-save:not([disabled]) { border-color: var(--accent-quiet); color: var(--accent-quiet); }
+.bot-remove:hover { color: var(--removed); border-color: var(--removed); }
+
+/* A file put in front of the planner because somebody named it. The same quiet register the tool
+   lines are in, because that is what it is: something that happened on the way to a reply. */

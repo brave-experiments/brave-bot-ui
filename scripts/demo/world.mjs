@@ -5,11 +5,15 @@
 // the file tree — the real contents of a real directory. None of that belongs in a recording
 // that leaves the machine. So the demo does not film the machine.
 //
-// `$HOME` is the whole of it. The agent finds `~/.bravebot` — sessions, history, standing
-// instructions — by reading `HOME` and nothing else (`crates/agent/src/home.rs`), and Electron
-// derives `userData` from it too. Point it at a directory of ours and the app comes up in a
-// world containing exactly what this file put there: two invented checkouts, and the sessions
-// the demo earned in them.
+// `$HOME` is most of it, and not all of it. The agent finds `~/.bravebot` — sessions, history,
+// standing instructions — by reading `HOME` and nothing else (`crates/agent/src/home.rs`), so
+// pointing that at a directory of ours sanitises everything the *agent* holds. This app's own
+// remembered state — the recents list especially, which is real project paths and is filmed in
+// File ▸ Open Recent — is a separate matter: on macOS Electron derives `userData` from the
+// password database rather than from the environment, so it needs `--user-data-dir` as well.
+// Both are set, here and in `stage.mjs`. Point them at a directory of ours and the app comes up
+// in a world containing exactly what this file put there: two invented checkouts, and the
+// sessions the demo earned in them.
 //
 // **The sessions are earned rather than written.** Seeding them by hand would mean encoding
 // the agent's own on-disk record format here — a format that is upstream, is not ours, and is
@@ -155,8 +159,12 @@ async function settle(page, seconds = 180) {
 
 /** Launch the app inside the world and earn its sessions. */
 async function build(world) {
+  // Both redirections, for the reason `stage.mjs` gives at length: `HOME` moves the agent's own
+  // store, and only `--user-data-dir` moves this app's. Without the second, seeding a world would
+  // write the real recents list — the checkouts it opens here would appear in somebody's File ▸
+  // Open Recent afterwards, which is the opposite of what a sanitised world is for.
   const app = await electron.launch({
-    args: ['.'],
+    args: ['.', `--user-data-dir=${join(world, 'userData')}`],
     cwd: process.cwd(),
     timeout: 40000,
     env: { ...process.env, HOME: world },

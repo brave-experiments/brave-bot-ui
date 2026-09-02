@@ -1,6 +1,11 @@
 /**
  * The left column, the choice of which list is in it, and what it remembers about both.
  *
+ * There are two: the sessions, which is every conversation the agent has a record of, and the
+ * bots, which is the people who have one. They are separate tabs rather than one list with a mark
+ * on some rows because they answer different questions — "what was I doing on Tuesday" and "who
+ * works on this" — and a list that answers both answers neither well.
+ *
  * ## Why the hidden one stays mounted
  *
  * Switching tabs hides a list with `display: none` rather than unmounting it, which is the rule
@@ -23,8 +28,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SessionSummary } from '../../shared/protocol'
+import type { Bot } from '../../shared/bots'
 import type { Tab } from '../../shared/view'
 import { Sessions } from './Sessions'
+import { Bots } from './Bots'
 
 interface Props {
   sessions: SessionSummary[]
@@ -32,6 +39,9 @@ interface Props {
   forked: ReadonlySet<string>
   onOpen: (summary: SessionSummary) => void
   onNew: (directory?: string) => void
+  bots: Bot[]
+  onSaveBot: (bot: { slug?: string; name: string; purpose: string; directory: string }) => void
+  onRemoveBot: (slug: string) => void
   build: string | null
 }
 
@@ -41,6 +51,9 @@ export function Sidebar({
   forked,
   onOpen,
   onNew,
+  bots,
+  onSaveBot,
+  onRemoveBot,
   build,
 }: Props): React.JSX.Element {
   const [tab, setTab] = useState<Tab>('sessions')
@@ -108,10 +121,9 @@ export function Sidebar({
         />
       </div>
 
-      {/* Empty until there is something to put in it. The tab is here now because the column's
-          shape — two bodies under one head, and which one is remembered — is the part that every
-          driver and every stylesheet rule has to agree about. */}
-      <div className="sidebar-body" hidden={tab !== 'bots'} />
+      <div className="sidebar-body" hidden={tab !== 'bots'}>
+        <Bots bots={bots} onSave={onSaveBot} onRemove={onRemoveBot} />
+      </div>
 
       {build && (
         <footer className="build" title="The agent build these sessions are stamped with">

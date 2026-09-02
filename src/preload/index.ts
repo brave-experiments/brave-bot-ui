@@ -26,6 +26,7 @@ import type { StoredPanels } from '../shared/state'
 import type { CommandId, ContextCommandId, ContextRef, WindowState } from '../shared/commands'
 import type { ExportOutcome, ExportRequest } from '../shared/export'
 import type { Fork } from '../shared/forks'
+import type { Bot } from '../shared/bots'
 import type { Listing, OpenOutcome } from '../shared/files'
 import type { Theme } from '../shared/theme'
 
@@ -155,6 +156,33 @@ const api = {
    */
   readForks(): Promise<Fork[]> {
     return ipcRenderer.invoke('bravebot:forks:read') as Promise<Fork[]>
+  },
+
+  /** The bots defined here, by slug. */
+  readBots(): Promise<Bot[]> {
+    return ipcRenderer.invoke('bravebot:bots:read') as Promise<Bot[]>
+  },
+
+  /**
+   * Define a bot, or change one that exists.
+   *
+   * Four fields cross and no more. The slug is not among them: a name crosses, and the main
+   * process makes the thing that becomes a filename out of it, so a path segment is never a string
+   * that arrived as one. Nor is anything reporting what a conversation did — that is the
+   * arrangement `readForks` above describes, kept for the fields that will need it.
+   */
+  writeBot(bot: {
+    slug?: string
+    name: string
+    purpose: string
+    directory: string
+  }): Promise<Bot | null> {
+    return ipcRenderer.invoke('bravebot:bots:write', bot) as Promise<Bot | null>
+  },
+
+  /** Forget a bot's definition, and nothing else. */
+  removeBot(slug: string): Promise<string | null> {
+    return ipcRenderer.invoke('bravebot:bots:remove', slug) as Promise<string | null>
   },
 
   /**

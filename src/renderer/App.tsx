@@ -10,6 +10,7 @@ import type {
   TodoRow,
 } from '../shared/protocol'
 import { Sidebar } from './components/Sidebar'
+import type { Bot } from '../shared/bots'
 import { Transcript } from './components/Transcript'
 import { Context } from './components/Context'
 import { Gutter, useColumns } from './components/Gutter'
@@ -128,6 +129,7 @@ async function call<T>(method: string, params?: Record<string, unknown>): Promis
 
 export function App(): React.JSX.Element {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
+  const [bots, setBots] = useState<Bot[]>([])
   const [live, setLive] = useState<Live | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [build, setBuild] = useState<string | null>(null)
@@ -264,9 +266,14 @@ export function App(): React.JSX.Element {
     }
   }, [])
 
+  const readBots = useCallback(async () => {
+    setBots(await window.bravebot.readBots().catch(() => []))
+  }, [])
+
   useEffect(() => {
     void refresh()
     void readForks()
+    void readBots()
     const stop = window.bravebot.onEvent((message: BridgeEvent) => {
       // Events for a session other than the one on screen are dropped rather than
       // queued: this build shows one at a time, and holding a transcript nobody is
@@ -275,7 +282,7 @@ export function App(): React.JSX.Element {
       apply(message, setLive, setBuild, refresh)
     })
     return stop
-  }, [refresh, readForks])
+  }, [refresh, readForks, readBots])
 
   /**
    * Show a stored session, optionally scrolled to one of its prompts.
@@ -461,6 +468,22 @@ export function App(): React.JSX.Element {
   const { widths, collapsed, dragging, folding, start, reset, nudge, toggle } = useColumns()
 
   /** Which sessions in the list came out of another one, for the mark beside their names. */
+  const saveBot = useCallback(
+    async (bot: { slug?: string; name: string; purpose: string; directory: string }) => {
+      await window.bravebot.writeBot(bot).catch(() => null)
+      await readBots()
+    },
+    [readBots],
+  )
+
+  const removeBot = useCallback(
+    async (slug: string) => {
+      await window.bravebot.removeBot(slug).catch(() => null)
+      await readBots()
+    },
+    [readBots],
+  )
+
   const forked = useMemo(() => forkedSessions(forks), [forks])
 
   /** Send whatever is in the composer, on the same terms the Send button uses. */
@@ -779,6 +802,9 @@ export function App(): React.JSX.Element {
         forked={forked}
         onOpen={showSession}
         onNew={create}
+        bots={bots}
+        onSaveBot={saveBot}
+        onRemoveBot={removeBot}
         build={build}
       />
       <Gutter

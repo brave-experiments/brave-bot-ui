@@ -10,15 +10,18 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { Bridge, BridgeError } from './bridge'
 import { parseLayout } from '../shared/layout'
 import { parseView } from '../shared/view'
 import { parseContextRef, parseWindowState } from '../shared/commands'
 import { installMenu, popupContext, rebuildMenu, refreshMenu } from './menu'
 import { noteProject, recents } from './recents'
-import { putLayout, putPanels, putTheme, putView, readState } from './state'
+import { putBots, putLayout, putPanels, putTheme, putView, readState } from './state'
 import { parsePanels } from '../shared/state'
 import { isProjectPath } from '../shared/recents'
+import { bot, bots, saveBot } from './bots'
+import { isSlug, slugFor, withoutBot, type Bot } from '../shared/bots'
 import { forks, noteFork } from './forks'
 import { isSessionId, parseForkResult } from '../shared/forks'
 import { forgetRoot, list, noteRoot, open as openInApp } from './files'
@@ -321,6 +324,56 @@ app.whenReady().then(() => {
   ipcMain.handle('bravebot:view:read', () => readState().view)
 
   ipcMain.handle('bravebot:view:write', (_event, value: unknown) => putView(parseView(value)))
+
+  // The bots. A read, a write and a remove, and the interesting one is the write: it accepts four
+  // keys and no more. Those four are a preference somebody typed and cross freely. The rest of the
+  // record — the slug that becomes a path segment, the seed the face is drawn from, and the two
+  // fields that will report what a conversation did — is composed or left alone on this side, and
+  // has no way in from a window.
+
+  ipcMain.handle('bravebot:bots:read', () => bots())
+
+  ipcMain.handle('bravebot:bots:write', (_event, value: unknown) => {
+    if (typeof value !== 'object' || value === null) return null
+    const { slug, name, purpose, directory } = value as Record<string, unknown>
+    if (typeof name !== 'string' || typeof purpose !== 'string') return null
+    if (!name.trim() || !purpose.trim()) return null
+    if (!isProjectPath(directory)) return null
+
+    // An existing bot keeps everything this channel cannot say — its seed, when it was made. A new one is given a slug composed here from the name, so the thing that
+    // becomes a path segment is never a string that arrived as one.
+    const held = isSlug(slug) ? bot(slug) : null
+    const next: Bot = held
+      ? { ...held, name, purpose, directory }
+      : {
+          slug: slugFor(name, new Set(bots().map((each) => each.slug))),
+          name,
+          purpose,
+          // Minted here rather than in the window, and stored rather than derived, so a bot's face
+          // survives being renamed. `randomUUID` because the only thing asked of a seed is that
+          // two bots do not share one.
+          avatar: randomUUID(),
+          directory,
+          // Nothing has spoken to it, so there is nothing yet to report about a conversation.
+          session: null,
+          archived: 0,
+          created: Date.now(),
+          updated: Date.now(),
+        }
+    saveBot(next)
+    if (noteProject(next.directory)) rebuildMenu()
+    return next
+  })
+
+  ipcMain.handle('bravebot:bots:remove', (_event, slug: unknown) => {
+    const held = bot(slug)
+    if (!held) return null
+    // The definition goes and nothing else does. Removing a row from a list is not a destructive
+    // act, and it should not become one as this record grows things pointing at the disk.
+    putBots(withoutBot(bots(), held.slug))
+    return held.slug
+  })
+
 
   ipcMain.handle('bravebot:panels:read', () => readState().panels)
 
