@@ -59,6 +59,17 @@ pub struct State {
     pub handle: Option<Handle>,
     pub turns: usize,
     pub tokens: u64,
+    /// What each turn cost, by turn number.
+    ///
+    /// The total says what the session cost; this says which turn cost it, which is the question
+    /// when one turn spent most of it. Written down beside the total so a record this front-end
+    /// wrote reads the same in the terminal, where the breakdown is what the transcript shows.
+    pub spend: BTreeMap<usize, u64>,
+    /// The model the server reported answering with, as of the last turn.
+    ///
+    /// What answered rather than what was asked for: an endpoint may serve something other than
+    /// the name it was given. `None` until a turn has reached a server.
+    pub model: Option<String>,
     pub todos: BTreeMap<usize, Vec<Row>>,
     /// The first thing the user asked, which is what a list calls the session.
     pub first_prompt: Option<String>,
@@ -74,6 +85,8 @@ impl State {
             handle: None,
             turns: 0,
             tokens: 0,
+            spend: BTreeMap::new(),
+            model: None,
             todos: BTreeMap::new(),
             first_prompt: None,
         }
@@ -97,6 +110,8 @@ impl State {
             handle: Some(Handle::resuming(project, record)),
             turns: record.turns,
             tokens: record.tokens,
+            spend: record.spend.clone(),
+            model: record.model.clone(),
             todos: record.todo_rows(),
             first_prompt: Some(record.title.clone()),
         }
@@ -146,6 +161,8 @@ impl State {
             handle: Some(handle),
             turns,
             tokens: 0,
+            spend: BTreeMap::new(),
+            model: None,
             todos,
             first_prompt,
         }
