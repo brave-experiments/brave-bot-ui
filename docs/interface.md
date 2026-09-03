@@ -103,6 +103,50 @@ questions would answer neither well. A bot's sessions do not appear in the sessi
 record openable from two places is one that could be open twice, each half of the window believing
 it had the conversation.
 
+#### Archiving one
+
+A bot leaves the list by being **archived**, from the same form that renames it. It drops into a
+folded **Archived** section at the foot of the tab, and comes back from there with one click.
+
+Nothing about it changes but a single field recording when it was put away. It keeps its slug, so
+it keeps its memory file; it keeps its seed, so it keeps its face; it keeps its session, so
+bringing it back resumes the same conversation rather than starting a new one. That is the whole
+of the feature, and it is the reason archiving is a field rather than a second list somewhere.
+
+It used to be **Forget**, one click and no confirmation, and the button's own tooltip explained
+that the session and the memory file were left where they were. Both true, and neither much
+comfort: what was dropped was the definition, and the definition is the only thing tying those
+pieces together. A bot made again afterwards gets a fresh slug — so a different memory file — and
+a fresh seed, so a different face. It was a different bot wearing the same name.
+
+Taking a bot away for good still exists, as **Delete**, and it is offered only from an archived
+row — the second deliberate step rather than the first one on the way past. It is the only act in
+this window that cannot be taken back, and it is the only control that says so before it is
+hovered: it carries the colour a deletion wears in a diff, where everything else in that column
+earns its colour on the way past.
+
+It also asks. The row turns, the checkout name is replaced by what the deletion costs, and the
+answer is a different button in a different place, so nobody arrives at it by pressing twice. The
+question is asked *in the row* rather than in a dialog, for the reason the agent's own questions
+are asked in the transcript: a modal takes the thing being decided off the screen and replaces it
+with a sentence about it, and here the sentence needs the bot's name still beside it.
+
+What it does is narrower than the word. Nothing is erased — the session stays in `~/.bravebot`
+and the memory file stays in the checkout, exactly as they did under Forget. What goes is the
+only thing that knew they belonged together, which is why it is final and why it asks.
+
+Archiving changes nothing in the sessions tab. An archived bot still owns its session — that is
+what makes restoring it a restoration — so the conversation does not surface there while the bot
+is away, which would make it a record openable twice by another route.
+
+An archived row has no face, and that is deliberate twice over. A page gets a limited number of
+WebGL contexts, as the avatar section below explains at some length, and an archive is exactly the
+list that can grow to forty rows nobody is looking at. And a posture is a claim about what a bot
+is doing: there is no word in that vocabulary for "not here", and a figure looking about beside a
+Restore button would be saying something untrue.
+
+#### The face
+
 Each bot has a face: a small three-dimensional figure, built with three.js from a seed minted when
 the bot was made, turning slowly. The seed is *stored* rather than derived from the name, because a
 face that changed when a bot was renamed would not be a face.

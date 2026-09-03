@@ -694,6 +694,14 @@ export function App(): React.JSX.Element {
     [readBots],
   )
 
+  /**
+   * Take a bot away for good.
+   *
+   * No session to let go of, unlike `retireBot` below. This is only ever reached from a row in
+   * the archive, and archiving is what put it there — which closed its session on the way past.
+   * A bot that is deletable is therefore a bot that is not on screen, by construction rather than
+   * by a check here.
+   */
   const removeBot = useCallback(
     async (slug: string) => {
       await window.bravebot.removeBot(slug).catch(() => null)
@@ -726,6 +734,24 @@ export function App(): React.JSX.Element {
     setDraft('')
     void refresh()
   }, [refresh])
+
+  /**
+   * Put a bot away, or bring it back.
+   *
+   * Defined down here rather than beside `saveBot` because of the one case that needs more than
+   * a write and a re-read: archiving the bot whose session is on screen. Its row goes, and a
+   * header still naming it — with a composer still willing to send to it — would be the window
+   * disagreeing with itself about whether that bot is in use. So the open session is let go of
+   * the same way closing it by hand does, which is what `closeSession` above is for.
+   */
+  const retireBot = useCallback(
+    async (slug: string, retired: boolean) => {
+      if (retired && live?.bot?.slug === slug) await closeSession()
+      await window.bravebot.retireBot(slug, retired).catch(() => null)
+      await readBots()
+    },
+    [closeSession, live?.bot?.slug, readBots],
+  )
 
   const about = useCallback(async () => {
     try {
@@ -1040,6 +1066,7 @@ export function App(): React.JSX.Element {
         openDoing={openDoing}
         onOpenBot={openBot}
         onSaveBot={saveBot}
+        onRetireBot={retireBot}
         onRemoveBot={removeBot}
         build={build}
       />

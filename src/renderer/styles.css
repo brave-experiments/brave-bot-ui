@@ -1840,7 +1840,100 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .bot-actions button:hover:not(:disabled) { color: var(--ink); border-color: var(--accent); }
 .bot-save[disabled] { opacity: 0.4; }
 .bot-save:not([disabled]) { border-color: var(--accent-quiet); color: var(--accent-quiet); }
-.bot-remove:hover { color: var(--removed); border-color: var(--removed); }
+
+/* The archive. (Not `.bot-archive-button`, which is the control in the *form* that puts a bot in
+   here — two similar names for a place and for the door into it.)
+
+   The foot of the column, outside the scrolling list, the way the tabs and the New bot button are
+   its head. So it is in the same place with three bots and with thirty, which is the one thing a
+   place you put things asks of you.
+
+   The heading borrows the session groups' own — same classes, so a thing that folds looks the
+   same in both tabs — with the two parts that do not carry over turned off. Theirs is sticky
+   because a long list scrolls a dozen of them past the eye and the current one has to stay named;
+   this one never moves, so sticky would buy nothing. And theirs is in the accent, because a
+   heading that names the checkout every row beneath it belongs to is something the eye should be
+   able to find while scrolling. This is the opposite kind of heading. It names the place things
+   go when nobody wants to look at them, it is the last thing in the column, and it is on screen
+   whether or not anybody has asked for it — so it is the quietest ink there is. */
+.bot-archive {
+  flex: none;
+  border-top: 1px solid var(--line);
+  padding: 0 8px 4px;
+}
+.bot-archive .session-group-head { position: static; background: none; }
+.bot-archive .session-group-head:hover { background: rgba(127, 127, 127, 0.08); }
+.bot-archive .session-group-fold { color: var(--ink-faint); font-weight: 500; }
+.bot-archive .session-group-head:hover .session-group-fold { color: var(--ink-dim); }
+.bot-archive .session-group-fold .count {
+  background: rgba(127, 127, 127, 0.1);
+  color: var(--ink-faint);
+}
+
+/* Scrolls on its own past a few. The column below the list is not somewhere a fold can grow into,
+   and an archive that pushed the bots still in use off the top would have taken the tab over. */
+.bot-archive-rows { max-height: 40vh; overflow-y: auto; }
+
+/* A row with no face. Padded to line up with `.bot-open-button` above it so the two lists share
+   a left edge, and dimmer, which is the whole of what "put away" has to say here. */
+.bot-archived {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  color: var(--ink-dim);
+}
+.bot-archived:hover { background: rgba(127, 127, 127, 0.08); }
+.bot-archived .bot-said { flex: 1; }
+
+/* Text rather than bordered buttons, unlike the form's. Those sit in a row of their own at the
+   end of a form and are the point of it; these sit beside a name in a list, and two boxes per
+   row down a fold of them would make the archive louder than the bots still in use. */
+.bot-archived button {
+  flex: none;
+  padding: 3px 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: 11px;
+}
+.bot-archived button:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+.bot-restore:hover { color: var(--accent); }
+
+/* The one act in this window that cannot be taken back.
+
+   So it is the one control that carries its colour without being hovered first. Everything else
+   in this column earns its colour on the way past — the archive heading, the Restore beside this,
+   the rows themselves — because they are all reversible and a column of coloured words would be
+   shouting about nothing. This one is not reversible, and a person deciding which of two buttons
+   to press should not have to hover one to find that out. */
+.bot-archived .bot-delete { color: var(--removed); }
+.bot-delete:hover { background: var(--removed-bg); }
+
+/* Asked, not yet done. The row picks up the ground so the question reads as belonging to one bot
+   rather than floating in the fold, and the second Delete is filled in rather than outlined: the
+   two presses should not look alike, or the second is just the first again. */
+.bot-asking { background: var(--removed-bg); }
+.bot-asking .bot-name { color: var(--ink); }
+.bot-warning {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--removed);
+  font-size: 11px;
+}
+.bot-archived .bot-delete-armed {
+  background: var(--removed);
+  color: var(--bg);
+  font-weight: 600;
+}
+.bot-delete-armed:hover { background: var(--removed); opacity: 0.85; }
+/* The way out, and the wider of the two targets in every sense that matters: it is first, it is
+   where Restore just was, and it is the one a stray press lands on. */
+.bot-keep:hover { color: var(--ink); }
 
 /* A file put in front of the planner because somebody named it. The same quiet register the tool
    lines are in, because that is what it is: something that happened on the way to a reply. */
