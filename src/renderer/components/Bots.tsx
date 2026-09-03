@@ -16,9 +16,10 @@
  * something that takes one sentence to say.
  */
 
-import { useCallback, useEffect, useState } from 'react'
-import type { Bot } from '../../shared/bots'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { activeBots, retiredBots, type Bot } from '../../shared/bots'
 import { BotAvatar, type Doing } from './BotAvatar'
+import { Fold } from './Fold'
 
 interface Props {
   bots: Bot[]
@@ -28,14 +29,35 @@ interface Props {
   openDoing: Doing
   onOpen: (bot: Bot) => void
   onSave: (bot: { slug?: string; name: string; purpose: string; directory: string }) => void
+  /** Put one away, or bring it back. */
+  onRetire: (slug: string, retired: boolean) => void
+  /** Take one away for good. Only ever reached from the archive below. */
   onRemove: (slug: string) => void
 }
 
-export function Bots({ bots, openSlug, openDoing, onOpen, onSave, onRemove }: Props): React.JSX.Element {
+export function Bots({
+  bots,
+  openSlug,
+  openDoing,
+  onOpen,
+  onSave,
+  onRetire,
+  onRemove,
+}: Props): React.JSX.Element {
   // Which bot's form is open, by slug, or `'new'` for one that does not exist yet. Local, and for
   // the reason the session filter is: nothing outside this list reads it, and a form half filled
   // in is not a preference anybody wants remembered.
   const [editing, setEditing] = useState<string | null>(null)
+  // Whether the archive is open. Local for the same reason, and closed to begin with: the archive
+  // is where things go to stop being in the way, and one that opened itself every launch would be
+  // in the way.
+  const [showing, setShowing] = useState(false)
+  // Which archived bot has been asked about, if any. One at a time — arming a second disarms the
+  // first, so there is never a fold of rows all sitting a click away from being deleted.
+  const [deleting, setDeleting] = useState<string | null>(null)
+
+  const inUse = useMemo(() => activeBots(bots), [bots])
+  const away = useMemo(() => retiredBots(bots), [bots])
 
   return (
     <>
@@ -51,10 +73,18 @@ export function Bots({ bots, openSlug, openDoing, onOpen, onSave, onRemove }: Pr
       </header>
 
       <div className="session-list">
-        {bots.length === 0 && editing !== 'new' && (
+        {inUse.length === 0 && editing !== 'new' && (
           <p className="empty">
-            No bots yet. A bot is a name, a purpose and a memory, working in one checkout — and one
-            session that is resumed rather than started again.
+            {away.length === 0 ? (
+              <>
+                No bots yet. A bot is a name, a purpose and a memory, working in one checkout — and
+                one session that is resumed rather than started again.
+              </>
+            ) : (
+              // Said rather than left to the heading below, because "No bots yet" over a list of
+              // archived ones would be the window contradicting itself in the same column.
+              <>Every bot you have is in the archive. Bring one back, or make another.</>
+            )}
           </p>
         )}
 
@@ -68,7 +98,7 @@ export function Bots({ bots, openSlug, openDoing, onOpen, onSave, onRemove }: Pr
           />
         )}
 
-        {bots.map((bot) =>
+        {inUse.map((bot) =>
           editing === bot.slug ? (
             <BotForm
               key={bot.slug}
@@ -78,8 +108,8 @@ export function Bots({ bots, openSlug, openDoing, onOpen, onSave, onRemove }: Pr
                 onSave(next)
                 setEditing(null)
               }}
-              onRemove={() => {
-                onRemove(bot.slug)
+              onArchive={() => {
+                onRetire(bot.slug, true)
                 setEditing(null)
               }}
             />
@@ -98,6 +128,60 @@ export function Bots({ bots, openSlug, openDoing, onOpen, onSave, onRemove }: Pr
           ),
         )}
       </div>
+
+      {/* Only when there is something in it. An empty archive is a heading about nothing, and the
+          whole point of the section is to be out of the way.
+
+          Outside the scrolling list rather than at the end of it, which is what makes it the foot
+          of the column rather than whatever happens to be below the last bot. The tab already has
+          a head that stays put while the rows move under it; this is the same bargain at the other
+          end, and it means the archive is in the same place with three bots and with thirty. */}
+      {away.length > 0 && (
+        <section className="bot-archive">
+          {/* The same folded heading the session list groups use, so a thing that opens and
+              closes looks the same in both tabs. */}
+          <div className="session-group-head">
+            <button
+              className="session-group-fold"
+              aria-expanded={showing}
+              // Closing the archive puts down whatever was picked up in it. A row left armed
+              // behind a closed fold would be a question nobody can see waiting for an answer.
+              onClick={() => {
+                setDeleting(null)
+                setShowing(!showing)
+              }}
+            >
+              <span className={`chevron ${showing ? 'open' : ''}`} aria-hidden="true">
+                ›
+              </span>
+              <span className="session-group-name">Archived</span>
+              <span className="count">{away.length}</span>
+            </button>
+          </div>
+          {/* The rows scroll on their own once there are enough of them. A fold pinned to the
+              bottom of the column has no room to grow into, and one that pushed the list of bots
+              off the top would be the archive taking the tab over. */}
+          <Fold open={showing} className="bot-archive-rows">
+            {away.map((bot) => (
+              <ArchivedRow
+                key={bot.slug}
+                bot={bot}
+                asking={deleting === bot.slug}
+                onAsk={() => setDeleting(bot.slug)}
+                onCancel={() => setDeleting(null)}
+                onRestore={() => {
+                  setDeleting(null)
+                  onRetire(bot.slug, false)
+                }}
+                onDelete={() => {
+                  setDeleting(null)
+                  onRemove(bot.slug)
+                }}
+              />
+            ))}
+          </Fold>
+        </section>
+      )}
     </>
   )
 }
@@ -150,6 +234,105 @@ function BotRow({
 }
 
 /**
+ * One bot that has been put away.
+ *
+ * Plainer than the row above it on purpose, and the missing piece is the face. Two reasons, and
+ * they point the same way. A page gets a limited number of WebGL contexts — the whole of what
+ * `BotAvatar`'s stage is arranged around — and an archive is exactly the list that can grow to
+ * forty rows nobody is looking at, so spending one apiece there would cost the bots somebody *is*
+ * looking at their faces. And a posture is a claim about what a bot is doing: the vocabulary has
+ * no word for "not here", and a figure turning slowly beside a Restore button would be saying
+ * something untrue quietly.
+ *
+ * Two things to do with an archived bot, and they are not the same size. Restore is free — it is
+ * the archive's whole point, and undoing it is one more click. **Delete** is the only act in this
+ * window that cannot be taken back, so it is the only control wearing the colour a deletion wears
+ * in a diff, and it asks before it does anything.
+ *
+ * It asks *in the row* rather than in a dialog, which is the same call the transcript makes about
+ * the agent's own questions: a modal takes the thing being decided off the screen and replaces it
+ * with a sentence about it. Here the sentence goes where the checkout name was, so the name of
+ * the bot is still in front of whoever is answering. The second press is a different button in a
+ * different place, so nobody arrives at it by double-clicking the first.
+ *
+ * What the words have to carry is that this is final, and they have to do it without overclaiming.
+ * Nothing is erased: the session stays in the agent's store and the memory file stays in the
+ * checkout, exactly as before. What goes is the only thing that knows they belong together.
+ */
+function ArchivedRow({
+  bot,
+  asking,
+  onAsk,
+  onCancel,
+  onRestore,
+  onDelete,
+}: {
+  bot: Bot
+  /** Whether this row is the one that has been asked about. */
+  asking: boolean
+  onAsk: () => void
+  onCancel: () => void
+  onRestore: () => void
+  onDelete: () => void
+}): React.JSX.Element {
+  const where = bot.directory.split('/').pop() ?? bot.directory
+  return (
+    <div className={`bot-archived${asking ? ' bot-asking' : ''}`}>
+      <span className="bot-said">
+        <span className="bot-name">{bot.name}</span>
+        {asking ? (
+          // Short because the column is narrow and a warning that ellipsises is a warning that
+          // stops before the part that matters. The whole of it — that the session and the memory
+          // file are left where they are — is on the button, which is where somebody hesitating
+          // over this will already be pointing.
+          <span className="bot-warning">This cannot be undone.</span>
+        ) : (
+          // The whole path in the tooltip, for the reason the row above gives: the column clips
+          // it, and this is text the layout took away.
+          <span className="bot-where" title={bot.directory}>
+            {where}
+          </span>
+        )}
+      </span>
+      {asking ? (
+        <>
+          <button type="button" className="bot-keep" onClick={onCancel}>
+            Keep
+          </button>
+          <button
+            type="button"
+            className="bot-delete bot-delete-armed"
+            title={`Delete ${bot.name} for good. This cannot be undone.`}
+            onClick={onDelete}
+          >
+            Delete
+          </button>
+        </>
+      ) : (
+        <>
+          <button
+            type="button"
+            className="bot-restore"
+            title={`Bring ${bot.name} back, with its session, its memory and its face.`}
+            onClick={onRestore}
+          >
+            Restore
+          </button>
+          <button
+            type="button"
+            className="bot-delete"
+            title={`Delete ${bot.name} for good. Its session and its memory file are left where they are, but nothing will point at them again.`}
+            onClick={onAsk}
+          >
+            Delete
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+/**
  * Making a bot, or changing one.
  *
  * The checkout is chosen once and shown afterwards rather than being editable: a bot's memory is a
@@ -161,12 +344,12 @@ function BotForm({
   bot,
   onSave,
   onCancel,
-  onRemove,
+  onArchive,
 }: {
   bot?: Bot
   onSave: (bot: { slug?: string; name: string; purpose: string; directory: string }) => void
   onCancel: () => void
-  onRemove?: () => void
+  onArchive?: () => void
 }): React.JSX.Element {
   const [name, setName] = useState(bot?.name ?? '')
   const [purpose, setPurpose] = useState(bot?.purpose ?? '')
@@ -252,16 +435,20 @@ function BotForm({
       )}
 
       <div className="bot-actions">
-        {onRemove && (
+        {onArchive && (
           <button
             type="button"
-            className="bot-remove"
-            // The one thing worth saying about removing a bot is what it does *not* do, since a
-            // row disappearing looks like everything about it disappearing.
-            title="Forget this bot. Its session and its memory file are left where they are."
-            onClick={onRemove}
+            className="bot-archive-button"
+            // The one thing worth saying about a bot leaving the list is what it does *not* do,
+            // since a row disappearing looks like everything about it disappearing. It used to
+            // say Forget, and the sentence here had to work quite hard: the definition went, and
+            // with it the slug naming the memory file and the seed the face was drawn from, so
+            // "its memory is left where it is" was true and no comfort at all. Now the sentence
+            // is easy, because the thing it describes is.
+            title="Put this bot away. It keeps its session, its memory and its face, and can be brought back from the archive."
+            onClick={onArchive}
           >
-            Forget
+            Archive
           </button>
         )}
         <span className="bot-spacer" />

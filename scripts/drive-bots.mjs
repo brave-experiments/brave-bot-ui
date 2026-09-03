@@ -12,6 +12,13 @@
 //  5. The two figures that decide when a bot is nudged to write its memory survive a relaunch and
 //     survive the form being saved. They are main-written, like the session id and the compaction
 //     watermark beside them, and a window that could reset them could decide when a bot forgets.
+//  6. Deleting one asks first. It is the only act in this window that cannot be taken back, and a
+//     confirmation nothing checks is one somebody removes in a refactor without noticing what it
+//     was for.
+//  7. A bot put in the archive comes back as *itself*. That is the point of archiving rather than
+//     forgetting, and it is the one claim here that a field-by-field check can actually make: the
+//     slug, so the same memory file; the seed, so the same face; the session, so the same
+//     conversation. A bot made again by hand would match on none of them.
 //
 // What is not here: sending a bot a turn. That needs credentials and a model, which the drivers
 // do not have — `smoke-turn.sh` is where a real turn is driven.
@@ -267,15 +274,131 @@ check(
   'and saving the form does not disturb them — the window has no way to say either',
 )
 
-// --- forgetting one ----------------------------------------------------------------------
+// --- putting one away, and taking it back out ----------------------------------------------
+
+// The whole claim of the archive: a bot that leaves the list keeps everything that makes it that
+// bot rather than another one of the same name. So take a copy of the half the window cannot
+// write, put the bot away, bring it back, and check every field against the copy. Forgetting one
+// is what happens after that, and only from the archive.
+const before = onDisk(MINE[0])
 
 await backMine.locator('.bot-edit').click()
 await back.waitForTimeout(300)
-await back.locator('.bot-remove').click()
+await back.locator('.bot-archive-button').click()
 await back.waitForTimeout(600)
+
+const archive = back.locator('.bot-archive')
+// Scoped to this driver's own bot, and counted against what was in the archive before it started.
+// The state file is shared with whoever owns this machine — the standing hazard every driver here
+// works around — and somebody with a bot already put away should not fail this run.
+const archivedRow = archive
+  .locator('.bot-archived')
+  .filter({ has: back.locator('.bot-name', { hasText: /^Release Notes \(weekly\)$/ }) })
+const alreadyAway = (readState().bots ?? []).filter(
+  (bot) => !MINE.includes(bot.slug) && bot.retired > 0,
+).length
+// The fold's state belongs to the list rather than to the section, so it outlives the archive
+// emptying: put something back in it after opening it once and it is already open. Asking rather
+// than clicking blind, or the second visit here would close what the first one opened.
+const openArchive = async () => {
+  const fold = archive.locator('.session-group-fold')
+  if ((await fold.getAttribute('aria-expanded')) !== 'true') {
+    await fold.click()
+    await back.waitForTimeout(600)
+  }
+}
 check(
   (await backMine.count()) === 0 && (await backRow('Triage').count()) === 1,
-  'forgetting a bot takes it out of the list, and takes nothing else',
+  'archiving a bot takes it out of the list, and leaves the one beside it alone',
+)
+check(
+  (await archive.locator('.count').textContent())?.trim() === String(alreadyAway + 1),
+  'and the archive says it has one more in it than it had',
+)
+check(
+  onDisk(MINE[0]) !== null && onDisk(MINE[0])?.retired > 0,
+  'the definition is still on disk, stamped with when it was put away — an archive is not a delete',
+)
+
+await openArchive()
+check(
+  (await archivedRow.locator('.bot-name').textContent())?.trim() === 'Release Notes (weekly)',
+  'opening the fold shows it by name',
+)
+check(
+  (await archivedRow.locator('canvas').count()) === 0,
+  'and draws no face — a page has a limited number of WebGL contexts, and an archive is exactly ' +
+    'the list that could spend them all on rows nobody is looking at',
+)
+await back.screenshot({ path: '/tmp/bravebot-ui/23-bots-archived.png' })
+
+await archivedRow.locator('.bot-restore').click()
+await back.waitForTimeout(600)
+const after = onDisk(MINE[0])
+check(
+  (await backMine.count()) === 1 && (await archivedRow.count()) === 0,
+  'restoring puts it back in the list',
+)
+check(
+  alreadyAway > 0 || (await archive.count()) === 0,
+  'and the archive itself goes when it empties — a heading about nothing is worse than no heading',
+)
+check(
+  after?.retired === 0 &&
+    after?.slug === before?.slug &&
+    after?.avatar === before?.avatar &&
+    after?.session === before?.session &&
+    after?.archived === before?.archived &&
+    after?.remembered === before?.remembered &&
+    after?.quiet === before?.quiet &&
+    after?.created === before?.created,
+  'and it comes back as itself — same slug, so the same memory file; same seed, so the same ' +
+    'face; same session, so the same conversation. A restore is not a rebuild',
+)
+check(
+  (await backMine.locator('.bot-avatar').getAttribute('data-avatar')) === first,
+  'which the face in the list agrees with',
+)
+
+// --- deleting one, which is now the second step and asks first -----------------------------
+
+await backMine.locator('.bot-edit').click()
+await back.waitForTimeout(300)
+check(
+  (await back.locator('.bot-form').getByText(/^(Forget|Delete)$/).count()) === 0,
+  'the form offers no way to delete a bot at all — archiving is what a row leaving means',
+)
+await back.locator('.bot-archive-button').click()
+await back.waitForTimeout(600)
+await openArchive()
+
+// The one act in this window that cannot be taken back, so the claim worth a driver is that one
+// press does not perform it. A confirmation that a test never checks is a confirmation somebody
+// removes in a refactor without noticing what it was for.
+await archivedRow.locator('.bot-delete').click()
+await back.waitForTimeout(400)
+check(
+  onDisk(MINE[0]) !== null && (await archivedRow.locator('.bot-keep').count()) === 1,
+  'pressing Delete asks rather than deletes, and offers the way out first',
+)
+await back.screenshot({ path: '/tmp/bravebot-ui/24-bots-delete.png' })
+await archivedRow.locator('.bot-keep').click()
+await back.waitForTimeout(400)
+check(
+  onDisk(MINE[0]) !== null && (await archivedRow.locator('.bot-restore').count()) === 1,
+  'and answering no leaves the bot exactly where it was',
+)
+
+await archivedRow.locator('.bot-delete').click()
+await back.waitForTimeout(400)
+await archivedRow.locator('.bot-delete-armed').click()
+await back.waitForTimeout(600)
+check(
+  (await backMine.count()) === 0 &&
+    (await archivedRow.count()) === 0 &&
+    onDisk(MINE[0]) === null &&
+    (await backRow('Triage').count()) === 1,
+  'answering yes takes it out of both lists and off disk, and takes nothing else',
 )
 
 // Put the column back on the sessions before leaving, whatever was there before. Every other

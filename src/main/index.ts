@@ -32,6 +32,7 @@ import {
   noteBotSession,
   nudgeDue,
   releaseBotSession,
+  retireBot,
   saveBot,
   consolidationPrompt,
   AFTER_COMPACTION,
@@ -570,12 +571,22 @@ app.whenReady().then(() => {
           // turn ends.
           remembered: 0,
           quiet: 0,
+          // In use, which is what a bot somebody just filled in a form for is.
+          retired: 0,
           created: Date.now(),
           updated: Date.now(),
         }
     saveBot(next)
     if (noteProject(next.directory)) rebuildMenu()
     return next
+  })
+
+  // Archiving is the ordinary way a bot leaves the list, and it is not a removal at all: the
+  // definition stays exactly as it was, which is what lets the same session, the same memory and
+  // the same face come back together when somebody brings it out again.
+  ipcMain.handle('bravebot:bots:retire', (_event, slug: unknown, retired: unknown) => {
+    if (typeof retired !== 'boolean') return null
+    return retireBot(slug, retired)
   })
 
   ipcMain.handle('bravebot:bots:remove', (_event, slug: unknown) => {
@@ -585,6 +596,13 @@ app.whenReady().then(() => {
     // in the agent's own store, and its memory is a file in somebody's checkout that this app did
     // not put there on its own account. Deleting either would make a bot's removal a destructive
     // act, which is not what removing a row from a list looks like.
+    //
+    // What it *does* take is the thread tying those pieces together — the slug that names the
+    // memory file, the seed the face is drawn from, the id of the session. So this is no longer
+    // the first thing offered: the window puts a bot in the archive, and only offers this from
+    // there, a second deliberate step. The guarantee is the interface's rather than this
+    // channel's, and it stays that way on purpose — the demo tears its own bots down through
+    // here, and a bot made by a script is a bot a script should be able to take away.
     putBots(withoutBot(bots(), held.slug))
     return held.slug
   })
@@ -614,6 +632,13 @@ app.whenReady().then(() => {
       }
       const held = bot(slug)
       if (!held) return { error: { code: 'no_such_bot', message: 'no bot by that name' } }
+      // Said separately from the line above rather than folded into it. A bot that has been put
+      // away is not a bot that does not exist, and a refusal that named the wrong reason would
+      // send whoever read it looking for a bot that is sitting in the archive. No window offers
+      // this — an archived bot has no row that sends — but the channel should not lean on that.
+      if (held.retired !== 0) {
+        return { error: { code: 'bot_archived', message: 'that bot is archived' } }
+      }
 
       // The window's claim is that the briefing is due; this may decide it is due when the window
       // did not. It is never the other way round — a window saying "grounded" is answering a

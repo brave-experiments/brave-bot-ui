@@ -182,6 +182,26 @@ export function releaseBotSession(slug: unknown): void {
   saveBot({ ...held, session: null, archived: 0 })
 }
 
+/**
+ * Put a bot away, or take it back out.
+ *
+ * Nothing moves. The ground file is where this process left it, the memory file is where the
+ * agent left it, the session is where the agent keeps every session — and that is the whole
+ * reason coming back is one field changing rather than a bot being rebuilt. A rebuilt bot would
+ * be a different bot wearing the same name: a new slug, so a different memory file, and a new
+ * seed, so a different face.
+ *
+ * The window may ask for this and cannot say what the field becomes, which is the arrangement
+ * `releaseBotSession` above has and for the same reason.
+ */
+export function retireBot(slug: unknown, retired: boolean): Bot | null {
+  const held = bot(slug)
+  if (!held) return null
+  const next = { ...held, retired: retired ? Date.now() : 0 }
+  saveBot(next)
+  return next
+}
+
 /** Where this app keeps its own files for a bot. Composed from a slug that has been judged. */
 function ownDirectory(slug: string): string {
   return join(app.getPath('userData'), 'bots', slug)

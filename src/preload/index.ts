@@ -181,7 +181,26 @@ const api = {
     return ipcRenderer.invoke('bravebot:bots:write', bot) as Promise<Bot | null>
   },
 
-  /** Forget a bot's definition. Its session and its memory file are left where they are. */
+  /**
+   * Put a bot away, or bring it back out.
+   *
+   * The ordinary way a bot leaves the list. Nothing about it changes but the one field: its
+   * session, its memory and its face are all still its own, which is what makes bringing it back
+   * a restoration rather than a rebuild. Ask for it; what the field becomes is not this side's to
+   * say, the same arrangement `releaseBotSession` below has.
+   */
+  retireBot(slug: string, retired: boolean): Promise<Bot | null> {
+    return ipcRenderer.invoke('bravebot:bots:retire', slug, retired) as Promise<Bot | null>
+  },
+
+  /**
+   * Forget a bot's definition. Its session and its memory file are left where they are.
+   *
+   * The second step rather than the first, and only offered from the archive. What it takes is
+   * the thread tying a bot's pieces together — the slug that names its memory file, the seed its
+   * face is drawn from, the id of its session — so a bot made again afterwards is a different bot
+   * with the same name. `retireBot` above is what a row leaving the list ordinarily means.
+   */
   removeBot(slug: string): Promise<string | null> {
     return ipcRenderer.invoke('bravebot:bots:remove', slug) as Promise<string | null>
   },

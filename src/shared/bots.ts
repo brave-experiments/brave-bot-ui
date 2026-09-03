@@ -17,11 +17,16 @@
  *
  * ## Which half of this the window may write
  *
- * Two of these fields are not the window's to set. `session` is the id the agent minted, read off
- * what it *answered* rather than off anything the renderer asked for, and `archived` is a count
- * the agent reported about its own conversation. Both are main-process-written, the arrangement
- * `recents` and `forks` already have and for the same reason: a record of what happened is not a
- * preference, and nothing that can be typed into a window should be able to claim one.
+ * Most of these fields are not the window's to set. `session` is the id the agent minted, read off
+ * what it *answered* rather than off anything the renderer asked for, `archived` is a count the
+ * agent reported about its own conversation, and `retired` is the moment somebody put the bot
+ * away. All are main-process-written, the arrangement `recents` and `forks` already have and for
+ * the same reason: a record of what happened is not a preference, and nothing that can be typed
+ * into a window should be able to claim one. The form says four things; the rest is history.
+ *
+ * `retired` has a channel of its own rather than riding on the form, and that is the same rule
+ * rather than an exception to it: the window may ask for a bot to be archived, and cannot say
+ * what the field becomes.
  */
 
 import { isProjectPath } from './recents'
@@ -84,6 +89,20 @@ export interface Bot {
    * `QUIET_MAX` rather than waiting for a compaction. Main-written.
    */
   quiet: number
+  /**
+   * When it was archived, in milliseconds, or `0` for a bot still in use.
+   *
+   * A time rather than a flag because the only question the archive is ever asked is which of
+   * these was put away most recently, and a boolean would need a date beside it to answer that.
+   * Main-written, like the session id above: being archived is something that happened to a bot,
+   * and a record of what happened is not a preference the window gets to claim.
+   *
+   * Nothing else about an archived bot differs. It keeps its slug, so it keeps its memory file;
+   * it keeps its seed, so it keeps its face; it keeps its session, so bringing it back resumes
+   * the same conversation. That is the whole difference between archiving one and forgetting it,
+   * and it is why this is a field rather than a second list.
+   */
+  retired: number
   /** When it was made, in milliseconds. */
   created: number
   /** When anything about it last changed, in milliseconds. */
@@ -99,6 +118,10 @@ export interface StoredBots {
  *
  * Higher than `RECENTS_MAX` because this is not a menu, and far lower than `FORKS_MAX` because
  * unlike a fork a bot is made deliberately, one at a time, by somebody filling in a form.
+ *
+ * Both lists together, archived and not. An archive that did not count against the ceiling would
+ * be a place bots could be put to get around it, and the file this all lives in is the thing the
+ * ceiling is protecting.
  */
 export const BOTS_MAX = 100
 
@@ -189,6 +212,7 @@ export function parseBots(value: unknown): StoredBots {
       archived,
       remembered,
       quiet,
+      retired,
       created,
       updated,
     } = entry as Record<string, unknown>
@@ -224,6 +248,9 @@ export function parseBots(value: unknown): StoredBots {
         ? remembered
         : 0,
       quiet: typeof quiet === 'number' && Number.isInteger(quiet) && quiet >= 0 ? quiet : 0,
+      // Clamped rather than refused for the reason the three above it are, and absent is the
+      // ordinary case: every bot written before the archive existed is a bot still in use.
+      retired: typeof retired === 'number' && Number.isFinite(retired) && retired >= 0 ? retired : 0,
       created: at,
       updated: typeof updated === 'number' ? updated : at,
     })
@@ -250,12 +277,42 @@ export function withBot(bots: Bot[], bot: Bot): Bot[] {
     .slice(0, BOTS_MAX)
 }
 
+/**
+ * The bots still in use, in the order the list already keeps them.
+ *
+ * The split lives here rather than in the window because this is the file that owns the shape,
+ * and because two callers want the same answer: the list draws one half and the archive draws the
+ * other, and a disagreement between them would be a bot in neither.
+ */
+export function activeBots(bots: Bot[]): Bot[] {
+  return bots.filter((bot) => bot.retired === 0)
+}
+
+/**
+ * The ones put away, most recently archived first.
+ *
+ * A different order from the list above, deliberately. That one is alphabetical because a bot is
+ * a thing somebody expects to find in the same place twice. An archive is not looked *through*,
+ * it is looked *back at* — and what somebody is nearly always after is the one they just put
+ * away, which a list sorted by slug would hide in the middle.
+ */
+export function retiredBots(bots: Bot[]): Bot[] {
+  return bots.filter((bot) => bot.retired !== 0).sort((a, b) => b.retired - a.retired)
+}
+
 /** The list without the bot of this slug. The memory file and the session are not this list's. */
 export function withoutBot(bots: Bot[], slug: string): Bot[] {
   return bots.filter((bot) => bot.slug !== slug)
 }
 
-/** Every session that belongs to a bot, keyed the way `forks.keyOf` keys one. */
+/**
+ * Every session that belongs to a bot, keyed the way `forks.keyOf` keys one.
+ *
+ * Archived bots are counted too, and that is the point rather than an oversight. Their session is
+ * still theirs — bringing one back resumes it — so letting it surface in the session list while
+ * the bot was away would mean a conversation that could be opened twice, once as itself and once
+ * as the bot restored on top of it. Archiving therefore changes nothing about the other tab.
+ */
 export function botSessions(bots: Bot[]): Set<string> {
   const keys = new Set<string>()
   for (const bot of bots) {

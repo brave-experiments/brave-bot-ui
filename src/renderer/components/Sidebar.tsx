@@ -43,6 +43,7 @@ interface Props {
   openDoing: Doing
   onOpenBot: (bot: Bot) => void
   onSaveBot: (bot: { slug?: string; name: string; purpose: string; directory: string }) => void
+  onRetireBot: (slug: string, retired: boolean) => void
   onRemoveBot: (slug: string) => void
   build: string | null
 }
@@ -58,6 +59,7 @@ export function Sidebar({
   openDoing,
   onOpenBot,
   onSaveBot,
+  onRetireBot,
   onRemoveBot,
   build,
 }: Props): React.JSX.Element {
@@ -133,6 +135,7 @@ export function Sidebar({
           openDoing={openDoing}
           onOpen={onOpenBot}
           onSave={onSaveBot}
+          onRetire={onRetireBot}
           onRemove={onRemoveBot}
         />
       </div>
