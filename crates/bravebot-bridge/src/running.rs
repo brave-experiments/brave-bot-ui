@@ -65,6 +65,8 @@ pub struct State {
     /// when one turn spent most of it. Written down beside the total so a record this front-end
     /// wrote reads the same in the terminal, where the breakdown is what the transcript shows.
     pub spend: BTreeMap<usize, u64>,
+    /// The agent's per-turn timing, preserved when a terminal session resumes here.
+    pub timing: BTreeMap<usize, bravebot_agent::timing::Timing>,
     /// The model the server reported answering with, as of the last turn.
     ///
     /// What answered rather than what was asked for: an endpoint may serve something other than
@@ -86,6 +88,7 @@ impl State {
             turns: 0,
             tokens: 0,
             spend: BTreeMap::new(),
+            timing: BTreeMap::new(),
             model: None,
             todos: BTreeMap::new(),
             first_prompt: None,
@@ -111,6 +114,7 @@ impl State {
             turns: record.turns,
             tokens: record.tokens,
             spend: record.spend.clone(),
+            timing: record.timing.clone(),
             model: record.model.clone(),
             todos: record.todo_rows(),
             first_prompt: Some(record.title.clone()),
@@ -162,6 +166,7 @@ impl State {
             turns,
             tokens: 0,
             spend: BTreeMap::new(),
+            timing: BTreeMap::new(),
             model: None,
             todos,
             first_prompt,

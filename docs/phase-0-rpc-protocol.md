@@ -497,6 +497,22 @@ confirmation is **refused** (§8.4). Returns `{}` once the worker has joined.
 
 #### `turn.send`
 
+The optional `model` parameter selects a model ID for this and subsequent turns on the
+open session handle. Provider IDs remain qualified (for example,
+`openrouter/anthropic/claude-haiku-4.5`). Omitting it or passing `null` retains the
+handle's previous choice, or uses the configured default for a fresh handle.
+The UI remembers explicit choices by durable session ID and resends them on reopening.
+
+`models.list` takes no parameters and returns `{ models, defaultModel, warnings }`.
+Each model contains `id`, `name`, `provider`, `premium`, and nullable `contextWindow`.
+It also includes `capabilities`, an array of reported capability identifiers: `text`,
+`vision`, `image-output`, `audio-input`, `audio-output`, `video`, `files`, `tools`,
+`reasoning`, and `structured-output`. An empty array means no supported capabilities
+were reported to the UI, rather than proof that the model lacks them.
+Discovery uses configured backends; partial failures return warnings alongside available
+models and the configured default. `session.new` and `session.open` include `model`
+with the configured default, or `null` when configuration is unavailable.
+
 ```json
 { "id": 5, "method": "turn.send",
   "params": { "session": "s1", "prompt": "why does the parser drop trailing commas?",

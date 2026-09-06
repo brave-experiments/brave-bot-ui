@@ -288,6 +288,12 @@ impl BridgeConfirmer {
 }
 
 impl Confirmer for BridgeConfirmer {
+    // The UI queues messages for the next turn; the protocol has no mid-turn input.
+    // In particular, polling must neither block nor consume an approval reply.
+    fn interjection(&mut self) -> Option<String> {
+        None
+    }
+
     fn confirm_write(&mut self, request: &WriteRequest) -> Decision {
         match self.ask(Kind::Write, "confirm.request", |id| {
             wire::write_request(id, request)

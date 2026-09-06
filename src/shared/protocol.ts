@@ -81,6 +81,7 @@ export interface SessionRecord {
 
 export interface OpenedSession {
   session: string
+  model: string | null
   record: SessionRecord
   said: Said[]
   context: string
@@ -96,6 +97,22 @@ export interface OpenedSession {
    * said again when this has gone up since it last looked.
    */
   archived: number
+}
+
+export interface ModelOption {
+  id: string
+  name: string
+  provider: string
+  premium: boolean
+  contextWindow: number | null
+  /** Provider-reported capabilities; absent when the backend does not report them. */
+  capabilities?: string[]
+}
+
+export interface ModelCatalogue {
+  defaultModel: string
+  models: ModelOption[]
+  warnings: string[]
 }
 
 /**

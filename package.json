@@ -15,6 +15,7 @@
     "start": "electron-vite preview",
     "drive": "npm run bridge && electron-vite build && node scripts/drive.mjs",
     "drive:markdown": "npm run bridge && electron-vite build && node scripts/drive-markdown.mjs",
+    "drive:models": "npm run bridge && electron-vite build && node scripts/drive-models.mjs",
     "drive:resize": "npm run bridge && electron-vite build && node scripts/drive-resize.mjs",
     "drive:panels": "npm run bridge && electron-vite build && node scripts/drive-panels.mjs",
     "drive:columns": "npm run bridge && electron-vite build && node scripts/drive-columns.mjs",
