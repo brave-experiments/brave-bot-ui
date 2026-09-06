@@ -687,7 +687,7 @@ export function App(): React.JSX.Element {
   )
 
   const saveBot = useCallback(
-    async (bot: { slug?: string; name: string; purpose: string; directory: string }) => {
+    async (bot: { slug?: string; avatar?: string; name: string; purpose: string; directory: string }) => {
       await window.bravebot.writeBot(bot).catch(() => null)
       await readBots()
     },
