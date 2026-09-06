@@ -21,6 +21,7 @@ import { activeBots, retiredBots, type Bot } from '../../shared/bots'
 import { newAvatarSeed } from '../../shared/avatar'
 import { BotAvatar, type Doing } from './BotAvatar'
 import { Fold } from './Fold'
+import { ModelPicker } from './ModelPicker'
 
 interface Props {
   bots: Bot[]
@@ -29,7 +30,7 @@ interface Props {
   /** What that bot is doing, so its row's face can match the header's. */
   openDoing: Doing
   onOpen: (bot: Bot) => void
-  onSave: (bot: { slug?: string; avatar?: string; name: string; purpose: string; directory: string }) => void
+  onSave: (bot: { slug?: string; avatar?: string; model?: string | null; name: string; purpose: string; directory: string }) => void
   /** Put one away, or bring it back. */
   onRetire: (slug: string, retired: boolean) => void
   /** Take one away for good. Only ever reached from the archive below. */
@@ -348,12 +349,13 @@ function BotForm({
   onArchive,
 }: {
   bot?: Bot
-  onSave: (bot: { slug?: string; avatar?: string; name: string; purpose: string; directory: string }) => void
+  onSave: (bot: { slug?: string; avatar?: string; model?: string | null; name: string; purpose: string; directory: string }) => void
   onCancel: () => void
   onArchive?: () => void
 }): React.JSX.Element {
   // Keep the preview's face for this draft, including while its name changes.
-  const [avatar] = useState(() => bot?.avatar ?? newAvatarSeed(crypto.randomUUID()))
+  const [avatar, setAvatar] = useState(() => bot?.avatar ?? newAvatarSeed(crypto.randomUUID()))
+  const [model, setModel] = useState<string | null>(bot?.model ?? null)
   const [name, setName] = useState(bot?.name ?? '')
   const [purpose, setPurpose] = useState(bot?.purpose ?? '')
   const [directory, setDirectory] = useState(bot?.directory ?? '')
@@ -384,37 +386,56 @@ function BotForm({
       onSubmit={(event) => {
         event.preventDefault()
         if (ready) {
-          onSave({ slug: bot?.slug, avatar: bot ? undefined : avatar, name: name.trim(), purpose: purpose.trim(), directory })
+          onSave({ slug: bot?.slug, avatar: bot ? undefined : avatar, model, name: name.trim(), purpose: purpose.trim(), directory })
         }
       }}
     >
-      {!bot && (
-        <div className="bot-form-avatar">
-          <BotAvatar seed={avatar} size={56} doing="waiting" />
-        </div>
-      )}
+      <div className={bot ? undefined : "bot-form-identity"}>
+        {!bot && (
+          <div className="bot-form-avatar">
+            <BotAvatar seed={avatar} size={76} doing="waiting" />
+            <button
+              type="button"
+              className="bot-avatar-refresh"
+              aria-label="Refresh avatar"
+              title="Try a new avatar appearance"
+              onClick={() => setAvatar(newAvatarSeed(crypto.randomUUID()))}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M20 7v5h-5M4 17v-5h5" />
+                <path d="M6.1 7a7 7 0 0 1 11.6-1L20 12M4 12l2.3 6A7 7 0 0 0 17.9 17" />
+              </svg>
+            </button>
+          </div>
+        )}
 
-      <label className="bot-field">
-        <span>Name</span>
-        <input
-          value={name}
-          autoFocus
-          placeholder="Release notes"
-          onChange={(event) => setName(event.target.value)}
-          onKeyDown={(event) => event.key === 'Escape' && onCancel()}
-        />
-      </label>
+        <label className="bot-field">
+          <span>Name</span>
+          <input
+            value={name}
+            autoFocus
+            placeholder="Web dev bot"
+            onChange={(event) => setName(event.target.value)}
+            onKeyDown={(event) => event.key === 'Escape' && onCancel()}
+          />
+        </label>
+      </div>
 
       <label className="bot-field">
         <span>Purpose</span>
         <textarea
           value={purpose}
           rows={4}
-          placeholder="What this bot is for, and how it should go about it."
+          placeholder="Build responsive pages, fix UI bugs, and improve accessibility. Follow the project’s existing styles and test your changes."
           onChange={(event) => setPurpose(event.target.value)}
           onKeyDown={(event) => event.key === 'Escape' && onCancel()}
         />
       </label>
+
+      <div className="bot-field bot-form-model">
+        <span>Model</span>
+        <ModelPicker scope="bot" model={model} disabled={false} onChoose={setModel} />
+      </div>
 
       <div className="bot-field">
         <span>Checkout</span>

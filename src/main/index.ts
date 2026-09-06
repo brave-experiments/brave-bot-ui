@@ -38,7 +38,7 @@ import {
   consolidationPrompt,
   AFTER_COMPACTION,
 } from './bots'
-import { isSlug, slugFor, withoutBot, type Bot } from '../shared/bots'
+import { isBotModel, isSlug, slugFor, withoutBot, type Bot } from '../shared/bots'
 import { isSessionId, parseForkResult } from '../shared/forks'
 import { forgetRoot, list, noteRoot, open as openInApp } from './files'
 import { isSubpath } from '../shared/files'
@@ -137,7 +137,8 @@ async function sendBotTurn(
   // defaults it that way, and a parameter that only ever appears when it is doing something is a
   // parameter somebody reading the wire can see the point of.
   const params: Record<string, unknown> = recall ? { session, prompt } : { session, prompt, recall }
-  if (model !== undefined) params.model = model
+  const selectedModel = held.model ?? model
+  if (selectedModel !== undefined) params.model = selectedModel
   if (grounded) {
     // Made afresh on the way into every send rather than once when the bot was created. A file a
     // turn names and cannot read is not a smaller turn, it is a failed one — so a memory deleted
@@ -565,9 +566,18 @@ app.whenReady().then(() => {
 
   ipcMain.handle('bravebot:bots:read', () => bots())
 
+  ipcMain.handle('bravebot:bots:model', (_event, slug: unknown, model: unknown) => {
+    const held = bot(slug)
+    if (!held || !isBotModel(model)) return null
+    const next = { ...held, model }
+    saveBot(next)
+    return next
+  })
+
   ipcMain.handle('bravebot:bots:write', (_event, value: unknown) => {
     if (typeof value !== 'object' || value === null) return null
-    const { slug, avatar, name, purpose, directory } = value as Record<string, unknown>
+    const { slug, avatar, model, name, purpose, directory } = value as Record<string, unknown>
+    if (model !== undefined && !isBotModel(model)) return null
     if (typeof name !== 'string' || typeof purpose !== 'string') return null
     if (!name.trim() || !purpose.trim()) return null
     if (!isProjectPath(directory)) return null
@@ -580,11 +590,12 @@ app.whenReady().then(() => {
     // becomes a path segment is never a string that arrived as one.
     const held = isSlug(slug) ? bot(slug) : null
     const next: Bot = held
-      ? { ...held, name, purpose, directory }
+      ? { ...held, name, purpose, directory, model: model === undefined ? held.model : model }
       : {
           slug: slugFor(name, new Set(bots().map((each) => each.slug))),
           name,
           purpose,
+          model: typeof model === 'string' ? model : null,
           // Use the draft's preview seed so creation keeps the face already shown. Older
           // callers may omit it; either way it is stored and survives a rename.
           avatar: typeof avatar === 'string' ? avatar : newAvatarSeed(randomUUID()),

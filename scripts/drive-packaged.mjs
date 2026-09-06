@@ -75,8 +75,8 @@ check(
   `a release offers no Reload and no Developer Tools (${seen.developer.map((i) => i.label).join(', ') || 'none'})`,
 )
 check(
-  seen.view.join() === 'view.fold-left,view.fold-right,view.reset-columns',
-  `View is only the column items (${seen.view.join(', ')})`,
+  seen.view.filter(Boolean).join() === 'view.fold-left,view.fold-right,view.reset-columns,view.theme',
+  `View offers columns and themes (${seen.view.filter(Boolean).join(', ')})`,
 )
 
 // The roles still have to survive packaging, same as anywhere else.

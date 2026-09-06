@@ -1842,11 +1842,44 @@ button { font: inherit; color: inherit; cursor: pointer; }
   background: var(--bg);
 }
 
-.bot-form-avatar {
-  display: flex;
-  justify-content: center;
-  padding: 4px 0;
+.bot-form-identity {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
 }
+.bot-form-identity .bot-field { min-width: 0; padding-bottom: 20px; }
+.bot-form-identity input { min-width: 0; width: 100%; box-sizing: border-box; }
+.bot-form-model .model-picker { align-self: stretch; max-width: none; }
+.bot-form-model .model-trigger { height: 32px; }
+.bot-form-model .model-current { font-size: 12px; }
+.bot-form-model .model-popover { top: calc(100% + 6px); bottom: auto; width: 100%; box-sizing: border-box; }
+
+.bot-form-avatar {
+  position: relative;
+  width: 88px;
+  height: 100px;
+}
+
+.bot-avatar-refresh {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-dim);
+  opacity: .6;
+  cursor: pointer;
+}
+.bot-avatar-refresh:hover { color: var(--ink); opacity: 1; }
+.bot-avatar-refresh:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .bot-field { display: flex; flex-direction: column; gap: 4px; }
 .bot-field > span { font-size: 11px; color: var(--ink-dim); }

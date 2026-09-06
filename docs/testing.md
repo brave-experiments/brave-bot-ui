@@ -18,7 +18,7 @@ at, that a control keeps keyboard focus through an animation.
 | `npm run drive:columns` | Folding each side column, and what is remembered |
 | `npm run drive:panels` | The context panels, the row of buttons that turns them on and off, and the transcript's tool runs |
 | `npm run drive:markdown` | Markdown rendering, light and dark |
-| `npm run drive:models` | Model defaults, composer placement, search and keyboard selection, turn payload, per-conversation persistence, and discovery error recovery. Uses deterministic replies without paid inference. |
+| `npm run drive:models` | Model defaults, composer placement, search and keyboard selection, turn payload, per-conversation persistence, and discovery error recovery. Also bot creation, Avatar refresh and layout, saved bot models, composer changes, and persistence after reload. Uses deterministic replies without paid inference. |
 | `npm run drive:run` | Approving a command from the window, end to end through a live turn |
 | `npm run drive:ask` | Answering a series of questions the planner asks, likewise live |
 | `npm run drive:menu` | The application menu: what it offers, what it greys, and what it refuses to offer |
@@ -28,10 +28,10 @@ at, that a control keeps keyboard focus through an animation.
 | `npm run drive:theme` | Themes: that previewing repaints before anything is written down, that Escape restores exactly, that every derived token survives a palette, that editing a palette repaints without a relaunch, and that a PDF stays white regardless |
 | `npm run drive:bots` | Bots: that the column has two lists and remembers which, that a bot survives a relaunch with what was typed into it, and that two bots have different faces while one bot keeps its own across a rename — asserted on the *form* the seed built, since the face is turning while it is looked at. Also the archive: that a bot put away survives field-for-field and comes back as itself, and that deleting one asks before it does anything |
 | `npm run drive:packaged` | A built `.app`: that a release hides the developer items and finds its agent |
-| `npm run drive:astar` | One long piece of real work, start to finish: a new session in an empty checkout, every question it puts answered yes, and what the window has to show for it |
 | `npm run drive:bot-turn` | A live turn as a bot: that a purpose nobody typed reaches the model, that the memory file is real and in the checkout, and that reopening the bot resumes the same session |
 | `npm run drive:bot-memory` | That a bot is asked to keep its memory current without anybody asking it to: that one which has gone quiet is handed its briefing again with a line saying so, that the count resets on the nudge rather than on every turn, and that a turn the app sent is drawn as house-keeping in a reopened transcript rather than as a prompt |
 | `node scripts/drive-turn.mjs` | A live inference request through the window, to prove the binary carries its credentials rather than inheriting them |
+| `node scripts/drive-models-live.mjs` | Live inference before and after changing the conversation model, checking which model the agent actually used |
 | `scripts/smoke-turn.sh` | A live turn straight through `bravebot-rpc`, no app |
 
 `drive:menu` cannot press a menu's own keystroke: Playwright's keyboard reaches the web
@@ -41,23 +41,12 @@ contents over CDP, and an AppKit key equivalent never sees it. So it asserts the
 ⌘C/⌘V actually reaching the composer — the role assertion proves the item is there, only a
 person proves the keystroke arrives.
 
-`drive:astar` is the long one, and the only driver that follows a whole task rather than a
-control. It starts a session in `/tmp/bravebot-astar`, sends a prompt that has to write a
-library, build a page and photograph it running, and says yes to every question the agent
-puts — a run in the half-hour range that answers twenty-odd cards. What it asserts is
-what only a real turn can show: that a decision made in the window reaches the turn blocked
-on it, that nothing can be sent past a question nobody has answered, and that the session is
-in the list afterwards to be reopened. `ASTAR_BUDGET_MS` bounds it — thirty minutes by default — `ASTAR_DIR` moves the checkout it
-builds in, `ASTAR_RESUME=1` sends a follow-up to the session already there instead of building
-from nothing (`ASTAR_FOLLOW_UP` is what it says), and `ASTAR_INSPECT=1` opens that session and
-reports what the panels say without spending a turn.
-
 Each driver launches the app, prints a line per assertion and leaves screenshots under
-`/tmp/bravebot-ui/` — `drive:astar` in `astar/` beneath it, since its run is long enough to be
-worth keeping apart. Eight of them cost real tokens: `drive:markdown`, `drive:run`, `drive:ask`,
-`drive:astar`, `drive:bot-turn`, `drive:bot-memory`, `drive-turn.mjs` and `smoke-turn.sh` send an
-actual prompt, and `smoke-turn.sh` needs a shell where `direnv` has
-loaded the agent's `.envrc`.
+`/tmp/bravebot-ui/` or a driver-specific path in `/tmp`. Eight of the checks cost real tokens:
+`drive:markdown`, `drive:run`, `drive:ask`, `drive:bot-turn`, `drive:bot-memory`, `drive-turn.mjs`,
+`drive-models-live.mjs` and `smoke-turn.sh` send an
+actual prompt. Live checks use the backend credentials configured in settings, the environment,
+or the agent binary.
 
 The drivers share `bravebot-ui.json`, so one that leaves a column folded — or a panel turned off —
 would make the next one's measurements meaningless. `drive-columns.mjs` normalises the columns at
@@ -90,5 +79,5 @@ calls that are on one line on purpose, and reformatting the crate is a change to
 own rather than as a side effect of turning CI on. The reasoning for each of these lives in
 comments in the workflow itself.
 
-No `drive:*` driver runs in CI: they want a macOS runner and a display, and eight of them spend
+No `drive:*` driver runs in CI: they want a macOS runner and a display, and eight of the live checks spend
 tokens.

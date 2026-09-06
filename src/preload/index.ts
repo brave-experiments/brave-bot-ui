@@ -172,10 +172,15 @@ const api = {
    * either from here. Neither is the slug: a name crosses, and the main process makes the thing
    * that becomes a filename out of it, so a path segment is never a string that arrived as one.
    */
+  writeBotModel(slug: string, model: string): Promise<Bot | null> {
+    return ipcRenderer.invoke('bravebot:bots:model', slug, model) as Promise<Bot | null>
+  },
+
   writeBot(bot: {
     slug?: string
     /** The preview seed, used only when creating a bot. */
     avatar?: string
+    model?: string | null
     name: string
     purpose: string
     directory: string

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # A live turn through bravebot-rpc, end to end.
 #
-# Needs the agent's credentials, so it must run in a shell where direnv has loaded
-# bravebot's .envrc. It drives a real model: expect it to cost a few tokens and
+# Uses the configured backend credentials (settings, environment, or built-in).
+# It drives a real model: expect it to cost a few tokens and
 # take a few seconds.
 #
 # Usage, from anywhere:
@@ -14,9 +14,8 @@
 
 set -uo pipefail
 
-UI="$HOME/repos/bravebot-ui"
-AGENT="$HOME/repos/bravebot"
-WORKDIR="${1:-$AGENT}"
+UI="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+WORKDIR="${1:-$UI/vendor/bravebot}"
 RPC="$UI/target/debug/bravebot-rpc"
 
 if [ ! -x "$RPC" ]; then
@@ -24,62 +23,78 @@ if [ ! -x "$RPC" ]; then
   ( cd "$UI" && cargo build -p bravebot-bridge ) || exit 1
 fi
 
-if [ -z "${SERVICES_KEY_AICHAT:-}" ]; then
-  cat >&2 <<'MSG'
-No credentials in this shell. bravebot-rpc is built unconfigured, so it reads them from the
-environment at run time. Run this from a shell where direnv has loaded the agent's
-.envrc, or wrap it:
+# Settings can supply provider credentials even when no Brave service key is exported.
+# Keep stdin open until completion and answer the fixture's read confirmation. The old
+# pipe slept for two minutes but could never answer a question coming back from the agent.
+python3 - "$RPC" "$WORKDIR" <<'PYTHON'
+import json, queue, subprocess, sys, threading, time
+from pathlib import Path
 
-    direnv exec ~/repos/bravebot ~/repos/bravebot-ui/scripts/smoke-turn.sh
+rpc, directory = sys.argv[1:]
+process = subprocess.Popen([rpc], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+messages = queue.Queue()
+def read():
+    for line in process.stdout:
+        messages.put(line)
+    messages.put(None)
+threading.Thread(target=read, daemon=True).start()
+sequence = 0
+handle = None
+success = False
+fixture = (Path(directory) / 'crates/core/src/label.rs').resolve()
+def send(method, **params):
+    global sequence
+    sequence += 1
+    process.stdin.write(json.dumps({'id': sequence, 'method': method, 'params': params}) + '\n')
+    process.stdin.flush()
 
-MSG
-  exit 1
-fi
-
-echo "# working directory: $WORKDIR" >&2
-echo "# ---- transcript ----" >&2
-
-# Session 1 is minted by session.new. Trust is declined, so every write would be shown;
-# the prompt asks a question rather than requesting one.
-{
-  printf '%s\n' "{\"id\":1,\"method\":\"session.new\",\"params\":{\"directory\":\"$WORKDIR\"}}"
-  printf '%s\n' '{"id":2,"method":"trust.reply","params":{"session":"s1","trusted":false}}'
-  printf '%s\n' '{"id":3,"method":"turn.send","params":{"session":"s1","prompt":"In one sentence, what is the purpose of crates/core/src/label.rs?"}}'
-  # Hold stdin open while the turn runs. Closing it would refuse any pending write and
-  # end the process, which is correct behaviour and not what we want to observe here.
-  sleep 120
-} | "$RPC" | while IFS= read -r line; do
-  python3 - "$line" <<'PY'
-import json, sys
 try:
-    m = json.loads(sys.argv[1])
-except Exception:
-    print("RAW:", sys.argv[1]); sys.exit()
-
-if "event" in m:
-    name, d = m["event"], m.get("data", {})
-    if name == "agent.ready":       print(f"[ready] agent {d.get('build')}")
-    elif name == "phase":           print(f"[phase] {d.get('phase')}")
-    elif name == "narration":       print(f"[says ] {d.get('text','')[:120]}")
-    elif name == "tool.started":    print(f"[tool ] {d.get('verb')}({d.get('target')}) ...")
-    elif name == "tool.finished":   print(f"[tool ] {d.get('verb')}({d.get('target')}) -> {d.get('note')}")
-    elif name == "landed":          print(f"[land ] {d.get('landing')}")
-    elif name == "quarantined":     print(f"[quar ] {d.get('origin')} ({d.get('lines')} lines, {d.get('reach')})")
-    elif name == "confirm.request": print(f"[ASK  ] write {d.get('path')} (+{d.get('added')}/-{d.get('removed')})")
-    elif name == "turn.done":
-        print(f"[done ] {d.get('steps')} steps, {d.get('tokens')} tokens, clean={d.get('clean')}")
-        print(f"[reply] {d.get('reply','')[:600]}")
-        sys.exit(17)
-    elif name == "turn.error":
-        print(f"[ERROR] {d.get('kind')}: {d.get('message')}")
-        sys.exit(17)
-    elif name == "audit":           pass  # too noisy for a smoke test
-    else:                           print(f"[{name}] {json.dumps(d)[:160]}")
-elif "error" in m:                  print(f"[fail ] id={m['id']} {m['error']['code']}: {m['error']['message']}")
-else:                               print(f"[ok   ] id={m['id']} {json.dumps(m.get('ok'))[:160]}")
-PY
-  [ $? -eq 17 ] && break
-done
-
-echo "# ---- end ----" >&2
-echo "# the session should now appear in: bravebot --resume  (run in $WORKDIR)" >&2
+    send('session.new', directory=directory)
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline:
+        try:
+            line = messages.get(timeout=min(1, deadline-time.monotonic()))
+        except queue.Empty:
+            continue
+        if line is None:
+            break
+        message = json.loads(line)
+        if 'error' in message:
+            print('[ERROR]', message['error'], flush=True)
+            break
+        if message.get('id') == 1:
+            handle = message['ok']['session']
+            send('trust.reply', session=handle, trusted=False)
+        elif message.get('id') == 2:
+            send('turn.send', session=handle, prompt='In one sentence, what is the purpose of crates/core/src/label.rs?')
+        event = message.get('event')
+        data = message.get('data', {})
+        if event == 'vouch.request':
+            requested = Path(data['path'])
+            if not requested.is_absolute(): requested = Path(directory) / requested
+            if requested.resolve() != fixture:
+                print('[ERROR] Unexpected read confirmation:', data['path'], flush=True)
+                break
+            send('vouch.reply', session=handle, request=data['request'], decision='approve')
+            print('[read ] Approved the source fixture', flush=True)
+        elif event in ('confirm.request', 'run.request', 'output.request', 'ask.request'):
+            print('[ERROR] Unexpected interaction:', event, flush=True)
+            break
+        elif event == 'turn.done':
+            success = bool(data.get('reply', '').strip())
+            print('[reply]', data.get('reply', '')[:600], flush=True)
+            break
+        elif event == 'turn.error':
+            print('[ERROR]', data.get('message'), flush=True)
+            break
+        elif event in ('phase', 'tool.started', 'tool.finished'):
+            print('[' + event + ']', data.get('phase') or data.get('verb'), flush=True)
+finally:
+    process.stdin.close()
+    try: process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.terminate()
+        process.wait(timeout=5)
+print('RESULT: ok' if success else 'RESULT: failed — no successful reply', flush=True)
+sys.exit(0 if success else 1)
+PYTHON

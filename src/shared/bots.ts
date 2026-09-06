@@ -55,6 +55,8 @@ export interface Bot {
    * is a non-empty string that will be the same one next launch.
    */
   avatar: string
+  /** Inference model; null uses the configured default for older bots. */
+  model: string | null
   /** The checkout it works in, chosen when it was made and pinned from then on. */
   directory: string
   /**
@@ -107,6 +109,13 @@ export interface Bot {
   created: number
   /** When anything about it last changed, in milliseconds. */
   updated: number
+}
+
+/** Model IDs are opaque provider identifiers, never paths or commands. */
+export function isBotModel(value: unknown): value is string | null {
+  return value === null || (
+    typeof value === 'string' && value.trim().length > 0 && value.length <= 512 && !value.includes('\0')
+  )
 }
 
 export interface StoredBots {
@@ -207,6 +216,7 @@ export function parseBots(value: unknown): StoredBots {
       name,
       purpose,
       avatar,
+      model,
       directory,
       session,
       archived,
@@ -234,6 +244,7 @@ export function parseBots(value: unknown): StoredBots {
       name,
       purpose,
       avatar: isText(avatar) ? avatar : slug,
+      model: isBotModel(model) && model !== null ? model : null,
       directory,
       session: isSessionId(session) ? session : null,
       // Clamped rather than refused. It is a watermark, and a nonsense one costs one needless

@@ -42,7 +42,7 @@ interface Props {
   /** What that bot is doing, so its row's face can match the header's. */
   openDoing: Doing
   onOpenBot: (bot: Bot) => void
-  onSaveBot: (bot: { slug?: string; avatar?: string; name: string; purpose: string; directory: string }) => void
+  onSaveBot: (bot: { slug?: string; avatar?: string; model?: string | null; name: string; purpose: string; directory: string }) => void
   onRetireBot: (slug: string, retired: boolean) => void
   onRemoveBot: (slug: string) => void
   build: string | null

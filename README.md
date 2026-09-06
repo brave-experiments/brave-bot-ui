@@ -153,8 +153,8 @@ Both, plus `cargo test --all`, are what CI runs on a pull request.
 The interface is tested by driving the real window, because the things worth asserting here
 are the ones a screenshot cannot show — that a fold passes through intermediate heights
 rather than snapping, that a column comes back at the width it left at, that a control keeps
-keyboard focus through an animation. There are seventeen `drive:*` drivers plus two live
-smoke tests, and eight of the nineteen spend real tokens. [`docs/testing.md`](docs/testing.md) lists what each
+keyboard focus through an animation. There are nineteen Electron drivers plus an RPC smoke test, and eight of these twenty checks
+spend real tokens. [`docs/testing.md`](docs/testing.md) lists what each
 one covers and what CI does and does not run. [`docs/demo.md`](docs/demo.md) covers
 `npm run demo`, which performs rather than asserts and films itself.
 
