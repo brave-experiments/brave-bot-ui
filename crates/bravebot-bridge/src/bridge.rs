@@ -45,6 +45,7 @@ struct Open {
     answered_trust: bool,
     /// The turn in flight, if there is one.
     running: Option<Running>,
+    model: Option<String>,
 }
 
 /// Drives the agent for a front-end.
@@ -77,6 +78,11 @@ impl Bridge {
     pub fn dispatch(&mut self, request: &Request) -> Result<Value, Failure> {
         match request.method.as_str() {
             "agent.info" => Ok(self.info()),
+            "models.list" => {
+                let config = Config::from_env()
+                    .map_err(|error| Failure::new(ErrorCode::Config, error.to_string()))?;
+                Ok(crate::models::list(&config))
+            },
             "session.list" => self.list(request),
             "session.open" => self.open_session(request),
             "session.new" => self.new_session(request),
@@ -104,6 +110,7 @@ impl Bridge {
         json!({
             "build": crate::agent_build(),
             "version": env!("CARGO_PKG_VERSION"),
+            "defaultModel": Config::from_env().ok().map(|config| config.default_model),
             "home": bravebot_tui::store::directory().map(|d| d.display().to_string()),
         })
     }
@@ -158,6 +165,7 @@ impl Bridge {
             state: Arc::new(Mutex::new(state)),
             answered_trust,
             running: None,
+            model: None,
         });
 
         if !answered_trust {
@@ -184,6 +192,7 @@ impl Bridge {
 
         json!({
             "session": handle,
+            "model": Config::from_env().ok().map(|config| config.default_model),
             "record": {
                 "id": record.id,
                 "directory": record.directory,
@@ -243,6 +252,7 @@ impl Bridge {
             state: Arc::new(Mutex::new(State::fresh(TrustStore::new()))),
             answered_trust: false,
             running: None,
+            model: None,
         });
 
         // Nothing is written until the first turn. An opened-and-abandoned window should
@@ -255,6 +265,7 @@ impl Bridge {
 
         Ok(json!({
             "session": handle,
+            "model": Config::from_env().ok().map(|config| config.default_model),
             "directory": directory.display().to_string(),
             "branch": branch,
         }))
@@ -369,6 +380,7 @@ impl Bridge {
             // the same window, so asking again would be asking somebody to answer twice.
             answered_trust,
             running: None,
+            model: None,
         });
 
         if !answered_trust {
@@ -430,6 +442,7 @@ impl Bridge {
     fn send_turn(&mut self, request: &Request) -> Result<Value, Failure> {
         let handle = request.string("session")?;
         let prompt = request.string("prompt")?;
+        let requested_model = crate::models::selection(request.params.get("model"))?;
         let files: Vec<String> = request
             .params
             .get("files")
@@ -490,6 +503,7 @@ impl Bridge {
             ));
         }
 
+        let model = requested_model.or_else(|| open.model.clone());
         let config = Config::from_env()
             .map_err(|error| Failure::new(ErrorCode::Config, error.to_string()))?;
         let mut workspace = Workspace::new(open.project.clone())
@@ -531,8 +545,10 @@ impl Bridge {
         let emitter = self.emitter.clone();
         let session = handle.clone();
 
+        let worker_model = model.clone();
         thread::spawn(move || {
             work(Work {
+                model: worker_model,
                 emitter,
                 session,
                 project,
@@ -559,6 +575,7 @@ impl Bridge {
 
         if let Some(open) = self.open.get_mut(&handle) {
             open.running = Some(running);
+            open.model = model;
         }
 
         Ok(json!({ "turn": turn_number }))
@@ -775,6 +792,7 @@ struct Work {
     project: PathBuf,
     state: Arc<Mutex<State>>,
     config: Config,
+    model: Option<String>,
     workspace: Workspace,
     prompt: String,
     files: Vec<String>,
@@ -800,6 +818,7 @@ fn work(work: Work) {
         project,
         state,
         config,
+        model,
         workspace,
         prompt,
         files,
@@ -819,7 +838,11 @@ fn work(work: Work) {
         return;
     };
 
-    let mut task = Task::new(&prompt).with_home(bravebot_agent::home::directory());
+    let history = bravebot_tui::history::Entry::sent(
+        &prompt,
+        Some(project.display().to_string()),
+    );
+    let mut task = Task::new(&prompt).with_home(bravebot_agent::home::directory()).with_model(model);
     for file in &files {
         task = task.with_file(file);
     }
@@ -857,7 +880,7 @@ fn work(work: Work) {
     // parsed: the same flag holds back the session's name, because a conversation called after
     // some house-keeping would be a conversation named for the one thing nobody in it asked.
     if recall {
-        bravebot_tui::store::append_history(&prompt);
+        bravebot_tui::store::append_history(&history);
     }
 
     state.turns = turn;
@@ -880,6 +903,7 @@ fn work(work: Work) {
             // Added to rather than set: a turn that compacted part way through has already put
             // that cost here under the same number, and the breakdown has to add up to the total.
             *state.spend.entry(turn).or_insert(0) += outcome.tokens;
+            state.timing.entry(turn).or_default().add(outcome.timing);
             // Left as it was when a turn never reached a server, so a record keeps the last model
             // that actually answered rather than forgetting it to a turn that failed early.
             if !outcome.model.is_empty() {
@@ -978,6 +1002,7 @@ fn save(
             turns: state.turns,
             tokens: state.tokens,
             spend: &state.spend,
+            timing: &state.timing,
             model: state.model.as_deref(),
             todos: &state.todos,
             trust: &state.trust,

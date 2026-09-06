@@ -56,6 +56,7 @@ fn a_record_written_here_is_read_back_by_the_agents_own_reader() {
             turns: 1,
             tokens: 42,
             spend: &BTreeMap::new(),
+            timing: &BTreeMap::new(),
             model: None,
             todos: &todos,
             trust: &trust,
@@ -110,6 +111,7 @@ fn a_stored_conversation_recounts_to_what_a_person_said() {
             turns: 2,
             tokens: 0,
             spend: &BTreeMap::new(),
+            timing: &BTreeMap::new(),
             model: None,
             todos: &BTreeMap::new(),
             trust: &TrustStore::new(),
@@ -163,6 +165,9 @@ fn resuming_a_session_writes_back_to_it_rather_than_forking() {
 
     let trust = TrustStore::new();
     let todos = BTreeMap::new();
+    let timing = BTreeMap::from([(1, bravebot_agent::timing::Timing {
+        wall_ms: 120, inference_ms: 80, tools_ms: 20, stalled_ms: 10,
+    })]);
 
     let mut handle = Handle::begin(&project);
     handle.save(
@@ -172,6 +177,7 @@ fn resuming_a_session_writes_back_to_it_rather_than_forking() {
             turns: 1,
             tokens: 10,
             spend: &BTreeMap::new(),
+            timing: &timing,
             model: None,
             todos: &todos,
             trust: &trust,
@@ -197,6 +203,7 @@ fn resuming_a_session_writes_back_to_it_rather_than_forking() {
             turns: state.turns,
             tokens: state.tokens,
             spend: &BTreeMap::new(),
+            timing: &state.timing,
             model: None,
             todos: &state.todos,
             trust: &state.trust,
@@ -213,6 +220,7 @@ fn resuming_a_session_writes_back_to_it_rather_than_forking() {
     let reread = sessions::load(&project, &original).expect("the record should still load");
     assert_eq!(reread.turns, 2, "the turn landed in the session it was taken in");
     assert_eq!(reread.tokens, 25);
+    assert_eq!(reread.timing, timing, "resuming must preserve the timing from the terminal");
     assert_eq!(reread.title, "remember the word haddock", "the title survives the resume");
 
     clean_up(&project);
@@ -260,6 +268,7 @@ fn two_prompt_session(project: &std::path::Path, trust: Option<&TrustStore>) -> 
             turns: 2,
             tokens: 30,
             spend: &BTreeMap::new(),
+            timing: &BTreeMap::new(),
             model: None,
             todos: &BTreeMap::new(),
             // A record written before trust maps were kept has none, and `save` writes what it
@@ -512,6 +521,7 @@ fn a_fork_gets_an_id_of_its_own_rather_than_the_one_it_came_from() {
             turns: state.turns,
             tokens: 5,
             spend: &BTreeMap::new(),
+            timing: &BTreeMap::new(),
             model: None,
             todos: &state.todos,
             trust: &state.trust,

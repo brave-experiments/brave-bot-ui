@@ -53,7 +53,8 @@ key table, the directory layout, what is remembered across launches, and the pal
 - **macOS.** The window uses `hiddenInset` traffic lights and `sidebar` vibrancy.
 - **Rust 1.88+** (`edition = "2024"`). This matches the agent's own floor; building against
   its crates with an older toolchain fails in *its* sources, which is a confusing place to
-  discover a version problem.
+  discover a version problem. `rust-toolchain.toml` selects stable Rust for this checkout
+  when using rustup; run `rustup update stable` if your installed stable toolchain is older.
 - **Node 22+** and npm — though CI builds on Node 24, so that is the version a change is
   actually proved against. Electron 44, React 19.
 - **The agent, as the `vendor/bravebot` submodule.**

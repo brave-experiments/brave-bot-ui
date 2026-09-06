@@ -17,6 +17,7 @@ import { shown } from './columns'
 import { TrustPrompt } from './components/TrustPrompt'
 import { Unconfigured } from './components/Unconfigured'
 import { Notice } from './components/Notice'
+import { conversationModel, rememberModel } from './models'
 import type { ExportFormat } from '../shared/export'
 import { useCommandRouter, usePublishedState } from './commands'
 import { type Fork, forkOf, forkedSessions, keyOf } from '../shared/forks'
@@ -29,6 +30,7 @@ import { BRAVE, BRAVE_THEME, BUILTINS, findTheme, type Theme } from '../shared/t
 
 /** What the app is doing, which decides most of what the interface offers. */
 interface Live {
+  model: string | null
   handle: string
   /**
    * The record's own id, or `null` for a session made in this window and not yet listed.
@@ -158,6 +160,7 @@ async function callBot(request: {
   slug: string
   prompt: string
   grounded: boolean
+  model: string | null
 }): Promise<void> {
   const answer = await window.bravebot.sendBotTurn(request)
   if (answer.error) {
@@ -176,6 +179,9 @@ export function App(): React.JSX.Element {
   // The composer's text lives here rather than in `Transcript` because the Send menu item
   // has to be grey when there is nothing to send, and only this component talks to the menu.
   const [draft, setDraft] = useState('')
+  useEffect(() => {
+    if (live?.summary.id) rememberModel(live.summary.directory, live.summary.id, live.model)
+  }, [live?.summary.id, live?.summary.directory, live?.model])
   /**
    * Whether an export carries the tool calls as well as the conversation.
    *
@@ -401,6 +407,7 @@ export function App(): React.JSX.Element {
       })
       setLive({
         handle: opened.session,
+        model: conversationModel(summary.directory, summary.id, opened.model),
         summary: {
           id: summary.id,
           title: opened.record.title,
@@ -447,11 +454,12 @@ export function App(): React.JSX.Element {
     const chosen = directory ?? (await window.bravebot.chooseDirectory())
     if (!chosen) return
     try {
-      const made = await call<{ session: string; branch: string | null }>('session.new', {
+      const made = await call<{ session: string; branch: string | null; model: string | null }>('session.new', {
         directory: chosen,
       })
       setLive({
         handle: made.session,
+        model: made.model,
         summary: {
           id: null,
           title: 'New session',
@@ -494,6 +502,7 @@ export function App(): React.JSX.Element {
     // Read before the state below is changed, because that is what clears it: this is the turn
     // that carries the briefing, and by the time it has been sent the session is grounded again.
     const bot = liveRef.current?.bot ?? null
+    const model = liveRef.current?.model ?? null
     setLive((old) =>
       old
         ? {
@@ -511,9 +520,9 @@ export function App(): React.JSX.Element {
         // would be a window that could have the planner read any file on the machine. So this
         // names the bot and says whether the briefing is due, and the paths are composed over
         // there from a definition this side cannot reach.
-        await callBot({ session: handle, slug: bot.slug, prompt, grounded: !bot.grounded })
+        await callBot({ session: handle, slug: bot.slug, prompt, grounded: !bot.grounded, model })
       } else {
-        await call('turn.send', { session: handle, prompt })
+        await call('turn.send', { session: handle, prompt, model })
       }
     } catch (error) {
       if (error instanceof Unconfigurable) {
@@ -921,6 +930,7 @@ export function App(): React.JSX.Element {
 
         setLive({
           handle: forked.session,
+          model: live.model,
           summary: {
             id: forked.id,
             // What a fork is called is decided by the agent from the history it kept, and it
@@ -1089,6 +1099,7 @@ export function App(): React.JSX.Element {
         onToggle={toggle}
         draft={draft}
         onDraft={setDraft}
+        onModel={(model) => setLive((old) => old && !old.running ? { ...old, model } : old)}
         onSubmit={submit}
         onCancel={cancel}
         canExport={canExport}
@@ -1194,6 +1205,7 @@ function apply(
         const compacted = message.data.archived > old.archived
         return {
           ...old,
+          summary: { ...old.summary, id: message.data.id ?? old.summary.id },
           running: false,
           phase: null,
           entries: [...old.entries, t.replied(message.data.reply)],

@@ -19,6 +19,7 @@
 pub mod bridge;
 pub mod emit;
 pub mod fork;
+pub mod models;
 pub mod protocol;
 pub mod running;
 pub mod store;

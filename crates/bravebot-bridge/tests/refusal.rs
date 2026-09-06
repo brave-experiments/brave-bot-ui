@@ -68,6 +68,18 @@ fn harness() -> Harness {
     }
 }
 
+/// Polling the new input seam must not consume a pending confirmation answer.
+#[test]
+fn polling_for_interjections_leaves_approval_replies_untouched() {
+    let mut harness = harness();
+    harness.running.answers.send(Reply::Write(Decision::Approve)).expect("connected");
+    assert_eq!(harness.confirmer.interjection(), None);
+    assert!(harness.events.lock().expect("not poisoned").is_empty());
+    drop(harness.running);
+    // Consuming the queued approval would leave a closed channel and return a refusal.
+    assert_eq!(harness.confirmer.confirm_write(&a_write()), Decision::Approve);
+}
+
 /// The front-end has gone. Nobody can be asked, so nothing is approved.
 #[test]
 fn a_closed_answer_channel_refuses() {

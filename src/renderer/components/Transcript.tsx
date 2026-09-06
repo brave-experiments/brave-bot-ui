@@ -6,6 +6,7 @@ import type { Asked } from '../App'
 import type { ExportFormat } from '../../shared/export'
 import { Diff } from './Diff'
 import { Fold } from './Fold'
+import { ModelPicker } from './ModelPicker'
 import { ForkIcon } from './ForkIcon'
 import { contextMenu } from './Sessions'
 import { Markdown } from './Markdown'
@@ -14,6 +15,7 @@ import { BotAvatar, type Doing } from './BotAvatar'
 import type { Bot } from '../../shared/bots'
 
 interface Live {
+  model: string | null
   handle: string
   summary: { title: string; project: string; branch: string | null; directory: string }
   entries: t.Entry[]
@@ -56,6 +58,7 @@ interface Props {
   /** The composer's text, owned by `App` so the Send menu item can be grey when it is empty. */
   draft: string
   onDraft: (draft: string) => void
+  onModel: (model: string) => void
   onSubmit: () => void
   onCancel: () => void
   onDecide: Answer
@@ -127,6 +130,7 @@ export function Transcript({
   onToggle,
   draft,
   onDraft,
+  onModel,
   onSubmit,
   onCancel,
   onDecide,
@@ -308,7 +312,9 @@ export function Transcript({
       </div>
 
       <footer className="composer">
+        <ModelPicker key={live.handle} model={live.model} disabled={live.running} onChoose={onModel} />
         <textarea
+          rows={1}
           value={draft}
           placeholder={pending ? `${waitingOn(pending.kind)} above first…` : 'Ask something…'}
           disabled={live.running && !pending}
@@ -318,6 +324,11 @@ export function Transcript({
             // accelerator now, and AppKit consumes an accelerator before the renderer sees
             // the key — so a branch here would be either dead code or, if it ever did run,
             // a second send of the same prompt.
+            if (event.key === 'Enter' && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey
+              && !event.nativeEvent.isComposing && event.keyCode !== 229) {
+              event.preventDefault()
+              if (!event.repeat && !live.running && draft.trim()) onSubmit()
+            }
             if (event.key === 'Escape' && live.running) onCancel()
           }}
         />
