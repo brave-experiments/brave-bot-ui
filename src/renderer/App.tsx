@@ -390,7 +390,7 @@ export function App(): React.JSX.Element {
    * tab. A name that has to be recognised before it can be understood is the wrong name.
    */
   const showSession = useCallback(
-    async (summary: SessionSummary, focus?: number, bot?: { slug: string }) => {
+    async (summary: SessionSummary, focus?: number, bot?: { slug: string; model: string | null }) => {
     try {
       // Let go of the one being left first. The app shows a single session and already
       // drops events for any other (see the listener below), so a turn left running behind
@@ -407,7 +407,7 @@ export function App(): React.JSX.Element {
       })
       setLive({
         handle: opened.session,
-        model: conversationModel(summary.directory, summary.id, opened.model),
+        model: bot?.model ?? conversationModel(summary.directory, summary.id, opened.model),
         summary: {
           id: summary.id,
           title: opened.record.title,
@@ -445,7 +445,7 @@ export function App(): React.JSX.Element {
     [],
   )
 
-  const create = useCallback(async (directory?: string, bot?: { slug: string }) => {
+  const create = useCallback(async (directory?: string, bot?: { slug: string; model: string | null }) => {
     // A directory only ever arrives here from a list somebody else handed over: File > Open
     // Recent and the chevron beside New session, which the main process keeps, or a group
     // heading in the session list, whose path came off a session the bridge reported. Never
@@ -459,7 +459,7 @@ export function App(): React.JSX.Element {
       })
       setLive({
         handle: made.session,
-        model: made.model,
+        model: bot?.model ?? made.model,
         summary: {
           id: null,
           title: 'New session',
@@ -652,7 +652,7 @@ export function App(): React.JSX.Element {
   const openBot = useCallback(
     async (bot: Bot) => {
       if (bot.session === null) {
-        await create(bot.directory, { slug: bot.slug })
+        await create(bot.directory, { slug: bot.slug, model: bot.model })
         return
       }
       // The agent's own list is what says whether the record is still there. A session deleted
@@ -671,7 +671,7 @@ export function App(): React.JSX.Element {
         // records the id of a first turn only for a bot that has none.
         await window.bravebot.releaseBotSession(bot.slug).catch(() => undefined)
         await readBots()
-        await create(bot.directory, { slug: bot.slug })
+        await create(bot.directory, { slug: bot.slug, model: bot.model })
         return
       }
       try {
@@ -686,7 +686,7 @@ export function App(): React.JSX.Element {
             bytes: 0,
           },
           undefined,
-          { slug: bot.slug },
+          { slug: bot.slug, model: bot.model },
         )
       } catch (error) {
         setProblem(String(error))
@@ -696,12 +696,30 @@ export function App(): React.JSX.Element {
   )
 
   const saveBot = useCallback(
-    async (bot: { slug?: string; avatar?: string; name: string; purpose: string; directory: string }) => {
-      await window.bravebot.writeBot(bot).catch(() => null)
-      await readBots()
+    async (bot: { slug?: string; avatar?: string; model?: string | null; name: string; purpose: string; directory: string }) => {
+      try {
+        const saved = await window.bravebot.writeBot(bot)
+        if (!saved) throw new Error('Could not save bot.')
+        setLive((old) => old?.bot?.slug === saved.slug && !old.running
+          ? { ...old, model: saved.model ?? old.model } : old)
+        await readBots()
+      } catch (error) { setProblem(String(error)) }
     },
     [readBots],
   )
+
+  const chooseModel = useCallback(async (model: string) => {
+    const current = liveRef.current
+    if (!current || current.running) return
+    try {
+      if (current.bot) {
+        const saved = await window.bravebot.writeBotModel(current.bot.slug, model)
+        if (!saved) throw new Error('Could not save the bot’s model.')
+        await readBots()
+      }
+      setLive((old) => old?.handle === current.handle && !old.running ? { ...old, model } : old)
+    } catch (error) { setProblem(String(error)) }
+  }, [readBots])
 
   /**
    * Take a bot away for good.
@@ -1099,7 +1117,7 @@ export function App(): React.JSX.Element {
         onToggle={toggle}
         draft={draft}
         onDraft={setDraft}
-        onModel={(model) => setLive((old) => old && !old.running ? { ...old, model } : old)}
+        onModel={(model) => void chooseModel(model)}
         onSubmit={submit}
         onCancel={cancel}
         canExport={canExport}

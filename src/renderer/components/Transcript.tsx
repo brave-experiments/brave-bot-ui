@@ -312,7 +312,7 @@ export function Transcript({
       </div>
 
       <footer className="composer">
-        <ModelPicker key={live.handle} model={live.model} disabled={live.running} onChoose={onModel} />
+        <ModelPicker scope={bot ? 'bot' : 'conversation'} key={live.handle} model={live.model} disabled={live.running} onChoose={onModel} />
         <textarea
           rows={1}
           value={draft}

@@ -14,8 +14,9 @@ const CAPABILITIES: Record<string, [string, string]> = {
   'structured-output': ['Structured', 'Supports structured outputs'],
 }
 
-export function ModelPicker({ model, disabled, onChoose }: {
+export function ModelPicker({ model, disabled, onChoose, scope = 'conversation' }: {
   model: string | null
+  scope?: 'conversation' | 'bot'
   disabled: boolean
   onChoose: (model: string) => void
 }): React.JSX.Element {
@@ -78,6 +79,7 @@ export function ModelPicker({ model, disabled, onChoose }: {
     list.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest' })
   }, [active])
 
+  const heading = scope === 'bot' ? 'Bot model' : 'Conversation model'
   const selected = catalogue?.models.find((row) => row.id === model)
   const label = selected?.name ?? model ?? 'Configured default'
   const compactLabel = label.split('/').pop() || label
@@ -95,11 +97,11 @@ export function ModelPicker({ model, disabled, onChoose }: {
       </svg>
       <span className="model-current" aria-hidden="true">{compactLabel}</span>
     </button>
-    {open && <div id={id} className="model-popover" role="dialog" aria-label="Conversation model"
+    {open && <div id={id} className="model-popover" role="dialog" aria-label={heading}
       onKeyDown={(event) => {
         if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() }
       }}>
-      <div className="model-heading"><strong>Conversation model</strong>
+      <div className="model-heading"><strong>{heading}</strong>
         <button type="button" className="model-refresh" disabled={loading} onClick={() => setRevision((n) => n + 1)}>Refresh</button>
       </div>
       <input ref={search} className="model-search" type="search" placeholder="Search models…" value={query}
@@ -109,8 +111,9 @@ export function ModelPicker({ model, disabled, onChoose }: {
           if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
             event.preventDefault()
             setActive((index) => Math.max(0, Math.min(options.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1))))
-          } else if (event.key === 'Enter' && options[active]) {
-            event.preventDefault(); choose(options[active])
+          } else if (event.key === 'Enter') {
+            event.preventDefault()
+            if (options[active]) choose(options[active])
           }
         }} />
       {loading && <p className="model-status" role="status">Loading available models…</p>}
@@ -137,7 +140,7 @@ export function ModelPicker({ model, disabled, onChoose }: {
         </div>)}
       </div>
       {!loading && options.length === 0 && <p className="model-status">{query ? 'No models match your search.' : 'No models available. Check your backend settings.'}</p>}
-      <div className="model-footnote">Applies to the next message in this conversation.</div>
+      <div className="model-footnote">{scope === 'bot' ? 'Saved with this bot. Applies to its next message.' : 'Applies to the next message in this conversation.'}</div>
     </div>}
   </div>
 }
