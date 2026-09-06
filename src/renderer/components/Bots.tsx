@@ -18,6 +18,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { activeBots, retiredBots, type Bot } from '../../shared/bots'
+import { newAvatarSeed } from '../../shared/avatar'
 import { BotAvatar, type Doing } from './BotAvatar'
 import { Fold } from './Fold'
 
@@ -352,7 +353,7 @@ function BotForm({
   onArchive?: () => void
 }): React.JSX.Element {
   // Keep the preview's face for this draft, including while its name changes.
-  const [avatar] = useState(() => bot?.avatar ?? crypto.randomUUID())
+  const [avatar] = useState(() => bot?.avatar ?? newAvatarSeed(crypto.randomUUID()))
   const [name, setName] = useState(bot?.name ?? '')
   const [purpose, setPurpose] = useState(bot?.purpose ?? '')
   const [directory, setDirectory] = useState(bot?.directory ?? '')

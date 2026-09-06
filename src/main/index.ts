@@ -9,6 +9,7 @@
 
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
+import { newAvatarSeed } from '../shared/avatar'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Bridge, BridgeError } from './bridge'
@@ -586,7 +587,7 @@ app.whenReady().then(() => {
           purpose,
           // Use the draft's preview seed so creation keeps the face already shown. Older
           // callers may omit it; either way it is stored and survives a rename.
-          avatar: typeof avatar === 'string' ? avatar : randomUUID(),
+          avatar: typeof avatar === 'string' ? avatar : newAvatarSeed(randomUUID()),
           directory,
           session: null,
           archived: 0,

@@ -1797,6 +1797,28 @@ button { font: inherit; color: inherit; cursor: pointer; }
    shade lighter than a dark one, whichever the theme is. The canvas is transparent where there is
    no figure, so the disc shows through around it and the body is cropped by the circle at the
    bottom corners the way a headshot is. */
+.bot-avatar-frame {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  vertical-align: middle;
+}
+.bot-avatar-status {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: content-box;
+  border: 1.5px solid var(--bg, #fff);
+  border-radius: 50%;
+  color: var(--bg, #fff);
+  background: var(--ink-dim, #6b6b70);
+  font: 700 10px/1 system-ui;
+}
+.bot-avatar-status-failed { background: #b83e43; color: #fff; }
+.bot-avatar-status svg { width: 90%; height: 90%; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .bot-avatar {
   flex: none;
   display: block;
