@@ -29,7 +29,8 @@
  */
 
 import * as THREE from 'three'
-import { buildFigure, type Figure } from './figure'
+import { buildFigure, traitsOf, type Figure } from './figure'
+import { blink, glance, completionNod, crownMotion, randomUnit, smooth } from './motion'
 
 /**
  * How wide the shared canvas is, in device pixels.
@@ -40,7 +41,7 @@ import { buildFigure, type Figure } from './figure'
  */
 const SIZE = 128
 
-/** How long one full turn takes, in seconds. Slow enough to read as breathing, not as spinning. */
+/** Range of per-bot clock offsets, in seconds. */
 const TURN = 24
 
 /**
@@ -52,22 +53,24 @@ const TURN = 24
  * posture, which is what a person shows across a room: whether they are looking at you, looking
  * down at something, or waiting.
  *
- * - `idle`: in a list, not the one on screen. Looks slowly about.
+ * - `idle`: in a list, not the one on screen. Pauses between short glances.
  * - `waiting`: never spoken to. Faces forward and only blinks — a thing that has not started yet.
  * - `open`: the one on screen, or the one whose row is selected. Looks at the reader and holds.
- * - `working`: a turn is running. Looks down and a little to one side, as at a page, and blinks
- *   more often. Stops looking about, because something concentrating does.
+ * - `working`: a turn is running. Looks down and aside with occasional small scanning movements.
  * - `failed`: the last turn ended in an error. A tilt of the head — "hm" — that settles back to
  *   `open` over a few seconds, rather than a held pose that would become a sulk.
  *
- * "Done" is not a state. It is the transition out of `working` into anything that is not
- * `failed`, and it is a nod, once.
+ * On returning from `working` to `open`, the head meets the reader, pauses, then nods once.
  */
 export type Doing = 'idle' | 'waiting' | 'open' | 'working' | 'failed'
 
 /** One avatar waiting to be drawn. */
 interface Registered {
   canvas: HTMLCanvasElement
+  seed: string
+  crownKind: ReturnType<typeof traitsOf>['crown']
+  current: Pose | null
+  from: Pose | null
   figure: Figure
   /** Where in the cycle this one sits, so a column does not move in lockstep. */
   phase: number
@@ -98,23 +101,16 @@ interface Pose {
   roll: number
   /** Height of the bob, figure units. */
   bob: number
-  /** Seconds between blinks. */
-  blinkEvery: number
 }
 
-/**
- * Whether the reader has asked for less motion. Read once and then watched, not asked on every
- * frame. Honoured here the way the sheet honours it: the continuous motion — the turn, the bob,
- * the nod, the swing of the crown — stops, and what is left is a still figure that blinks and
- * takes up a posture when its state changes. A blink is not the kind of motion the setting is
- * about, and a posture is information.
- */
+/** Reduced motion is fully still, including eyes and accessories. State changes remain legible. */
 let stillness = false
 if (typeof matchMedia === 'function') {
   const query = matchMedia('(prefers-reduced-motion: reduce)')
   stillness = query.matches
   query.addEventListener('change', () => {
     stillness = query.matches
+    schedule()
   })
 }
 
@@ -219,24 +215,7 @@ function stage(): { renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: T
   return { renderer, scene, camera }
 }
 
-/** Zero to one, eased at both ends. */
-const smooth = (x: number): number => {
-  const c = Math.min(1, Math.max(0, x))
-  return c * c * (3 - 2 * c)
-}
 const mix = (a: number, b: number, k: number): number => a + (b - a) * k
-
-/**
- * The slow look about. `sin` rather than a running angle: a figure that turned all the way round
- * would spend half the time facing away, which is a picture of a bot's back. Raised to a power so
- * it lingers near the centre and glances to each side and back — a plain sine does the opposite,
- * dwelling at the extremes and hurrying through the middle, which is how a thing looks when it is
- * scanning rather than when it is curious. A curious thing pauses on what is in front of it.
- */
-function sweep(t: number): number {
-  const s = Math.sin(t * ((Math.PI * 2) / TURN))
-  return Math.sign(s) * Math.pow(Math.abs(s), 1.8)
-}
 
 /** How long a blend between two states takes, in seconds. */
 const BLEND = 0.35
@@ -246,70 +225,45 @@ function ask(entry: Registered, doing: Doing, t: number, elapsed: number): Pose 
   const bob = stillness ? 0 : Math.sin(t * entry.bobRate)
   switch (doing) {
     case 'idle': {
-      const s = stillness ? 0 : sweep(t)
-      return { yaw: s * 0.55, pitch: 0, roll: s * 0.06, bob: bob * 0.045, blinkEvery: 5.3 }
+      const s = stillness ? 0 : glance(t, entry.seed)
+      return { yaw: s * 0.29, pitch: 0, roll: s * 0.018, bob: 0 }
     }
     case 'waiting':
-      return { yaw: 0, pitch: 0, roll: 0, bob: bob * 0.02, blinkEvery: 5.3 }
+      return { yaw: 0, pitch: 0, roll: 0, bob: 0 }
     case 'open':
       // A shade more up than the rest position: looking at somebody, not past them.
-      return { yaw: 0, pitch: -0.04, roll: 0, bob: bob * 0.045, blinkEvery: 5.3 }
+      return { yaw: 0, pitch: -0.04, roll: 0, bob: bob * 0.018 }
     case 'working': {
       // Down and aside, at the page. With a very slow, very small drift, which is what eyes do
       // over a page and is the difference between reading and a freeze-frame.
-      const drift = stillness ? 0 : Math.sin(t * 0.7) * 0.06
+      const drift = stillness ? 0 : glance(t * 1.5, entry.seed) * 0.09
       return {
-        yaw: entry.aside * 0.22 + drift,
-        pitch: 0.18,
+        yaw: entry.aside * 0.28 + drift,
+        pitch: 0.32,
         roll: entry.aside * 0.03,
-        bob: bob * 0.03,
-        blinkEvery: 2.6,
+        bob: 0,
       }
     }
     case 'failed': {
       // The tilt, held for a moment and then let go over a few seconds toward `open`. A held tilt
       // stops being "hm" and becomes a pose, and a pose beside an error is a comment on it.
-      const settle = smooth((elapsed - 1.5) / 3)
+      const settle = stillness ? 1 : smooth((elapsed - 1.5) / 3)
       const open = ask(entry, 'open', t, elapsed)
       return {
         yaw: mix(entry.aside * 0.08, open.yaw, settle),
         pitch: mix(0.05, open.pitch, settle),
         roll: mix(entry.aside * 0.14, open.roll, settle),
         bob: mix(bob * 0.02, open.bob, settle),
-        blinkEvery: 5.3,
       }
     }
   }
 }
 
 /**
- * The blink.
- *
- * Rare, quick, and the one thing here that is not a smooth curve — which is what makes it read as
- * alive rather than as a wobble. Lopsided, as a real one is: the lid comes down in a third of the
- * time it takes to go back up. And every fourth one is a double, because a face that blinks on a
- * metronome is a face on a timer, and the double is the one aperiodic thing in the whole motion.
- * The period is not a whole number of anything else, so it never syncs up with the turn.
- */
-function blink(t: number, every: number): number {
-  const at = t % every
-  const nth = Math.floor(t / every)
-  const one = (from: number): number => {
-    const b = at - from
-    if (b < 0 || b > 0.135) return 1
-    return Math.max(0.08, b < 0.045 ? 1 - b / 0.045 : (b - 0.045) / 0.09)
-  }
-  const first = one(0)
-  return nth % 4 === 3 ? Math.min(first, one(0.2)) : first
-}
-
-/**
  * Where a figure is at this moment.
  *
- * The state's own pose, blended over a moment from whatever the last state's pose would have been
- * now — so a change is a movement rather than a cut — with the blink on top, and then the crown
- * let catch up. Composed of sines of one clock wherever it can be, so it never lands anywhere
- * abrupt; the state machine is the one place it cannot be, and it is as small as it can be.
+ * Blend from the last displayed pose so interrupted transitions stay continuous. Add the blink
+ * and completion gesture, then let the accessory catch up with its own spring.
  */
 function pose(entry: Registered, seconds: number, dt: number): void {
   const { figure } = entry
@@ -317,33 +271,29 @@ function pose(entry: Registered, seconds: number, dt: number): void {
   const elapsed = seconds - entry.since
   const want = ask(entry, entry.doing, t, elapsed)
   const k = stillness ? 1 : smooth(elapsed / BLEND)
-  // The old state as it would be now, had it gone on — and gone on a long while, so a `failed` that
-  // is being left has finished settling and the blend starts from where it was heading.
-  const had = k < 1 ? ask(entry, entry.was, t, elapsed + 60) : want
-  let yaw = mix(had.yaw, want.yaw, k)
+  // Blend from the last displayed pose, including when another transition interrupts a nod.
+  const had = k < 1 && entry.from ? entry.from : want
+  const yaw = mix(had.yaw, want.yaw, k)
   let pitch = mix(had.pitch, want.pitch, k)
   const roll = mix(had.roll, want.roll, k)
   const bob = mix(had.bob, want.bob, k)
 
-  // The nod: once, on coming out of `working` to anything but `failed`. Down and up over just under
-  // half a second, starting as the blend does, so the head comes up from the page and nods in one
-  // movement. "Done", without a word for it.
-  if (!stillness && entry.was === 'working' && entry.doing !== 'working' && entry.doing !== 'failed') {
-    const nod = elapsed / 0.45
-    if (nod < 1) pitch += Math.sin(nod * Math.PI) * 0.14
+  // Eye contact first, then a separate nod. Errors never acknowledge completion.
+  if (!stillness && entry.was === 'working' && entry.doing === 'open') {
+    pitch += completionNod(elapsed)
   }
+  entry.current = { yaw, pitch, roll, bob }
 
   figure.root.rotation.y = yaw
   figure.root.rotation.z = roll
   figure.root.position.y = bob
   figure.head.rotation.x = entry.restPitch + pitch
 
-  const open = blink(t, want.blinkEvery)
+  const open = stillness ? 1 : blink(t, entry.seed)
   figure.eyes.scale.y = open
   // The catchlight is a reflection, and a reflection is not squashed by a closing lid — it is
-  // covered. So it goes out for the closed half of the blink rather than shrinking with the pupil,
-  // which squashed it into a white line across a black one.
-  figure.glints.visible = open > 0.5
+  // covered. Hide it as the lid starts closing so it cannot float above the compressed eye.
+  figure.glints.visible = open > 0.95
 
   // The crown, a frame behind. A spring pulled toward leaning against the head's motion — turn the
   // head and the bobble swings the other way and wobbles back — which is follow-through, the
@@ -355,24 +305,28 @@ function pose(entry: Registered, seconds: number, dt: number): void {
     if (stillness || dt <= 0) {
       spring.x = spring.z = spring.vx = spring.vz = 0
     } else {
-      const step = Math.min(dt, 0.1)
-      // No rate on the first frame: the head is not moving, it is being placed.
+      const duration = Math.min(dt, 0.1)
       const placed = Number.isFinite(spring.yaw)
-      const yawRate = placed ? (yaw - spring.yaw) / step : 0
-      const pitchRate = placed ? (pitch - spring.pitch) / step : 0
-      const towardZ = -yawRate * 0.28
-      const towardX = -pitchRate * 0.28
-      const K = 140
-      const C = 9
-      spring.vz += (-K * (spring.z - towardZ) - C * spring.vz) * step
-      spring.vx += (-K * (spring.x - towardX) - C * spring.vx) * step
-      spring.z += spring.vz * step
-      spring.x += spring.vx * step
+      const yawRate = placed ? (yaw - spring.yaw) / duration : 0
+      const pitchRate = placed ? (pitch - spring.pitch) / duration : 0
+      const { stiffness, damping, response } = crownMotion(entry.crownKind)
+      const towardZ = -yawRate * response
+      const towardX = -pitchRate * response
+      // Small integration steps keep the spring stable when the UI drops a frame.
+      const steps = Math.ceil(duration / (1 / 120))
+      const step = duration / steps
+      for (let i = 0; i < steps; i++) {
+        spring.vz += (-stiffness * (spring.z - towardZ) - damping * spring.vz) * step
+        spring.vx += (-stiffness * (spring.x - towardX) - damping * spring.vx) * step
+        spring.z += spring.vz * step
+        spring.x += spring.vx * step
+      }
     }
     spring.yaw = yaw
     spring.pitch = pitch
-    figure.crown.rotation.z = Math.max(-0.5, Math.min(0.5, spring.z))
-    figure.crown.rotation.x = Math.max(-0.5, Math.min(0.5, spring.x))
+    const { limit } = crownMotion(entry.crownKind)
+    figure.crown.rotation.z = Math.max(-limit, Math.min(limit, spring.z))
+    figure.crown.rotation.x = Math.max(-limit, Math.min(limit, spring.x))
   }
 }
 
@@ -417,7 +371,7 @@ function draw(): void {
     context.drawImage(built.renderer.domElement, 0, 0, entry.canvas.width, entry.canvas.height)
   }
 
-  schedule()
+  if (!stillness) schedule()
 }
 
 function schedule(): void {
@@ -434,12 +388,16 @@ function schedule(): void {
  * The figure is built once per canvas rather than per frame. Building one is a few dozen small
  * geometries, which is nothing to do once and wasteful to do sixty times a second.
  */
-export function show(canvas: HTMLCanvasElement, seed: string, doing: Doing = 'idle'): () => void {
+export function show(canvas: HTMLCanvasElement, seed: string, doing: Doing = 'idle', size = 38): () => void {
   if (!stage()) return () => undefined
 
-  const figure = buildFigure(seed)
+  const figure = buildFigure(seed, size)
   registered.set(canvas, {
     canvas,
+    seed,
+    crownKind: traitsOf(seed).crown,
+    current: null,
+    from: null,
     figure,
     // Spread over the whole cycle from the seed, so a column of bots is a group of individuals
     // rather than a chorus line. Deterministic, like everything else drawn from a seed.
@@ -471,21 +429,14 @@ export function show(canvas: HTMLCanvasElement, seed: string, doing: Doing = 'id
 export function tell(canvas: HTMLCanvasElement, doing: Doing): void {
   const entry = registered.get(canvas)
   if (!entry || entry.doing === doing) return
+  entry.from = entry.current
   entry.was = entry.doing
   entry.doing = doing
   entry.since = performance.now() / 1000
   schedule()
 }
 
-/** A number in `[0, 1)` from a seed, for the phase offset. */
-function hashPhase(seed: string): number {
-  let value = 0x811c9dc5
-  for (let at = 0; at < seed.length; at++) {
-    value ^= seed.charCodeAt(at)
-    value = Math.imul(value, 0x01000193)
-  }
-  return (value >>> 0) / 0x100000000
-}
+const hashPhase = randomUnit
 
 /** Whether anything can be drawn at all, for the component's fallback. */
 export function available(): boolean {
