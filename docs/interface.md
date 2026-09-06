@@ -44,6 +44,23 @@ Three columns, each side one resizable and foldable:
 The two side columns fold to nothing from a chevron at either end of the transcript's
 header, and their widths and fold states survive a relaunch.
 
+The layers icon to the left of the message box opens the conversation's model picker.
+Search by name, provider, or capability (for example, `vision` or `openrouter reasoning`),
+then click a model or use the arrow keys and Enter. Escape
+closes the picker. New conversations use the agent's configured default when available;
+the default is also marked in the list. A choice applies to subsequent messages and is
+remembered locally for that conversation across app restarts. Forks inherit the current
+choice. The picker is disabled while a turn is running.
+
+Available models come from the agent's configured backends, including OpenRouter.
+Small badges beneath each gateway model show reported capabilities such as Text, Vision,
+Tools, and Reasoning. Hover a badge for its meaning. Input and output capabilities are
+distinguished: Vision means image understanding, while Images out means image generation.
+These describe the provider's model; they do not enable new input or output types in this
+app. Models without reported metadata have no badges.
+Refresh retries discovery if a provider is unavailable; the configured default remains
+selectable. Choosing a model does not change the agent's global default.
+
 ### Forking
 
 Hover a prompt you wrote and a fork appears beside it; right-clicking one offers **Fork From
@@ -380,6 +397,8 @@ was no way to find out that ⌘↵ sent a prompt.
 | `⌘N` | New session |
 | `⇧⌘W` | Close the session — `⌘W` still closes the window |
 | `⌘↵` | Send |
+| `Enter` | Send from the message box |
+| `Shift+Enter` | Insert a new line in the message box |
 | `⌘.` | Cancel the running turn |
 | `⌥⌘←` / `⌥⌘→` | Fold the session list / the context panel |
 | right-click | A session row, or anything in the transcript |
@@ -565,4 +584,3 @@ a palette written for one is recognisable in the other and `nord` means the same
 is a port and not a link: nothing here reads anything the agent owns. The agent is a subprocess
 this window drives, not something it is installed alongside, and a window that could not paint
 itself until the terminal had been run once would be depending on something it was never promised.
-

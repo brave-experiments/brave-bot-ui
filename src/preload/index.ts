@@ -241,6 +241,7 @@ const api = {
     slug: string
     prompt: string
     grounded: boolean
+    model?: string | null
   }): Promise<Answer<{ turn: number }>> {
     return ipcRenderer.invoke('bravebot:bots:send', request) as Promise<Answer<{ turn: number }>>
   },

@@ -87,6 +87,25 @@ interface BotFailure {
 
 let window: BrowserWindow | null = null
 let bridge: Bridge | null = null
+// Model discovery uses its own process so a slow listing never blocks live turn replies.
+let modelListing: Promise<unknown> | null = null
+function listModels(): Promise<unknown> {
+  if (modelListing) return modelListing
+  const discovery = new Bridge(() => {})
+  let timer: ReturnType<typeof setTimeout>
+  modelListing = Promise.race([
+    discovery.request('models.list'),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Model discovery timed out. Try again.')), 60000)
+    }),
+  ]).finally(() => {
+    clearTimeout(timer)
+    discovery.dispose()
+    modelListing = null
+  })
+  return modelListing
+}
+
 let stopWatchingThemes: (() => void) | null = null
 
 /**
@@ -107,6 +126,7 @@ async function sendBotTurn(
   grounded: boolean,
   nudge = false,
   recall = true,
+  model?: string | null,
 ): Promise<{ ok?: unknown; error?: BotFailure }> {
   if (!bridge) return { error: { code: 'no_bridge', message: 'the agent is not running' } }
 
@@ -116,6 +136,7 @@ async function sendBotTurn(
   // defaults it that way, and a parameter that only ever appears when it is doing something is a
   // parameter somebody reading the wire can see the point of.
   const params: Record<string, unknown> = recall ? { session, prompt } : { session, prompt, recall }
+  if (model !== undefined) params.model = model
   if (grounded) {
     // Made afresh on the way into every send rather than once when the bot was created. A file a
     // turn names and cannot read is not a smaller turn, it is a failed one — so a memory deleted
@@ -315,6 +336,7 @@ function createWindow(): void {
  */
 const ALLOWED = new Set([
   'agent.info',
+  'models.list',
   'session.list',
   'session.open',
   'session.new',
@@ -404,7 +426,7 @@ app.whenReady().then(() => {
       return { error: { code: 'no_bridge', message: 'the agent is not running' } }
     }
     try {
-      const ok = await bridge.request(method, sanitised(method, params))
+      const ok = method === 'models.list' ? await listModels() : await bridge.request(method, sanitised(method, params))
       // Opening a session is the other way a project becomes recent, and this handler is
       // already the choke point that sees it. Reading one field it is forwarding anyway is
       // a smaller thing than a channel that would let the renderer write the list itself.
@@ -628,9 +650,12 @@ app.whenReady().then(() => {
       if (typeof value !== 'object' || value === null) {
         return { error: { code: 'bad_request', message: 'not a request' } }
       }
-      const { session, slug, prompt, grounded } = value as Record<string, unknown>
+      const { session, slug, prompt, grounded, model } = value as Record<string, unknown>
       if (!isSessionId(session) || typeof prompt !== 'string') {
         return { error: { code: 'bad_request', message: 'not a request' } }
+      }
+      if (model !== undefined && model !== null && typeof model !== 'string') {
+        return { error: { code: 'bad_request', message: 'invalid model' } }
       }
       const held = bot(slug)
       if (!held) return { error: { code: 'no_such_bot', message: 'no bot by that name' } }
@@ -647,7 +672,7 @@ app.whenReady().then(() => {
       // question about *its* session, which this process cannot see, so that answer stands.
       const nudge = grounded !== true && nudgeDue(held)
       if (nudge) noteBotNudged(held.slug)
-      return sendBotTurn(session, held, prompt, grounded === true || nudge, nudge)
+      return sendBotTurn(session, held, prompt, grounded === true || nudge, nudge, true, model as string | null | undefined)
     },
   )
 

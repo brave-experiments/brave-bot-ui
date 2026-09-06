@@ -18,6 +18,7 @@ at, that a control keeps keyboard focus through an animation.
 | `npm run drive:columns` | Folding each side column, and what is remembered |
 | `npm run drive:panels` | The context panels, the row of buttons that turns them on and off, and the transcript's tool runs |
 | `npm run drive:markdown` | Markdown rendering, light and dark |
+| `npm run drive:models` | Model defaults, composer placement, search and keyboard selection, turn payload, per-conversation persistence, and discovery error recovery. Uses deterministic replies without paid inference. |
 | `npm run drive:run` | Approving a command from the window, end to end through a live turn |
 | `npm run drive:ask` | Answering a series of questions the planner asks, likewise live |
 | `npm run drive:menu` | The application menu: what it offers, what it greys, and what it refuses to offer |
