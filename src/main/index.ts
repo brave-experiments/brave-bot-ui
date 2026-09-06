@@ -535,8 +535,8 @@ app.whenReady().then(() => {
   // window sends. So the window names a *bot*, and this process — which holds the definitions and
   // composes every path from a slug it has judged — names the files.
   //
-  // The split inside `bravebot:bots:write` is the same idea one field down. Four keys are a
-  // preference somebody typed and cross freely; the session id, the compaction watermark and the
+  // The split inside `bravebot:bots:write` is the same idea one field down. The form fields and
+  // a creation seed cross freely; the session id, the compaction watermark and the
   // two figures that decide when a bot is reminded to write are reports of what the agent did, are
   // taken off its answers and off the filesystem below, and have no way in from here.
 
@@ -544,10 +544,13 @@ app.whenReady().then(() => {
 
   ipcMain.handle('bravebot:bots:write', (_event, value: unknown) => {
     if (typeof value !== 'object' || value === null) return null
-    const { slug, name, purpose, directory } = value as Record<string, unknown>
+    const { slug, avatar, name, purpose, directory } = value as Record<string, unknown>
     if (typeof name !== 'string' || typeof purpose !== 'string') return null
     if (!name.trim() || !purpose.trim()) return null
     if (!isProjectPath(directory)) return null
+    if (avatar !== undefined && (typeof avatar !== 'string' || !avatar.trim() || avatar.length > 128)) {
+      return null
+    }
 
     // An existing bot keeps everything this channel cannot say — its id, its watermark, its seed,
     // when it was made. A new one is given a slug composed here from the name, so the thing that
@@ -559,10 +562,9 @@ app.whenReady().then(() => {
           slug: slugFor(name, new Set(bots().map((each) => each.slug))),
           name,
           purpose,
-          // Minted here rather than in the window, and stored rather than derived, so a bot's face
-          // survives being renamed. `randomUUID` because the only thing asked of a seed is that
-          // two bots do not share one.
-          avatar: randomUUID(),
+          // Use the draft's preview seed so creation keeps the face already shown. Older
+          // callers may omit it; either way it is stored and survives a rename.
+          avatar: typeof avatar === 'string' ? avatar : randomUUID(),
           directory,
           session: null,
           archived: 0,

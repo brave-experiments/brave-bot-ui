@@ -1776,6 +1776,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
   background: var(--bg);
 }
 
+.bot-form-avatar {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0;
+}
+
 .bot-field { display: flex; flex-direction: column; gap: 4px; }
 .bot-field > span { font-size: 11px; color: var(--ink-dim); }
 .bot-field input, .bot-field textarea {

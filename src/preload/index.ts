@@ -166,14 +166,16 @@ const api = {
   /**
    * Define a bot, or change one that exists.
    *
-   * Four fields cross and no more. The id of the session behind a bot and the count of what
-   * compaction has taken from it are both reports of what the *agent* did — the main process takes
+   * The form fields and an optional creation avatar cross. The session id and compaction count
+   * are both reports of what the *agent* did — the main process takes
    * them off its answers, the way it takes the fork lineage off one — so there is no way to claim
    * either from here. Neither is the slug: a name crosses, and the main process makes the thing
    * that becomes a filename out of it, so a path segment is never a string that arrived as one.
    */
   writeBot(bot: {
     slug?: string
+    /** The preview seed, used only when creating a bot. */
+    avatar?: string
     name: string
     purpose: string
     directory: string

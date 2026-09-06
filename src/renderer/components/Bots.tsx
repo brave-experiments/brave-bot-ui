@@ -28,7 +28,7 @@ interface Props {
   /** What that bot is doing, so its row's face can match the header's. */
   openDoing: Doing
   onOpen: (bot: Bot) => void
-  onSave: (bot: { slug?: string; name: string; purpose: string; directory: string }) => void
+  onSave: (bot: { slug?: string; avatar?: string; name: string; purpose: string; directory: string }) => void
   /** Put one away, or bring it back. */
   onRetire: (slug: string, retired: boolean) => void
   /** Take one away for good. Only ever reached from the archive below. */
@@ -347,10 +347,12 @@ function BotForm({
   onArchive,
 }: {
   bot?: Bot
-  onSave: (bot: { slug?: string; name: string; purpose: string; directory: string }) => void
+  onSave: (bot: { slug?: string; avatar?: string; name: string; purpose: string; directory: string }) => void
   onCancel: () => void
   onArchive?: () => void
 }): React.JSX.Element {
+  // Keep the preview's face for this draft, including while its name changes.
+  const [avatar] = useState(() => bot?.avatar ?? crypto.randomUUID())
   const [name, setName] = useState(bot?.name ?? '')
   const [purpose, setPurpose] = useState(bot?.purpose ?? '')
   const [directory, setDirectory] = useState(bot?.directory ?? '')
@@ -380,9 +382,17 @@ function BotForm({
       className="bot-form"
       onSubmit={(event) => {
         event.preventDefault()
-        if (ready) onSave({ slug: bot?.slug, name: name.trim(), purpose: purpose.trim(), directory })
+        if (ready) {
+          onSave({ slug: bot?.slug, avatar: bot ? undefined : avatar, name: name.trim(), purpose: purpose.trim(), directory })
+        }
       }}
     >
+      {!bot && (
+        <div className="bot-form-avatar">
+          <BotAvatar seed={avatar} size={56} doing="waiting" />
+        </div>
+      )}
+
       <label className="bot-field">
         <span>Name</span>
         <input
