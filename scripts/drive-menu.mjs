@@ -161,12 +161,11 @@ check(
 //
 // Export was the case for keeping it: writing a file to disk is the largest capability this app
 // has taken on and it reaches no agent method at all. Forking is the opposite case and the
-// reason the number is now 15 — cutting a conversation is something only the agent can do, so
-// it is a method, and it names nothing that decides any more than the other fourteen do.
+// reason the number became 15. Model discovery adds one read-only method, `models.list`.
 const allowed = (readFileSync('src/main/index.ts', 'utf8').match(/const ALLOWED = new Set\(\[([^\]]*)\]/) ?? [])[1]
 check(
-  allowed !== undefined && !/approve|decide/.test(allowed) && allowed.split(',').filter((s) => s.trim()).length === 15,
-  'the main-process allow-list is 15 methods, none of which decides anything',
+  allowed !== undefined && !/approve|decide/.test(allowed) && allowed.includes("'models.list'") && allowed.split(',').filter((s) => s.trim()).length === 16,
+  'the main-process allow-list is 16 methods including model discovery, none of which decides anything',
 )
 
 // --- accelerators are declared (they cannot be *dispatched* from here) -----------------

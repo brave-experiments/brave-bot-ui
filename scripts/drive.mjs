@@ -177,7 +177,7 @@ if (sessions > 0) {
   // none of them is empty — a group whose rows all went is a heading with nothing under it.
   //
   // Not "exactly one heading", which is what this asked for until a machine had both
-  // `bravebot` and `bravebot-astar` checked out. The query is the first row's project name,
+  // `bravebot` and `bravebot-ui` checked out. The query is the first row's project name,
   // and a name is free to be a prefix of another; two headings there is the filter being
   // right, not wrong. Counting them was reading the driver's own choice of query back as a
   // fact about the list.
