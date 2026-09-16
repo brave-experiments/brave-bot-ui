@@ -16,7 +16,7 @@ use crate::emit::Emitter;
 use crate::protocol::Event;
 use crate::wire;
 use bravebot_agent::confirm::{
-    Confirmer, Decision, OutputRequest, RunDecision, RunRequest, VouchRequest, WriteRequest,
+    Confirmer, Decision, FetchRequest, ManifestRequest, ServerRequest, OutputRequest, RunDecision, RunRequest, VouchRequest, WriteRequest,
 };
 use bravebot_core::ask::{Answer, Asking};
 use bravebot_agent::report::{Activity, Landing, Phase, Reporter, Shown};
@@ -204,7 +204,7 @@ impl Sink for BridgeSink {
         // two renderings of one trail would drift the moment either changed.
         let data = json!({
             "turn": self.turn,
-            "event": bravebot_tui::audit::as_json(&event),
+            "event": bravebot_tui::audit::as_json(&event, None),
         });
         self.emitter.send(Event::new("audit", &self.session, data));
         self.trail.emit(event);
@@ -224,6 +224,7 @@ pub struct BridgeConfirmer {
     pending: Pending,
     answers: Receiver<Reply>,
     next: u64,
+    cancel: bravebot_core::cancel::Cancel,
 }
 
 impl BridgeConfirmer {
@@ -232,6 +233,7 @@ impl BridgeConfirmer {
         session: impl Into<String>,
         pending: Pending,
         answers: Receiver<Reply>,
+        cancel: bravebot_core::cancel::Cancel,
     ) -> Self {
         Self {
             emitter,
@@ -239,6 +241,7 @@ impl BridgeConfirmer {
             pending,
             answers,
             next: 0,
+            cancel,
         }
     }
 
@@ -252,6 +255,7 @@ impl BridgeConfirmer {
     /// session, a shutting-down process, or a reply to a different question. Every caller
     /// turns that into its own flavour of no.
     fn ask(&mut self, kind: Kind, event: &'static str, data: impl FnOnce(u64) -> Value) -> Option<Reply> {
+        if self.cancel.is_cancelled() { return None; }
         self.next += 1;
         let id = self.next;
 
@@ -271,7 +275,14 @@ impl BridgeConfirmer {
         // Blocks until the dispatch thread sends an answer, or until the sending end is
         // dropped — which is what a departed front-end, a closed session, or a shutting
         // down process looks like from here. All of them are refusals.
-        let reply = self.answers.recv().ok();
+        let reply = loop {
+            if self.cancel.is_cancelled() { break None; }
+            match self.answers.recv_timeout(std::time::Duration::from_millis(50)) {
+                Ok(reply) => break (!self.cancel.is_cancelled()).then_some(reply),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break None,
+            }
+        };
 
         // Consumed either way. An id that is no longer pending cannot be answered again,
         // so an approval cannot be replayed against a second question.
@@ -288,6 +299,20 @@ impl BridgeConfirmer {
 }
 
 impl Confirmer for BridgeConfirmer {
+    // These upstream capabilities have no approval UI yet. Never grant authority
+    // for a request the person could not review.
+    fn confirm_fetch(&mut self, _request: &FetchRequest) -> Decision {
+        Decision::Reject
+    }
+
+    fn confirm_server(&mut self, _request: &ServerRequest) -> Decision {
+        Decision::Reject
+    }
+
+    fn confirm_manifest(&mut self, _request: &ManifestRequest) -> Decision {
+        Decision::Reject
+    }
+
     // The UI queues messages for the next turn; the protocol has no mid-turn input.
     // In particular, polling must neither block nor consume an approval reply.
     fn interjection(&mut self) -> Option<String> {

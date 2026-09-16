@@ -16,13 +16,14 @@ pub fn list(config: &Config) -> Value {
     let mut warnings = Vec::new();
     let mut capabilities = HashMap::new();
     if let Some(bedrock) = &config.bedrock {
-        for (tier, name) in bedrock.models() {
+        for entry in bedrock.models() {
             rows.push(Model {
-                key: name.clone(),
-                display_name: tier.display_name().to_string(),
+                key: entry.id.clone(),
+                display_name: entry.display_name().to_string(),
                 premium: false,
+                reads_effort: true,
                 provider: Some("AWS Bedrock".into()),
-                conversation_tokens: Some(bravebot_config::bedrock::CONTEXT_WINDOW),
+                conversation_tokens: Some(entry.window()),
             });
         }
     }
@@ -32,6 +33,7 @@ pub fn list(config: &Config) -> Value {
                 key: format!("{}/{}", provider.id, model.id),
                 display_name: model.id.clone(),
                 premium: false,
+                reads_effort: true,
                 provider: Some(provider.display_name().to_string()),
                 conversation_tokens: Some(model.window()),
             }));
@@ -136,7 +138,8 @@ fn gateway_models<S: Sink>(
                 Label::untrusted_public(),
             )
             .ok()?;
-        let (bytes, _) = response.body.into_parts_for_decoding();
+        let label = response.body.label();
+        let (bytes, _) = policy.decode_transport("gateway models", label).decode(response.body);
         serde_json::from_slice(&bytes).ok()
     };
     let listed = fetch(policy, provider.account_models_url())
@@ -156,11 +159,16 @@ fn gateway_rows(provider: &Provider, listed: Vec<GatewayModel>) -> Vec<(Model, V
         })
         .map(|entry| {
             let badges = badges(&entry);
+            let reads_effort = entry
+                .supported_parameters
+                .as_ref()
+                .is_none_or(|parameters| parameters.iter().any(|p| p == "reasoning_effort"));
             (
                 Model {
                     key: format!("{}/{}", provider.id, entry.id),
                     display_name: entry.id.clone(),
                     premium: false,
+                    reads_effort,
                     provider: Some(provider.display_name().to_string()),
                     conversation_tokens: Some(
                         provider
@@ -209,6 +217,7 @@ fn catalogue(mut rows: Vec<Model>, default: &str, warnings: Vec<String>) -> Valu
             key: default.into(),
             display_name: default.into(),
             premium: false,
+            reads_effort: true,
             provider: Some("Configured default".into()),
             conversation_tokens: None,
         });

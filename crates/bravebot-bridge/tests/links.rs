@@ -31,7 +31,7 @@ fn the_surfaces_the_bridge_needs_are_public() {
     let _: fn() -> Option<std::path::PathBuf> = bravebot_tui::store::directory;
     // The audit projection, reused verbatim rather than re-derived: two spellings of one
     // trail is exactly the drift this avoids.
-    let _: fn(&bravebot_core::event::Event) -> serde_json::Value = bravebot_tui::audit::as_json;
+    let _: fn(&bravebot_core::event::Event, Option<bravebot_agent::report::DelegateId>) -> serde_json::Value = bravebot_tui::audit::as_json;
 }
 
 /// The traits the turn engine takes its interface as. The bridge implements all three;

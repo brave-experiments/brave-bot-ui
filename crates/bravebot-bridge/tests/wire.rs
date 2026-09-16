@@ -348,3 +348,32 @@ fn the_prompts_are_sent_as_the_kernel_shaped_them() {
         "the key travels so a front-end can tell two questions apart"
     );
 }
+
+#[test]
+fn command_approval_preserves_plan_shape_environment_and_redirections() {
+    use bravebot_agent::confirm::RunRequest;
+    use bravebot_core::command::{Joiner, Plan, Route, Step, Steps};
+    let step = Step {
+        program: "printf".into(), resolved: "/usr/bin/printf".into(),
+        args: vec!["hello world".into()],
+        environment: vec![("MODE".into(), "preview".into())],
+        routes: vec![Route::Stdout { path: "/tmp/result.txt".into(), append: false }],
+    };
+    let request = RunRequest { record: None, pattern: None, plan: Plan {
+        line: "context only".into(), directory: "/tmp".into(),
+        steps: Steps::Join {
+            left: Box::new(Steps::Pipeline(vec![step.clone()])), joiner: Joiner::And,
+            right: Box::new(Steps::Pipeline(vec![Step { routes: vec![], ..step }])),
+        },
+        writes: vec!["/tmp/result.txt".into()], reads: vec![], stdin: None,
+    }};
+    let value = wire::run_request(7, &request);
+    assert_eq!(value["request"], 7);
+    assert_eq!(value["directory"], "/tmp");
+    assert_eq!(value["stages"].as_array().unwrap().len(), 2);
+    assert_eq!(value["stages"][0]["resolved"], "/usr/bin/printf");
+    assert_eq!(value["stages"][0]["display"], "MODE=preview printf 'hello world' > /tmp/result.txt");
+    assert!(value["plan"].as_str().unwrap().contains(" && "));
+    assert_ne!(value["plan"], "context only");
+    assert_eq!(value["writes"], json!(["/tmp/result.txt"]));
+}

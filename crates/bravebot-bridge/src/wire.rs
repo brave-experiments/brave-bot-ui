@@ -225,19 +225,15 @@ pub fn write_request(id: u64, request: &WriteRequest) -> Value {
 /// any one of them.
 pub fn run_request(id: u64, request: &RunRequest) -> Value {
     let stages: Vec<Value> = request
-        .pipeline
-        .stages
+        .plan
+        .steps()
         .iter()
-        .enumerate()
-        .map(|(index, stage)| {
+        .map(|stage| {
             json!({
                 "program": stage.program,
-                // Positional: `resolved` is in stage order. A stage with nothing opposite
-                // it sends null rather than a guess, which a front-end must draw as
-                // "unresolved" rather than as the name repeated.
-                "resolved": request.resolved.get(index),
+                "resolved": stage.resolved,
                 "args": stage.args,
-                "display": stage.display(),
+                "display": stage.as_written(),
             })
         })
         .collect();
@@ -245,7 +241,9 @@ pub fn run_request(id: u64, request: &RunRequest) -> Value {
     json!({
         "request": id,
         "stages": stages,
-        "directory": request.directory,
+        "directory": request.directory(),
+        "plan": request.plan.steps.display(),
+        "writes": request.plan.writes,
         "releasesPrivate": request.releases_private(),
         // What approving-and-remembering would cover, which is the thing the second
         // answer needs to be about. A pipeline vouches for all of its stages: one that

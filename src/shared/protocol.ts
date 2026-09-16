@@ -158,6 +158,8 @@ export interface ConfirmRequest {
 }
 
 export interface TurnDone {
+  /** Added by the desktop main process while memory maintenance reserves this session. */
+  consolidating?: boolean
   turn: number
   reply: string
   model: string
@@ -181,6 +183,8 @@ export interface TurnDone {
 }
 
 export interface TurnError {
+  /** A failed turn may still have saved a recoverable conversation. */
+  id?: string | null
   turn: number
   kind: 'cancelled' | 'precommit' | 'workspace' | 'chat'
   message: string
@@ -205,6 +209,9 @@ export interface Stage {
 /** A pipeline the planner wants to run. */
 export interface RunRequest {
   request: number
+  /** Resolved execution plan, including conditional joins and redirections. */
+  plan?: string
+  writes?: string[]
   stages: Stage[]
   directory: string
   /**

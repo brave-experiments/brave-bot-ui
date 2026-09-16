@@ -370,3 +370,21 @@ fn a_malformed_dropped_list_costs_the_files_and_not_the_turn() {
         assert_ne!(sent, Err(ErrorCode::BadRequest), "a bad list is not a bad request");
     }
 }
+
+#[test]
+fn permission_review_can_only_remove_existing_grants() {
+    let (mut bridge, _) = harness();
+    let made = call(&mut bridge, "session.new", json!({"directory": std::env::temp_dir()})).unwrap();
+    let session = made["session"].as_str().unwrap();
+    call(&mut bridge, "trust.reply", json!({"session": session, "trusted": true})).unwrap();
+    let before = call(&mut bridge, "permissions.list", json!({"session": session})).unwrap();
+    assert_eq!(before["paths"], json!([{"path": "", "integrity": "trusted"}]));
+    assert_eq!(before["commands"], json!([]));
+    assert_eq!(call(&mut bridge, "permissions.revoke", json!({"session": session, "kind": "path", "path": "not-granted"})), Err(ErrorCode::BadRequest));
+    assert_eq!(call(&mut bridge, "permissions.revoke", json!({"session": session, "kind": "command", "command": {"program": "/bin/sh", "args": []}})), Err(ErrorCode::BadRequest));
+    let after = call(&mut bridge, "permissions.revoke", json!({"session": session, "kind": "path", "path": ""})).unwrap();
+    assert_eq!(after["paths"], json!([{"path": "", "integrity": "untrusted"}]));
+    assert_eq!(call(&mut bridge, "permissions.revoke", json!({"session": session, "kind": "grant"})), Err(ErrorCode::BadRequest));
+    let again = call(&mut bridge, "permissions.list", json!({"session": session})).unwrap();
+    assert_eq!(again, after);
+}

@@ -96,6 +96,8 @@ impl Bridge {
             "vouch.reply" => self.reply_vouch(request),
             "ask.reply" => self.reply_ask(request),
             "trust.reply" => self.reply_trust(request),
+            "permissions.list" => self.permissions(request, false),
+            "permissions.revoke" => self.permissions(request, true),
             "doctor" => Ok(Self::doctor()),
             other => Err(Failure::bad_request(format!("unknown method `{other}`"))),
         }
@@ -111,6 +113,7 @@ impl Bridge {
             "build": crate::agent_build(),
             "version": env!("CARGO_PKG_VERSION"),
             "defaultModel": Config::from_env().ok().map(|config| config.default_model),
+            "configured": Config::from_env().is_ok(),
             "home": bravebot_tui::store::directory().map(|d| d.display().to_string()),
         })
     }
@@ -156,9 +159,9 @@ impl Bridge {
         // it, and inherits it. One that did not is asked again: nothing recorded is not
         // the same as nothing trusted, and reading an absent map as an empty one would
         // answer on behalf of somebody who was never asked.
-        let inherited = record.trust_map();
+        let inherited = record.trust_map(&directory);
         let answered_trust = inherited.is_some();
-        let state = State::resumed(&directory, &record, inherited.unwrap_or_default());
+        let state = State::resumed(&directory, &record, inherited.unwrap_or_else(|| TrustStore::new(&directory)));
 
         let handle = self.mint(Open {
             project: directory.clone(),
@@ -249,7 +252,7 @@ impl Bridge {
             project: directory.clone(),
             // An empty map until the user answers. Nothing runs before then, so this is
             // never the map a turn uses.
-            state: Arc::new(Mutex::new(State::fresh(TrustStore::new()))),
+            state: Arc::new(Mutex::new(State::fresh(TrustStore::new(&directory)))),
             answered_trust: false,
             running: None,
             model: None,
@@ -584,8 +587,8 @@ impl Bridge {
     /// Ask the turn to stop.
     ///
     /// Returns at once; the turn ends when the engine next looks at the token. A pending
-    /// write is deliberately **not** answered by this: cancelling and approving are
-    /// different decisions, and conflating them would let a cancel authorise a write.
+    /// question wakes through the confirmer’s cancellation check and resolves to refusal.
+    /// Cancellation never sends an approval or authorises a write.
     fn cancel_turn(&mut self, request: &Request) -> Result<Value, Failure> {
         let handle = request.string("session")?;
         let open = self.open.get(&handle).ok_or_else(Failure::no_such_session)?;
@@ -675,7 +678,7 @@ impl Bridge {
         // Trusting records the workspace root, which covers everything beneath it.
         // Declining records nothing, leaving a map in which no path is trusted. The same
         // two outcomes the terminal offers, so an answer means the same in both.
-        let mut trust = TrustStore::new();
+        let mut trust = TrustStore::new(&open.project);
         if trusted {
             trust.trust(".");
         }
@@ -685,6 +688,43 @@ impl Bridge {
         open.answered_trust = true;
 
         Ok(json!({ "trusted": trusted }))
+    }
+
+    /// Inspect or reduce existing grants. No operation on this channel can add trust.
+    fn permissions(&mut self, request: &Request, revoke: bool) -> Result<Value, Failure> {
+        let handle = request.string("session")?;
+        self.reap(&handle);
+        let open = self.open.get(&handle).ok_or_else(Failure::no_such_session)?;
+        if open.running.is_some() {
+            return Err(Failure::new(ErrorCode::TurnInFlight, "Stop the current turn before reviewing or revoking permissions."));
+        }
+        let mut state = open.state.lock().map_err(|_| Failure::new(ErrorCode::Internal, "Session state unavailable"))?;
+        if revoke {
+            match request.string("kind")?.as_str() {
+                "path" => {
+                    let path = request.string("path")?;
+                    if !state.trust.rules().any(|(held, _)| held == path) {
+                        return Err(Failure::bad_request("This path grant is no longer present."));
+                    }
+                    state.trust.distrust(&path);
+                }
+                "command" => {
+                    let selected = request.params.get("command").ok_or_else(|| Failure::bad_request("Missing command"))?;
+                    let command = state.programs.iter().find(|command| json!({"program": command.program, "args": command.args}) == *selected).cloned()
+                        .ok_or_else(|| Failure::bad_request("This command grant is no longer present."))?;
+                    state.programs.forget(&command);
+                }
+                _ => return Err(Failure::bad_request("Unknown permission kind")),
+            }
+            if state.handle.is_some() {
+                let turn = state.turns;
+                save(&open.project, &mut state, turn, &bravebot_tui::audit::Trail::default());
+            }
+        }
+        Ok(json!({
+            "paths": rules_json(&state.trust),
+            "commands": state.programs.iter().map(|command| json!({"program": command.program, "args": command.args, "display": command.display()})).collect::<Vec<_>>()
+        }))
     }
 
     /// Check the agent's configuration and confinement.
@@ -851,7 +891,7 @@ fn work(work: Work) {
     }
 
     let mut reporter = BridgeReporter::new(emitter.clone(), &session);
-    let mut confirmer = BridgeConfirmer::new(emitter.clone(), &session, pending, answers);
+    let mut confirmer = BridgeConfirmer::new(emitter.clone(), &session, pending, answers, cancel.clone());
     let mut sink = BridgeSink::new(emitter.clone(), &session, turn);
     let egress = Egress::new();
 
@@ -870,6 +910,7 @@ fn work(work: Work) {
         &mut sink,
         trust,
         programs,
+        None, // Language-server approvals are not offered by this front-end.
         &cancel,
     );
 
@@ -964,7 +1005,8 @@ fn work(work: Work) {
             emitter.send(Event::new(
                 "turn.error",
                 &session,
-                json!({ "turn": turn, "kind": kind, "message": error.to_string() }),
+                json!({ "turn": turn, "kind": kind, "message": error.to_string(),
+                    "id": state.handle.as_ref().map(|handle| handle.id()) }),
             ));
         }
     }
@@ -1005,6 +1047,8 @@ fn save(
             timing: &state.timing,
             model: state.model.as_deref(),
             todos: &state.todos,
+            asides: &state.asides,
+            rewind: &state.rewind,
             trust: &state.trust,
             programs: &state.programs,
             directories: &state.directories,

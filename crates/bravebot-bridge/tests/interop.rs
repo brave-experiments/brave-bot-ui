@@ -39,7 +39,7 @@ fn a_record_written_here_is_read_back_by_the_agents_own_reader() {
     conversation.push(Message::user("what does this do?"));
     conversation.push(Message::assistant("it parses commas"));
 
-    let mut trust = TrustStore::new();
+    let mut trust = TrustStore::new(&project);
     trust.trust(".");
 
     let mut todos = BTreeMap::new();
@@ -52,6 +52,8 @@ fn a_record_written_here_is_read_back_by_the_agents_own_reader() {
     handle.save(
         "what does this do?",
         Standing {
+            rewind: &[],
+            asides: &[],
             conversation: &conversation.snapshot(),
             turns: 1,
             tokens: 42,
@@ -107,6 +109,8 @@ fn a_stored_conversation_recounts_to_what_a_person_said() {
     handle.save(
         "first question",
         Standing {
+            rewind: &[],
+            asides: &[],
             conversation: &conversation.snapshot(),
             turns: 2,
             tokens: 0,
@@ -114,7 +118,7 @@ fn a_stored_conversation_recounts_to_what_a_person_said() {
             timing: &BTreeMap::new(),
             model: None,
             todos: &BTreeMap::new(),
-            trust: &TrustStore::new(),
+            trust: &TrustStore::new(&project),
             programs: &TrustedPrograms::new(),
             directories: &[],
             manifest: None,
@@ -163,7 +167,7 @@ fn resuming_a_session_writes_back_to_it_rather_than_forking() {
     conversation.push(Message::user("remember the word haddock"));
     conversation.push(Message::assistant("haddock it is"));
 
-    let trust = TrustStore::new();
+    let trust = TrustStore::new(&project);
     let todos = BTreeMap::new();
     let timing = BTreeMap::from([(1, bravebot_agent::timing::Timing {
         wall_ms: 120, inference_ms: 80, tools_ms: 20, stalled_ms: 10,
@@ -173,6 +177,20 @@ fn resuming_a_session_writes_back_to_it_rather_than_forking() {
     handle.save(
         "remember the word haddock",
         Standing {
+            rewind: &[bravebot_tui::state::RewindPoint {
+                snapshot: bravebot_tui::state::TurnSnapshot {
+                    conversation: bravebot_agent::Conversation::new().snapshot(),
+                    turns: 0, tokens: 0, spend: BTreeMap::new(), timing: BTreeMap::new(),
+                    cached: None, trust: TrustStore::new(&project),
+                    programs: TrustedPrograms::new(), transcript_len: 0,
+                    title: "Before haddock".into(), was_wrote: false,
+                },
+                backups: Vec::new(), prompt: "remember the word haddock".into(),
+            }],
+            asides: &[bravebot_tui::state::Aside {
+                question: "what is haddock?".into(),
+                answer: Some("a fish".into()), kept: true,
+            }],
             conversation: &conversation.snapshot(),
             turns: 1,
             tokens: 10,
@@ -199,6 +217,8 @@ fn resuming_a_session_writes_back_to_it_rather_than_forking() {
     saved.save(
         &state.first_prompt.clone().unwrap_or_default(),
         Standing {
+            rewind: &state.rewind,
+            asides: &state.asides,
             conversation: &state.conversation.snapshot(),
             turns: state.turns,
             tokens: state.tokens,
@@ -220,6 +240,15 @@ fn resuming_a_session_writes_back_to_it_rather_than_forking() {
     let reread = sessions::load(&project, &original).expect("the record should still load");
     assert_eq!(reread.turns, 2, "the turn landed in the session it was taken in");
     assert_eq!(reread.tokens, 25);
+    let rewind = reread.rewind_points(&project);
+    assert_eq!(rewind.len(), 1);
+    assert_eq!(rewind[0].prompt, "remember the word haddock");
+    assert_eq!(rewind[0].snapshot.title, "Before haddock");
+    let recalled = sessions::recall(&project, &reread);
+    assert_eq!(recalled.asides.len(), 1);
+    assert_eq!(recalled.asides[0].question, "what is haddock?");
+    assert_eq!(recalled.asides[0].answer.as_deref(), Some("a fish"));
+    assert!(recalled.asides[0].kept);
     assert_eq!(reread.timing, timing, "resuming must preserve the timing from the terminal");
     assert_eq!(reread.title, "remember the word haddock", "the title survives the resume");
 
@@ -259,11 +288,16 @@ fn two_prompt_session(project: &std::path::Path, trust: Option<&TrustStore>) -> 
     conversation.push(Message::user("now forget it"));
     conversation.push(Message::assistant("forgotten"));
 
-    let empty = TrustStore::new();
+    let empty = TrustStore::new(project);
     let mut handle = Handle::begin(project);
     handle.save(
         "remember the word haddock",
         Standing {
+            rewind: &[],
+            asides: &[bravebot_tui::state::Aside {
+                question: "what is haddock?".into(),
+                answer: Some("a fish".into()), kept: true,
+            }],
             conversation: &conversation.snapshot(),
             turns: 2,
             tokens: 30,
@@ -287,7 +321,7 @@ fn two_prompt_session(project: &std::path::Path, trust: Option<&TrustStore>) -> 
 fn forking_a_stored_session_leaves_the_parent_record_untouched() {
     let project = scratch("fork-parent-untouched");
     clean_up(&project);
-    let mut trust = TrustStore::new();
+    let mut trust = TrustStore::new(&project);
     trust.trust(".");
     let parent = two_prompt_session(&project, Some(&trust));
     let before = sessions::load(&project, &parent).expect("the record should load");
@@ -324,7 +358,7 @@ fn forking_a_stored_session_leaves_the_parent_record_untouched() {
 fn a_fork_writes_nothing_until_it_has_something_to_say() {
     let project = scratch("fork-writes-nothing");
     clean_up(&project);
-    let parent = two_prompt_session(&project, Some(&TrustStore::new()));
+    let parent = two_prompt_session(&project, Some(&TrustStore::new(&project)));
 
     let (mut bridge, _) = harness();
     let opened = call(
@@ -357,7 +391,7 @@ fn a_fork_writes_nothing_until_it_has_something_to_say() {
 fn a_fork_recounts_to_everything_before_the_prompt_it_was_cut_at() {
     let project = scratch("fork-recount");
     clean_up(&project);
-    let parent = two_prompt_session(&project, Some(&TrustStore::new()));
+    let parent = two_prompt_session(&project, Some(&TrustStore::new(&project)));
 
     let (mut bridge, _) = harness();
     let opened = call(
@@ -407,7 +441,7 @@ fn a_fork_recounts_to_everything_before_the_prompt_it_was_cut_at() {
 fn a_fork_inherits_the_trust_map_rather_than_asking_again() {
     let project = scratch("fork-trust-inherited");
     clean_up(&project);
-    let mut trust = TrustStore::new();
+    let mut trust = TrustStore::new(&project);
     trust.trust(".");
     let parent = two_prompt_session(&project, Some(&trust));
 
@@ -444,7 +478,7 @@ fn a_fork_inherits_the_trust_map_rather_than_asking_again() {
 fn a_fork_of_a_record_with_no_trust_map_asks() {
     let project = scratch("fork-trust-unknown");
     clean_up(&project);
-    let parent = two_prompt_session(&project, Some(&TrustStore::new()));
+    let parent = two_prompt_session(&project, Some(&TrustStore::new(&project)));
 
     // Strip the map the way a record written before maps existed has none.
     let path = sessions::project_directory(&project)
@@ -488,7 +522,7 @@ fn a_fork_of_a_record_with_no_trust_map_asks() {
 fn a_fork_gets_an_id_of_its_own_rather_than_the_one_it_came_from() {
     let project = scratch("fork-new-id");
     clean_up(&project);
-    let parent = two_prompt_session(&project, Some(&TrustStore::new()));
+    let parent = two_prompt_session(&project, Some(&TrustStore::new(&project)));
     let record = sessions::load(&project, &parent).expect("the record should load");
 
     // The agent's ids carry the second they were minted in, so a fork taken inside the same
@@ -503,7 +537,7 @@ fn a_fork_gets_an_id_of_its_own_rather_than_the_one_it_came_from() {
     let mut state = bravebot_bridge::running::State::forked(
         Handle::begin(&project),
         cut,
-        TrustStore::new(),
+        TrustStore::new(&project),
         TrustedPrograms::new(),
         Vec::new(),
         1,
@@ -517,6 +551,8 @@ fn a_fork_gets_an_id_of_its_own_rather_than_the_one_it_came_from() {
     saved.save(
         &state.first_prompt.clone().unwrap_or_default(),
         Standing {
+            rewind: &state.rewind,
+            asides: &state.asides,
             conversation: &state.conversation.snapshot(),
             turns: state.turns,
             tokens: 5,
@@ -556,7 +592,7 @@ fn a_fork_gets_an_id_of_its_own_rather_than_the_one_it_came_from() {
 fn two_forks_in_the_same_second_stay_two_sessions() {
     let project = scratch("fork-same-second");
     clean_up(&project);
-    let parent = two_prompt_session(&project, Some(&TrustStore::new()));
+    let parent = two_prompt_session(&project, Some(&TrustStore::new(&project)));
 
     let (mut bridge, _) = harness();
     let opened = call(

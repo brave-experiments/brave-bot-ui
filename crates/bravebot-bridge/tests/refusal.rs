@@ -55,11 +55,12 @@ fn harness() -> Harness {
     let pending: Pending = Arc::new(Mutex::new(None));
     let (answers_tx, answers_rx) = mpsc::channel();
 
+    let cancel = bravebot_core::cancel::Cancel::new();
     Harness {
-        confirmer: BridgeConfirmer::new(emitter, "s1", Arc::clone(&pending), answers_rx),
+        confirmer: BridgeConfirmer::new(emitter, "s1", Arc::clone(&pending), answers_rx, cancel.clone()),
         events,
         running: Running {
-            cancel: bravebot_core::cancel::Cancel::new(),
+            cancel,
             answers: answers_tx,
             pending,
             turn: 1,
@@ -260,11 +261,11 @@ fn the_question_is_emitted_with_the_diff_and_not_the_body() {
 // ---------------------------------------------------------------- the other three
 
 fn a_run() -> RunRequest {
-    RunRequest {
-        pipeline: Pipeline::new(vec![Stage::new("git", vec!["status".into()])]),
-        resolved: vec!["/usr/bin/git".into()],
-        directory: "/tmp".into(),
-    }
+    RunRequest::from_pipeline(
+        &Pipeline::new(vec![Stage::new("git", vec!["status".into()])]),
+        &["/usr/bin/git".into()],
+        "/tmp",
+    )
 }
 
 /// The property that matters most about a run nobody answered.
@@ -391,4 +392,52 @@ fn an_unanswerable_series_claims_no_answers() {
         harness.confirmer.ask_user(&asking).is_empty(),
         "no answers at all, rather than a decline nobody made"
     );
+}
+
+
+#[test]
+fn cancelling_wakes_a_waiting_confirmer_without_approval() {
+    let mut harness = harness();
+    let running = harness.running;
+    let (finished_tx, finished_rx) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        finished_tx.send(harness.confirmer.confirm_write(&a_write())).unwrap();
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while running.pending.lock().unwrap().is_none() {
+        assert!(std::time::Instant::now() < deadline, "question never arrived");
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    running.cancel.cancel();
+    assert_eq!(finished_rx.recv_timeout(std::time::Duration::from_secs(1)).unwrap(), Decision::Reject);
+    assert!(running.pending.lock().unwrap().is_none());
+    worker.join().unwrap();
+}
+
+#[test]
+fn cancelling_before_a_question_cannot_leave_it_waiting() {
+    let mut harness = harness();
+    harness.running.cancel.cancel();
+    assert_eq!(harness.confirmer.confirm_write(&a_write()), Decision::Reject);
+    assert!(harness.events.lock().unwrap().is_empty());
+}
+
+/// Newly added upstream powers stay denied until the window can present their consent.
+#[test]
+fn unsupported_approvals_refuse_without_consuming_other_answers() {
+    use bravebot_agent::confirm::{FetchRequest, ServerRequest, ManifestRequest};
+    let mut h = harness();
+    h.running.answers.send(Reply::Write(Decision::Approve)).unwrap();
+    assert_eq!(h.confirmer.confirm_fetch(&FetchRequest {
+        url: "https://example.com".into(), host: "example.com".into(),
+    }), Decision::Reject);
+    assert_eq!(h.confirmer.confirm_server(&ServerRequest {
+        language: "Rust", program: "/usr/bin/rust-analyzer".into(),
+        workspace: "/project".into(), runs_build_tooling: true,
+    }), Decision::Reject);
+    assert_eq!(h.confirmer.confirm_manifest(&ManifestRequest {
+        task: "work".into(), steps: vec!["run command".into()],
+    }), Decision::Reject);
+    assert!(h.events.lock().unwrap().is_empty());
+    assert_eq!(h.confirmer.confirm_write(&a_write()), Decision::Approve);
 }
