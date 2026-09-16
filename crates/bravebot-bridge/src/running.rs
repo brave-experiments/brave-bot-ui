@@ -73,6 +73,10 @@ pub struct State {
     /// the name it was given. `None` until a turn has reached a server.
     pub model: Option<String>,
     pub todos: BTreeMap<usize, Vec<Row>>,
+    /// Preserve terminal side conversations when continuing a session in the UI.
+    pub asides: Vec<bravebot_tui::state::Aside>,
+    /// Keep terminal rewind checkpoints intact when the UI saves a resumed session.
+    pub rewind: Vec<bravebot_tui::state::RewindPoint>,
     /// The first thing the user asked, which is what a list calls the session.
     pub first_prompt: Option<String>,
 }
@@ -91,6 +95,8 @@ impl State {
             timing: BTreeMap::new(),
             model: None,
             todos: BTreeMap::new(),
+            asides: Vec::new(),
+            rewind: Vec::new(),
             first_prompt: None,
         }
     }
@@ -117,6 +123,8 @@ impl State {
             timing: record.timing.clone(),
             model: record.model.clone(),
             todos: record.todo_rows(),
+            asides: bravebot_tui::sessions::recall(project, record).asides,
+            rewind: record.rewind_points(project),
             first_prompt: Some(record.title.clone()),
         }
     }
@@ -169,6 +177,8 @@ impl State {
             timing: BTreeMap::new(),
             model: None,
             todos,
+            asides: Vec::new(),
+            rewind: Vec::new(),
             first_prompt,
         }
     }

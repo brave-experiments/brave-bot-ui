@@ -575,8 +575,9 @@ matching `app.rs:540`. Returns `{}` immediately; the turn ends with
 `turn.error` / `Cancelled` when the engine notices. Cancelling when nothing is running is
 not an error.
 
-A pending confirmation is **not** implicitly answered by a cancel. The client must still
-send `confirm.reply`, or close the session, which refuses it.
+A pending confirmation checks cancellation at most every 50 ms and resolves to refusal.
+No approval is sent, and no additional client reply is required. Cancellation also
+covers the race where the question is registered just after the stop request.
 
 #### `confirm.reply`
 
@@ -771,12 +772,15 @@ a client that reloads on receipt sees the same thing on disk.
 
 ```json
 { "event": "turn.error", "session": "s1", "data": {
-  "turn": 5, "kind": "cancelled"|"precommit"|"workspace"|"chat", "message": "…" } }
+  "turn": 5, "kind": "cancelled"|"precommit"|"workspace"|"chat", "message": "…",
+  "id": "saved-session-id-or-null" } }
 ```
 
 The four `TurnError` variants. A failed turn is still part of the conversation and the
 conversation is handed back either way — the next question is usually about it — so the
-client must keep the transcript, not discard it.
+client must keep the transcript, not discard it. `id` identifies the recoverable
+record when the failed turn was saved; clients should migrate unsent draft
+preferences to this ID just as they do for `turn.done`.
 
 ### 8.4 Failure semantics — the load-bearing part
 
