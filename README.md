@@ -78,6 +78,15 @@ npm run dev
 
 Already cloned without it? `git submodule update --init`.
 
+`npm install` also downloads the Electron runtime using Electron's own installer.
+Electron 44 installs the npm package without downloading that runtime automatically;
+`electron-vite` needs it before launching. If an earlier install left you with
+`Error: Electron uninstall`, run `npm run setup:electron`, then `npm start`.
+Development and preview commands also run this setup, which reuses an installed runtime.
+If downloads fail, check the installer output and retry the setup command.
+`ELECTRON_SKIP_BINARY_DOWNLOAD=1` skips runtime setup for typecheck-only CI; unset it
+before launching the app. With `--ignore-scripts`, run `npm run setup:electron` manually.
+
 `npm run dev` builds `bravebot-rpc`, names the development app for the menu bar, and then
 starts the app with hot reload.
 
