@@ -5,6 +5,7 @@ dist/
 *.log
 output.txt
 .DS_Store
+.worktrees/
 
 # Source art. The renders that ship are checked in under src/; what is here is the
 # material they were keyed from, which nothing in the build reads.

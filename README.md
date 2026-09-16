@@ -58,7 +58,7 @@ key table, the directory layout, what is remembered across launches, and the pal
 - **Node 22+** and npm — though CI builds on Node 24, so that is the version a change is
   actually proved against. Electron 44, React 19.
 - **The agent, as the `vendor/bravebot` submodule.**
-  [`brave-experiments/brave-bot`](https://github.com/brave-experiments/brave-bot.git), pinned
+  [`brave/bravebot`](https://github.com/brave/bravebot.git), pinned
   to a revision by the gitlink this repository commits. `crates/bravebot-bridge` depends on
   it by path, so a clone without submodules compiles nothing. Moving the pin, and why it is
   pinned at all, is in [`docs/setup.md`](docs/setup.md).
