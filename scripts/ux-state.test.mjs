@@ -54,6 +54,33 @@ test('project search finds files in unopened folders; preview rejects traversal 
   } finally { rmSync(directory, { recursive: true, force: true }) }
 })
 
+test('memory edits use compare-and-replace and preserve recoverable history', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'bravebot-ux-memory-'))
+  const profile = join(directory, 'profile'), project = join(directory, 'project')
+  mkdirSync(profile); mkdirSync(project)
+  const electron = { app: { getPath: () => profile } }
+  try {
+    const bots = load('src/main/bots.ts', electron)
+    const { parseBots } = load('src/shared/bots.ts')
+    bots.saveBot(parseBots({ bots: [{ slug: 'test', name: 'Test', purpose: 'Test', directory: project, avatar: 'test' }] }).bots[0])
+    const memory = load('src/main/memory.ts', electron)
+    assert.equal(memory.editMemory('test', 'First memory', null), 'First memory')
+    assert.throws(() => memory.editMemory('test', 'Lost edit', null), /changed/)
+    assert.equal(memory.editMemory('test', 'Second memory', 'First memory'), 'Second memory')
+    assert.deepEqual(memory.memoryHistory('test').map((entry) => entry.text), ['First memory', 'Second memory'])
+    memory.editMemory('test', '', 'Second memory')
+    assert.equal(readFileSync(join(project, '.bravebot-ui', 'bots', 'test.md'), 'utf8'), '')
+    assert.equal(memory.memoryHistory('test').at(-2).text, 'Second memory')
+    writeFileSync(join(profile, 'bots', 'test', 'ground.md'), 'private briefing')
+    memory.removeMemoryHistory('test')
+    assert.deepEqual(memory.memoryHistory('test'), [])
+    assert.equal(existsSync(join(profile, 'bots', 'test', 'ground.md')), false)
+    assert.equal(existsSync(join(profile, 'bots', 'test', 'memory-history.json')), false)
+    assert.equal(readFileSync(join(project, '.bravebot-ui', 'bots', 'test.md'), 'utf8'), '')
+
+  } finally { rmSync(directory, { recursive: true, force: true }) }
+})
+
 test('attachment grants are per session and revalidate changed files at send', async () => {
   const root = mkdtempSync(join(tmpdir(), 'bravebot-ux-attachment-'))
   const selected = join(root, 'notes.txt')
@@ -108,4 +135,42 @@ test('request IDs reused in later turns never rewrite prior answers or approvals
   const approvals = decide([firstWrite, nextWrite], 'confirm', 1, 'reject')
   assert.equal(approvals[0], firstWrite)
   assert.equal(approvals[1].decision, 'reject')
+})
+
+
+test('bot history includes every saved, associated and draft conversation without mixing bots or projects', () => {
+  const { botHistory } = load('src/shared/bot-history.ts')
+  const { parseExperience, conversationKey } = load('src/shared/experience.ts')
+  const bot = { slug: 'review', directory: '/project', session: 'new', conversations: ['old', 'new', 'missing'] }
+  const row = (id, updated = 1, directory = '/project') => ({ id, directory, title: id, updated, project: 'project', branch: null, bytes: 0 })
+  const experience = parseExperience({ conversations: {
+    [conversationKey('/project', 'old')]: { archived: true },
+    [conversationKey('/project', 'associated')]: { botSlug: 'review' },
+    [conversationKey('/project', 'draft:pending')]: { botSlug: 'review', draft: 'unsent work' },
+    [conversationKey('/elsewhere', 'foreign')]: { botSlug: 'review' },
+    [conversationKey('/project', 'other-bot')]: { botSlug: 'another' },
+    [conversationKey('/project', 'draft:migrated')]: { botSlug: 'review', draft: '' },
+  } })
+  const history = botHistory(bot, [row('old'), row('new', 2), row('associated', 3), row('draft:pending', 4), row('other-bot'), row('foreign', 5, '/elsewhere')], experience)
+  assert.deepEqual(history.map(row => row.id), ['draft:pending', 'associated', 'new', 'old', 'missing'])
+  assert.equal(history.find(row => row.id === 'old').archived, true)
+  assert.equal(history.at(-1).session, null)
+})
+
+test('starting and revisiting bot conversations preserves all earlier IDs across restart', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'bravebot-history-'))
+  const electron = { app: { getPath: () => directory } }
+  const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333']
+  try {
+    const { parseBots } = load('src/shared/bots.ts')
+    const storage = load('src/main/bots.ts', electron)
+    storage.saveBot(parseBots({ bots: [{slug:'review', name:'Review', purpose:'Review', directory:'/project', session:ids[0]}] }).bots[0])
+    storage.noteBotSession('review', ids[1])
+    storage.noteBotSession('review', ids[2])
+    storage.noteBotSession('review', ids[0])
+    storage.releaseBotSession('review')
+    const reopened = load('src/main/bots.ts', electron).bot('review')
+    assert.deepEqual(reopened.conversations, ids)
+    assert.equal(reopened.session, null)
+  } finally { rmSync(directory, {recursive:true, force:true}) }
 })

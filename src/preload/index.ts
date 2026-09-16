@@ -226,7 +226,12 @@ const api = {
   readBotMemory(slug: string): Promise<string | null> {
     return ipcRenderer.invoke('bravebot:bots:memory', slug) as Promise<string | null>
   },
-
+  readMemoryHistory(slug: string): Promise<{ at: number; text: string; source: 'agent' | 'user' }[]> {
+    return ipcRenderer.invoke('bravebot:bots:memory-history', slug) as Promise<{ at: number; text: string; source: 'agent' | 'user' }[]>
+  },
+  editBotMemory(slug: string, text: string, expected: string | null): Promise<string> {
+    return ipcRenderer.invoke('bravebot:bots:edit-memory', slug, text, expected) as Promise<string>
+  },
 
   /**
    * Let go of the session behind a bot, for a record the agent no longer has.

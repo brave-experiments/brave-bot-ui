@@ -459,7 +459,7 @@ export function App(): React.JSX.Element {
         setProblem(null)
         return
       }
-      bot ??= botsRef.current.find((item) => item.directory === summary.directory && (item.session === summary.id || item.slug === conversationPreferences(conversationKey(summary.directory, summary.id)).botSlug))
+      bot ??= botsRef.current.find((item) => item.directory === summary.directory && (item.conversations.includes(summary.id) || item.slug === conversationPreferences(conversationKey(summary.directory, summary.id)).botSlug))
       const opened = await call<OpenedSession>('session.open', {
         directory: summary.directory,
         id: summary.id,
@@ -708,7 +708,7 @@ export function App(): React.JSX.Element {
   for (const summary of ownSessions) {
     const current = [...openedLives.current.values()].find((item) => (item.summary.id ?? item.draftId) === summary.id && item.summary.directory === summary.directory)
     const owner = preferences.conversations[conversationKey(summary.directory, summary.id)]?.botSlug
-    const bot = bots.find((item) => (item.session === summary.id || item.slug === owner) && item.directory === summary.directory)
+    const bot = bots.find((item) => (item.conversations.includes(summary.id) || item.slug === owner) && item.directory === summary.directory)
     sessionInfo[conversationKey(summary.directory, summary.id)] = {
       bot: bot?.name ?? bots.find((item) => item.slug === current?.bot?.slug)?.name,
       state: current ? t.outstanding(current.entries) ? t.outstanding(current.entries)?.kind === 'ask' ? 'Needs answer' : 'Needs approval' : current.running ? 'Working' : current.entries.at(-1)?.kind === 'error' ? 'Failed' : current.outcome === 'complete' ? 'Completed' : 'Ready' : undefined,
@@ -753,52 +753,6 @@ export function App(): React.JSX.Element {
     : live?.entries.at(-1)?.kind === 'error'
       ? 'failed'
       : 'open'
-
-  const openBot = useCallback(
-    async (bot: Bot) => {
-      if (bot.session === null) {
-        await create(bot.directory, { slug: bot.slug, model: bot.model })
-        return
-      }
-      // The agent's own list is what says whether the record is still there. A session deleted
-      // from `~/.bravebot` — or a checkout that has moved, which makes it a session in a
-      // directory nothing is looking in — would otherwise be a `no_such_session` reported as a
-      // code, when what happened is worth a sentence.
-      const record = sessions.find(
-        (each) => each.directory === bot.directory && each.id === bot.session,
-      )
-      if (!record) {
-        setProblem(
-          `${bot.name} had a session in ${bot.directory} that is no longer there. ` +
-            'Sending it a prompt will begin a new one.',
-        )
-        // Let go of the dead id before beginning, or the bot would keep it: the main process
-        // records the id of a first turn only for a bot that has none.
-        await window.bravebot.releaseBotSession(bot.slug).catch(() => undefined)
-        await readBots()
-        await create(bot.directory, { slug: bot.slug, model: bot.model })
-        return
-      }
-      try {
-        await showSession(
-          {
-            id: bot.session,
-            directory: bot.directory,
-            project: bot.directory.split('/').pop() ?? bot.directory,
-            branch: null,
-            title: bot.name,
-            updated: bot.updated,
-            bytes: 0,
-          },
-          undefined,
-          { slug: bot.slug, model: bot.model },
-        )
-      } catch (error) {
-        setProblem(String(error))
-      }
-    },
-    [create, showSession, sessions, readBots],
-  )
 
   const saveBot = useCallback(
     async (bot: { slug?: string; avatar?: string; model?: string | null; name: string; purpose: string; directory: string }) => {
@@ -1193,6 +1147,8 @@ export function App(): React.JSX.Element {
     >
       <SessionInfo.Provider value={sessionInfo}><Sidebar
         sessions={ownSessions}
+        onNewBotConversation={(bot) => { void create(bot.directory, { slug: bot.slug, model: bot.model }) }}
+        onBotConversation={(bot, summary) => { void showSession(summary, undefined, { slug: bot.slug, model: bot.model }) }}
         openId={live?.summary.id ?? live?.draftId ?? undefined}
         forked={forked}
         onOpen={showSession}
@@ -1200,8 +1156,7 @@ export function App(): React.JSX.Element {
         bots={bots}
         openSlug={live?.bot?.slug ?? null}
         openDoing={openDoing}
-        onOpenBot={(bot) => void openBot(bot)}
-        onSaveBot={async (bot) => { await saveBot(bot) }}
+        onSaveBot={saveBot}
         onRetireBot={retireBot}
         onRemoveBot={removeBot}
         build={build}

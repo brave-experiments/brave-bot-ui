@@ -55,6 +55,7 @@ import { printToPdf } from './export'
 import { readThemes, themesDirectory, watchThemes } from './theme'
 import { parseChosenTheme } from '../shared/theme'
 import { readExperience, writeExperience } from './experience'
+import { editMemory, memoryHistory, snapshotMemory, removeMemoryHistory } from './memory'
 
 /**
  * Which live session belongs to which bot, for the length of this run.
@@ -278,6 +279,7 @@ function createWindow(): void {
         // turn including a consolidation's own, so a consolidation that worked is what resets the
         // count that would otherwise have nudged.
         noteBotMemory(slug)
+        try { snapshotMemory(slug) } catch { /* Memory itself remains available if history storage fails. */ }
 
         // A consolidation ending is the end of it. Answering it with another would be a loop.
         if (consolidating.delete(handle)) {
@@ -613,7 +615,7 @@ app.whenReady().then(() => {
     // becomes a path segment is never a string that arrived as one.
     const held = isSlug(slug) ? bot(slug) : null
     const next: Bot = held
-      ? { ...held, name, purpose, directory, model: model === undefined ? held.model : model }
+      ? { ...held, name, purpose, model: model === undefined ? held.model : model }
       : {
           slug: slugFor(name, new Set(bots().map((each) => each.slug))),
           name,
@@ -624,6 +626,7 @@ app.whenReady().then(() => {
           avatar: typeof avatar === 'string' ? avatar : newAvatarSeed(randomUUID()),
           directory,
           session: null,
+          conversations: [],
           archived: 0,
           // Nothing has been remembered and nothing has gone unremembered, so a new bot starts
           // owing no nudge. See `noteBotMemory`, which takes its first reading when its first
@@ -652,7 +655,8 @@ app.whenReady().then(() => {
     const held = bot(slug)
     if (!held) return null
     if ([...botHandles].some(([handle, owner]) => owner === held.slug && runningHandles.has(handle))) throw new Error('Stop this bot’s running conversations before deleting it.')
-    // The definition goes. Its session is a session like any other and stays
+    removeMemoryHistory(held.slug)
+    // The definition and app-owned memory copies go. Its session is a session like any other and stays
     // in the agent's own store, and its memory is a file in somebody's checkout that this app did
     // not put there on its own account. Deleting either would make a bot's removal a destructive
     // act, which is not what removing a row from a list looks like.
@@ -668,7 +672,11 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('bravebot:bots:memory', (_event, slug: unknown) => memory(slug))
-
+  ipcMain.handle('bravebot:bots:memory-history', (_event, slug: unknown) => memoryHistory(slug))
+  ipcMain.handle('bravebot:bots:edit-memory', (_event, slug: unknown, text: unknown, expected: unknown) => {
+    if ([...botHandles].some(([handle, owner]) => owner === slug && runningHandles.has(handle))) throw new Error('Stop this bot’s running conversations before editing its memory.')
+    return editMemory(slug, text, expected)
+  })
 
   // Asked for when the window finds a bot pointing at a session the agent no longer lists. What it
   // becomes is not the window's to say — see `releaseBotSession`.

@@ -2,9 +2,9 @@
  * The bots somebody has defined, and the one thing that decides whether a file on disk is that
  * list.
  *
- * A bot is a name, a purpose, a memory, and one checkout — sitting in front of a single session
- * that is resumed forever rather than begun again. So it is not a new kind of conversation. It is
- * an identity attached to one, and everything here is what the agent's own record cannot hold.
+ * A bot is a name, a purpose, a memory, and one checkout, with a history of conversations.
+ * Its identity persists when a new conversation starts or an earlier one resumes.
+ * Everything here is what the agent's own record cannot hold.
  *
  * It cannot hold it for the reason `forks.ts` states about lineage: `Record` has no field for any
  * of this, adding one is a change to a repository this app does not modify, and the agent rewrites
@@ -60,12 +60,14 @@ export interface Bot {
   /** The checkout it works in, chosen when it was made and pinned from then on. */
   directory: string
   /**
-   * The durable id of the one session behind it, or `null` until it has spoken.
+   * The durable id used by Continue, or `null` until it has spoken.
    *
    * Null is a real state rather than a missing value: the agent writes no record until a first
    * turn, so a bot made and not yet talked to genuinely has no session to name. Main-written.
    */
   session: string | null
+  /** Every recorded conversation for this bot; retained when Continue changes. */
+  conversations: string[]
   /**
    * How much compaction had taken out of that session, last time anyone looked.
    *
@@ -219,6 +221,7 @@ export function parseBots(value: unknown): StoredBots {
       model,
       directory,
       session,
+      conversations,
       archived,
       remembered,
       quiet,
@@ -247,6 +250,7 @@ export function parseBots(value: unknown): StoredBots {
       model: isBotModel(model) && model !== null ? model : null,
       directory,
       session: isSessionId(session) ? session : null,
+      conversations: [...new Set([...(Array.isArray(conversations) ? conversations.filter(isSessionId) : []), ...(isSessionId(session) ? [session] : [])])],
       // Clamped rather than refused. It is a watermark, and a nonsense one costs one needless
       // re-grounding, where dropping the bot over it costs the bot.
       archived:
