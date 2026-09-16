@@ -9,6 +9,7 @@ const profile = mkdtempSync(join(tmpdir(), 'bravebot-model-picker-'))
 const app = await electron.launch({ args: ['.', `--user-data-dir=${profile}`], cwd: process.cwd(), timeout: 40000 })
 try {
   const page = await app.firstWindow()
+  page.setDefaultTimeout(15000)
   const errors = []
   page.on('pageerror', (error) => errors.push(error.message))
   await app.evaluate(({ ipcMain, BrowserWindow }) => {
@@ -56,13 +57,12 @@ try {
   assert.equal(await page.locator('.model-current').innerText(), 'claude-haiku-4.5')
   const triggerBox = await trigger.boundingBox()
   const entryBox = await page.locator('.composer textarea').boundingBox()
-  assert(triggerBox.x + triggerBox.width <= entryBox.x, 'model icon is left of the text entry')
-  const controls = await page.locator('.model-trigger, .composer textarea, .export-open, .composer .send').evaluateAll((elements) =>
-    elements.map((element) => { const rect = element.getBoundingClientRect(); return { top: rect.top, height: rect.height } }))
-  assert.equal(controls.length, 4)
-  assert(controls.every((rect) => rect.top === controls[0].top && rect.height === controls[0].height),
-    `composer controls must align exactly: ${JSON.stringify(controls)}`)
-  console.log('Composer alignment:', JSON.stringify(controls))
+  assert(triggerBox.y >= entryBox.y + entryBox.height, 'model picker is below the text entry');
+  const sendBox = await page.locator('.composer .send').boundingBox();
+  assert(Math.abs(triggerBox.y + triggerBox.height / 2 - sendBox.y - sendBox.height / 2) < 2,
+    'model picker and Send align in the composer toolbar');
+  assert.equal(await page.locator('.conversation-toolbar .export-open').count(), 1,
+    'Export is in the conversation header');
 
   await trigger.click()
   await page.getByRole('option', { name: /Claude Sonnet/ }).waitFor()
@@ -106,11 +106,11 @@ try {
   await page.locator('.session').filter({ hasText: 'Conversation B' }).click()
   await page.waitForFunction(() => document.querySelector('.model-trigger')?.getAttribute('aria-label')?.includes('haiku'))
   assert.match(await trigger.getAttribute('aria-label'), /haiku/)
-  await page.locator('.session').filter({ hasText: 'Conversation A' }).click()
+  await page.locator('.session').filter({ hasText: /Conversation A|Use this conversation/ }).click()
   await page.waitForFunction(() => document.querySelector('.model-trigger')?.getAttribute('aria-label')?.includes('sonnet'))
   assert.match(await trigger.getAttribute('aria-label'), /sonnet/)
   await page.reload()
-  await page.locator('.session').filter({ hasText: 'Conversation A' }).click()
+  await page.locator('.session').filter({ hasText: /Conversation A|Use this conversation/ }).click()
   await page.waitForFunction(() => document.querySelector('.model-trigger')?.getAttribute('aria-label')?.includes('sonnet'))
   assert.match(await trigger.getAttribute('aria-label'), /sonnet/)
 
@@ -167,6 +167,7 @@ try {
   assert.equal(await botRow.locator('[data-avatar]').getAttribute('data-avatar'), chosenFace)
   await botRow.click()
   await page.getByRole('button', { name: "Don't trust", exact: true }).click()
+  await page.getByRole('dialog').waitFor({state:'hidden'})
   const botTrigger = page.locator('.composer .model-trigger')
   assert.match(await botTrigger.getAttribute('aria-label'), /sonnet/)
   await botTrigger.click()
@@ -177,6 +178,7 @@ try {
   await page.locator('.sidebar-tab').nth(1).click()
   await botRow.click()
   await page.getByRole('button', { name: "Don't trust", exact: true }).click()
+  await page.getByRole('dialog').waitFor({state:'hidden'})
   assert.match(await botTrigger.getAttribute('aria-label'), /haiku/)
   await page.locator('.composer textarea').fill('Use the saved bot model')
   await page.locator('.composer .send').click()

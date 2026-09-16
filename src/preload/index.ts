@@ -29,6 +29,7 @@ import type { Fork } from '../shared/forks'
 import type { Bot } from '../shared/bots'
 import type { Listing, OpenOutcome, FilePreview, FileSearch, FileAttachment } from '../shared/files'
 import type { Theme } from '../shared/theme'
+import type { Experience } from '../shared/experience'
 
 /** Everything the picker needs: what is on offer, which of them is chosen, and where to put one. */
 export interface ThemeState {
@@ -48,6 +49,10 @@ export interface Answer<T> {
 }
 
 const api = {
+  readExperience(): Promise<Experience> { return ipcRenderer.invoke('bravebot:experience:read') as Promise<Experience> },
+  writeExperience(key: string, value: unknown): Promise<Experience> {
+    return ipcRenderer.invoke('bravebot:experience:write', key, value) as Promise<Experience>
+  },
   /** Call one of the agent's methods. Never throws; failures come back in `error`. */
   request<T>(method: string, params?: Record<string, unknown>): Promise<Answer<T>> {
     return ipcRenderer.invoke('bravebot:request', method, params ?? {}) as Promise<Answer<T>>
@@ -181,7 +186,6 @@ const api = {
     /** The preview seed, used only when creating a bot. */
     avatar?: string
     model?: string | null
-    attachments?: string[]
     name: string
     purpose: string
     directory: string
@@ -222,6 +226,7 @@ const api = {
   readBotMemory(slug: string): Promise<string | null> {
     return ipcRenderer.invoke('bravebot:bots:memory', slug) as Promise<string | null>
   },
+
 
   /**
    * Let go of the session behind a bot, for a record the agent no longer has.
@@ -264,6 +269,9 @@ const api = {
    * Names and kinds only. Nothing on this bridge reads a file's contents, so it adds no way for
    * something the agent was refused to reach the renderer regardless.
    */
+  listFiles(session: string, path: string): Promise<Listing | null> {
+    return ipcRenderer.invoke('bravebot:files:list', session, path) as Promise<Listing | null>
+  },
   previewFile(session: string, path: string): Promise<FilePreview | null> {
     return ipcRenderer.invoke('bravebot:files:preview', session, path) as Promise<FilePreview | null>
   },
@@ -272,8 +280,6 @@ const api = {
   },
   searchFiles(session: string, query: string, hidden: boolean): Promise<FileSearch> {
     return ipcRenderer.invoke('bravebot:files:search', session, query, hidden) as Promise<FileSearch>
-  },  listFiles(session: string, path: string): Promise<Listing | null> {
-    return ipcRenderer.invoke('bravebot:files:list', session, path) as Promise<Listing | null>
   },
 
   /**

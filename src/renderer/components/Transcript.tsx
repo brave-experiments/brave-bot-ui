@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import type { FileAttachment } from '../../shared/files'
+import { Permissions } from './Permissions'
+import { useLayoutEffect, useEffect, useMemo, useRef, useState } from 'react'
 import type { AskAnswer, AskPrompt, Phase, Shown, TodoRow } from '../../shared/protocol'
 import * as t from '../transcript'
 import type { Side } from '../columns'
@@ -13,6 +15,9 @@ import { Markdown } from './Markdown'
 import { PopMenu, type PopItem } from './PopMenu'
 import { BotAvatar, type Doing } from './BotAvatar'
 import type { Bot } from '../../shared/bots'
+import { conversationPreferences, setConversation, setExperience, useExperience } from '../experience'
+import { ErrorCard } from './ErrorCard'
+import { FilePreview } from './FilePreview'
 
 interface Live {
   model: string | null
@@ -46,6 +51,20 @@ export type Answer = (
 export type AnswerQuestions = (request: number, answers: AskAnswer[]) => void
 
 interface Props {
+  attachments: FileAttachment[]
+  onAttach: () => void
+  onRemoveAttachment: (id: string) => void
+  backendReady: boolean | null
+  onCheckBackend: () => void
+  onDiagnostics: () => void
+  onSetup: () => void
+  storageKey: string
+  onNew: (directory?: string) => void
+  onQueue: () => void
+  queued: string[]
+  queuePaused: boolean
+  onResumeQueued: () => void
+  onRemoveQueued: (index: number) => void
   live: Live | null
   /** The bot whose session this is, if one is. Its name is what the header says instead of a title. */
   bot: Bot | null
@@ -121,6 +140,18 @@ function ColumnToggle({
 
 /** The middle column: the conversation, and everything the turn did inside it. */
 export function Transcript({
+  attachments,
+  onAttach,
+  onRemoveAttachment,
+  backendReady,
+  onCheckBackend,
+  onDiagnostics,
+  onSetup,
+  storageKey,
+  onNew,
+  onQueue,
+  queued, queuePaused, onResumeQueued,
+  onRemoveQueued,
   live,
   bot,
   doing,
@@ -145,6 +176,66 @@ export function Transcript({
 }: Props): React.JSX.Element {
   const bottom = useRef<HTMLDivElement>(null)
   const marked = useRef<HTMLDivElement>(null)
+  const scroller = useRef<HTMLDivElement>(null)
+  const input = useRef<HTMLTextAreaElement>(null)
+  const following = useRef(true)
+  const lastScroll = useRef(0)
+  const scrollSave = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [permissions, setPermissions] = useState(false)
+  const [previewPath, setPreviewPath] = useState<string | null>(null)
+  useEffect(() => {
+    const preview = (event: Event) => setPreviewPath((event as CustomEvent<string>).detail)
+    document.addEventListener('bravebot:preview-file', preview)
+    return () => document.removeEventListener('bravebot:preview-file', preview)
+  }, [])
+  const [unseen, setUnseen] = useState(false)
+  const [searching, setSearching] = useState(false)
+  const [query, setQuery] = useState('')
+  const [match, setMatch] = useState(0)
+  const [recents, setRecents] = useState<string[]>([])
+  const preferences = useExperience()
+  const [focusedLayout, setFocusedLayout] = useState<Record<Side, boolean> | null>(null)
+  const jump = (element: HTMLElement | null) => element?.scrollIntoView({ block: 'nearest',
+    behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+  const latest = () => { following.current = true; setUnseen(false); jump(bottom.current) }
+  useEffect(() => { void window.bravebot.readRecents().then(setRecents).catch(() => {}) }, [live?.handle])
+  useLayoutEffect(() => {
+    if (!input.current) return
+    input.current.style.height = 'auto'
+    input.current.style.height = `${Math.min(210, Math.max(70, input.current.scrollHeight))}px`
+  }, [draft])
+  useLayoutEffect(() => {
+    const element = scroller.current
+    if (!element) return
+    const stored = conversationPreferences(storageKey).scroll
+    element.scrollTop = stored ?? element.scrollHeight
+    lastScroll.current = element.scrollTop
+    following.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80
+    setUnseen(false)
+    setQuery('')
+    return () => {
+      if (scrollSave.current) clearTimeout(scrollSave.current)
+      if (storageKey) setConversation(storageKey, { scroll: lastScroll.current })
+    }
+  }, [storageKey, live?.handle])
+  const matches = useMemo(() => {
+    if (!query.trim()) return []
+    return live?.entries.filter((entry) => t.searchableText(entry).toLowerCase().includes(query.toLowerCase())).map((entry) => entry.id) ?? []
+  }, [query, live?.entries])
+  useEffect(() => {
+    const id = matches[match % (matches.length || 1)]
+    if (id) document.dispatchEvent(new CustomEvent('bravebot:reveal-entry', { detail: id }))
+    if (id) jump(scroller.current?.querySelector<HTMLElement>(`[data-entry-id="${id}"]`)?.firstElementChild as HTMLElement | null)
+  }, [match, matches])
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
+        event.preventDefault(); setSearching(true)
+      }
+    }
+    document.addEventListener('keydown', key)
+    return () => document.removeEventListener('keydown', key)
+  }, [])
 
   /**
    * Which row a fork link is pointing at, resolved from an ordinal over the prompts.
@@ -153,6 +244,19 @@ export function Transcript({
    * opened, so nothing durable can name a row. Counting prompts is what both sides of a fork
    * agree on, and it is the same count the cut was made on.
    */
+  useEffect(() => {
+    const reveal = (event: Event) => {
+      const id = (event as CustomEvent<string>).detail
+      following.current = false
+      requestAnimationFrame(() => {
+        const element = scroller.current?.querySelector<HTMLElement>(`[data-entry-id="${id}"]`)
+        if (element) jump(element.firstElementChild as HTMLElement ?? element)
+      })
+    }
+    document.addEventListener('bravebot:reveal-entry', reveal)
+    return () => document.removeEventListener('bravebot:reveal-entry', reveal)
+  }, [])
+
   const focused = useMemo(() => {
     if (!live || live.focus === null) return null
     let seen = 0
@@ -173,10 +277,15 @@ export function Transcript({
   const focusRef = useRef<number | null>(null)
   focusRef.current = live?.focus ?? null
 
+  const activitySnapshot = useRef<{ handle?: string; entries?: t.Entry[]; phase?: Phase | null }>({})
   useEffect(() => {
-    if (focusRef.current !== null) return
-    bottom.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [live?.entries.length, live?.phase])
+    const previous = activitySnapshot.current
+    activitySnapshot.current = { handle: live?.handle, entries: live?.entries, phase: live?.phase }
+    if (previous.handle !== live?.handle || focusRef.current !== null) return
+    if (previous.entries === live?.entries && previous.phase === live?.phase) return
+    if (following.current) jump(bottom.current)
+    else setUnseen(true)
+  }, [live?.handle, live?.entries, live?.phase])
 
   useEffect(() => {
     if (!focused) return
@@ -233,7 +342,34 @@ export function Transcript({
         </div>
         <ColumnToggle side="right" collapsed={collapsed.right} onToggle={onToggle} />
       </div>
-      {problem && <p className="note">{problem}</p>}
+      {live && <div className="conversation-toolbar">
+        <button onClick={() => setSearching((value) => !value)} aria-expanded={searching}>Find</button>
+        <button onClick={() => setPermissions(true)}>Permissions</button>
+        <button onClick={() => {
+          if (focusedLayout) {
+            for (const side of ['left', 'right'] as const) if (collapsed[side] !== focusedLayout[side]) onToggle(side)
+            setFocusedLayout(null)
+          } else {
+            setFocusedLayout({ ...collapsed })
+            for (const side of ['left', 'right'] as const) if (!collapsed[side]) onToggle(side)
+          }
+        }}>{focusedLayout ? 'Exit focus' : 'Focus'}</button>
+        <button onClick={() => setExperience('density', preferences.density === 'compact' ? 'comfortable' : 'compact')}>
+          {preferences.density === 'compact' ? 'Comfortable view' : 'Compact view'}
+        </button>
+        <ExportMenu canExport={canExport} includeTools={includeTools} onToggleTools={onToggleTools} onExport={onExport} />
+      </div>}
+      {backendReady === false && <div className="backend-status" role="status"><strong>Backend setup needed</strong><span>You can browse conversations and prepare drafts.</span><div><button onClick={onSetup}>Setup help</button><button onClick={onCheckBackend}>Check again</button><button onClick={onDiagnostics}>Diagnostics</button></div></div>}
+      {problem && <ErrorCard detail={problem} />}
+      {searching && <div className="conversation-search">
+        <input autoFocus type="search" aria-label="Find in conversation" placeholder="Find in conversation…" value={query}
+          onChange={(event) => { setQuery(event.target.value); setMatch(0) }}
+          onKeyDown={(event) => { if (event.key === 'Escape') setSearching(false); if (event.key === 'Enter') setMatch((n) => n + (event.shiftKey ? -1 + matches.length : 1)) }} />
+        <span role="status">{matches.length ? `${match % matches.length + 1} of ${matches.length}` : query ? 'No matches' : ''}</span>
+        <button disabled={!matches.length} onClick={() => setMatch((n) => n + matches.length - 1)} aria-label="Previous match">↑</button>
+        <button disabled={!matches.length} onClick={() => setMatch((n) => n + 1)} aria-label="Next match">↓</button>
+        <button onClick={() => setSearching(false)} aria-label="Close search">×</button>
+      </div>}
       {live?.forkedFrom && <ForkBanner from={live.forkedFrom} onOpen={onOpenParent} />}
     </header>
   )
@@ -244,8 +380,13 @@ export function Transcript({
         {head}
         <div className="empty-body">
           <div>
-            <h1>Bravebot</h1>
-            <p>Choose a session on the left, or open a project to start a new one.</p>
+            <div className="welcome-mark">B</div>
+            <h1>What would you like to build?</h1>
+            <p>Work with an agent in your project. Track changes and review approval requests as you work.</p>
+            <button className="primary" onClick={() => onNew()}>Open project</button>
+            {!!recents.length && <div className="welcome-recents"><h2>Recent projects</h2>{recents.slice(0, 5).map((directory) =>
+              <button key={directory} onClick={() => onNew(directory)}><strong>{directory.split('/').pop()}</strong><span>{directory}</span></button>)}</div>}
+            <p className="welcome-hint">Choose a conversation to resume work, or create a bot with a purpose and persistent memory.</p>
           </div>
         </div>
       </main>
@@ -256,7 +397,14 @@ export function Transcript({
     <main className="transcript">
       {head}
 
-      <div className="entries">
+      <div className="entries" ref={scroller} onScroll={(event) => {
+        const element = event.currentTarget
+        lastScroll.current = element.scrollTop
+        if (scrollSave.current) clearTimeout(scrollSave.current)
+        scrollSave.current = setTimeout(() => { if (storageKey) setConversation(storageKey, { scroll: lastScroll.current }) }, 180)
+        following.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80
+        if (following.current) setUnseen(false)
+      }}>
         {runs(live.entries).map((run) =>
           run.kind === 'run' ? (
             <ToolRun key={run.id} entries={run.entries} />
@@ -266,7 +414,8 @@ export function Transcript({
             // alternative was an `onContextMenu` on each of the eleven shapes `Row` returns.
             <div
               key={run.entry.id}
-              className={`entry-hit ${run.entry.id === focused ? 'focused' : ''}`}
+              data-entry-id={run.entry.id}
+              className={`entry-hit ${run.entry.id === focused || run.entry.id === matches[match % (matches.length || 1)] ? 'focused' : ''}`}
               ref={run.entry.id === focused ? marked : undefined}
               // A prompt is the one row that came from the person reading it, and the only one
               // a fork can be cut in front of, so it is a different kind of thing to
@@ -278,6 +427,8 @@ export function Transcript({
             >
               <Row
                 entry={run.entry}
+                onRecover={() => { onDraft((draft.trim() ? `${draft}\n\n` : '') + 'Continue the previous task from the current project state. First check which actions already completed; do not repeat successful commands or writes. Resolve the last error before proceeding.'); input.current?.focus() }}
+                onChooseModel={() => { (document.querySelector('.composer .model-trigger') as HTMLButtonElement | null)?.click() }}
                 onDecide={onDecide}
                 onAnswer={onAnswer}
                 onFork={onFork}
@@ -311,37 +462,41 @@ export function Transcript({
         <div ref={bottom} />
       </div>
 
+      <div className="attention-bar" aria-live="polite">
+        {pending ? <button className="pending-jump" onClick={() => {
+          document.dispatchEvent(new CustomEvent('bravebot:reveal-entry', { detail: pending.id }))
+          const element = scroller.current?.querySelector<HTMLElement>(`[data-entry-id="${pending.id}"]`)
+          jump(element ?? bottom.current)
+        }}>{pending.kind === 'ask' ? 'Your answer is needed' : 'Approval needed'} · {waitingOn(pending.kind)} — Review ↑</button> :
+          live.running ? <span>{live.phase ? phaseWord(live.phase) : 'Working'} · You can draft your next message</span> :
+          <span>{live.entries.at(-1)?.kind === 'error' ? 'Needs attention' : live.entries.length ? 'Ready for your next message' : 'Ready to begin'}</span>}
+        {unseen && <button onClick={latest}>New activity ↓</button>}
+      </div>
       <footer className="composer">
-        <ModelPicker scope={bot ? 'bot' : 'conversation'} key={live.handle} model={live.model} disabled={live.running} onChoose={onModel} />
-        <textarea
-          rows={1}
-          value={draft}
-          placeholder={pending ? `${waitingOn(pending.kind)} above first…` : 'Ask something…'}
-          disabled={live.running && !pending}
+        {queued.length > 0 && <div className="queued-messages"><strong>{queuePaused ? 'Queue paused' : 'Queued after this turn'}</strong>{queuePaused && <button disabled={live.running || backendReady === false} onClick={onResumeQueued}>Resume queue</button>}{queued.map((text, index) => <div key={index}><span>{text}</span><button aria-label={`Remove queued message ${index + 1}`} onClick={() => onRemoveQueued(index)}>×</button></div>)}</div>}
+        {attachments.length > 0 && <div className="attachment-chips"><p>These files will be sent as trusted context with your message.</p>{attachments.map((file) => <span key={file.id}><button onClick={() => setPreviewPath(file.path)}>{file.path}</button><button aria-label={`Remove attachment ${file.path}`} onClick={() => onRemoveAttachment(file.id)}>×</button></span>)}</div>}
+        <textarea ref={input} rows={2} value={draft} aria-label="Message the agent" title="Unsent drafts are saved locally on this device. Clear the message to remove its saved draft."
+          placeholder={pending ? 'Draft your next message while you review…' : 'Describe a task, ask a question, or paste code…'}
           onChange={(event) => onDraft(event.target.value)}
           onKeyDown={(event) => {
-            // Cmd+Enter is deliberately not handled here any more. It is the Session menu's
-            // accelerator now, and AppKit consumes an accelerator before the renderer sees
-            // the key — so a branch here would be either dead code or, if it ever did run,
-            // a second send of the same prompt.
             if (event.key === 'Enter' && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey
               && !event.nativeEvent.isComposing && event.keyCode !== 229) {
               event.preventDefault()
-              if (!event.repeat && !live.running && draft.trim()) onSubmit()
+              if (!event.repeat && !live.running && backendReady !== false && draft.trim()) { latest(); onSubmit() }
             }
-            if (event.key === 'Escape' && live.running) onCancel()
-          }}
-        />
-        <ExportMenu
-          canExport={canExport}
-          includeTools={includeTools}
-          onToggleTools={onToggleTools}
-          onExport={onExport}
-        />
-        <button className="send" onClick={onSubmit} disabled={live.running || !draft.trim()}>
-          Send
-        </button>
+          }} />
+        <div className="composer-toolbar">
+          <ModelPicker scope={bot ? 'bot' : 'conversation'} key={live.handle} model={live.model} disabled={live.running} onChoose={onModel} />
+          <button className="attach-files" onClick={onAttach} disabled={attachments.length >= 5} title="Choose project files to share as trusted context">Attach files</button>
+          <span className="composer-hint">Enter to send · Shift+Enter for newline</span>
+          {live.running && <button className="stop" onClick={onCancel}>Stop</button>}
+          <button className="send" onClick={() => { latest(); live.running ? onQueue() : onSubmit() }} disabled={!draft.trim() || !!live.askingTrust || backendReady === false}>
+            {live.running ? 'Queue message' : 'Send'}
+          </button>
+        </div>
       </footer>
+      {permissions && <Permissions session={live.handle} onClose={() => setPermissions(false)} />}
+      {previewPath && <FilePreview session={live.handle} path={previewPath} onClose={() => setPreviewPath(null)} />}
     </main>
   )
 }
@@ -482,6 +637,12 @@ export function runs(entries: t.Entry[]): Run[] {
 
 function ToolRun({ entries }: { entries: t.Entry[] }): React.JSX.Element {
   const [open, setOpen] = useState(true)
+  useEffect(() => {
+    const reveal = (event: Event) => { if (entries.some((entry) => entry.id === (event as CustomEvent<string>).detail)) setOpen(true) }
+    document.addEventListener('bravebot:reveal-entry', reveal)
+    return () => document.removeEventListener('bravebot:reveal-entry', reveal)
+  }, [entries])
+
   return (
     <section className={`tool-run ${open ? 'open' : ''}`}>
       <button
@@ -498,7 +659,7 @@ function ToolRun({ entries }: { entries: t.Entry[] }): React.JSX.Element {
       </button>
       <Fold open={open}>
         {entries.map((entry) => (
-          <Row
+          <div key={entry.id} data-entry-id={entry.id}><Row
             key={entry.id}
             entry={entry}
             onDecide={() => undefined}
@@ -507,7 +668,7 @@ function ToolRun({ entries }: { entries: t.Entry[] }): React.JSX.Element {
             // from in here — and a folded row carries no right-click either.
             onFork={() => undefined}
             forkable={false}
-          />
+          /></div>
         ))}
       </Fold>
     </section>
@@ -699,18 +860,23 @@ function describe(prompt: AskPrompt, answer: AskAnswer | undefined): string {
 
 function Row({
   entry,
+  onRecover,
+  onChooseModel,
   onDecide,
   onAnswer,
   onFork,
   forkable,
 }: {
   entry: t.Entry
+  onRecover?: () => void
+  onChooseModel?: () => void
   onDecide: Answer
   onAnswer: AnswerQuestions
   onFork: (id: string) => void
   /** Whether a fork can be taken at all right now — false while a turn is running. */
   forkable: boolean
 }): React.JSX.Element {
+  if (entry.interrupted) return <div className="interrupted-request"><strong>Request cancelled when the turn ended</strong><details><summary>Request details</summary><pre>{t.searchableText(entry)}</pre></details></div>
   switch (entry.kind) {
     case 'user':
       return (
@@ -764,7 +930,7 @@ function Row({
       return <div className="attached consolidation">Asked to bring its memory up to date</div>
 
     case 'error':
-      return <div className="bubble failed">{entry.text}</div>
+      return <ErrorCard detail={entry.text} onRetry={onRecover} onModel={onChooseModel} />
 
     case 'replayed-tool':
       // No outcome, because the record does not keep one. Drawn quietly for the same
@@ -841,6 +1007,7 @@ function Row({
             </p>
           )}
 
+<p className="permission-scope">{request.existing ? 'Update an existing project file.' : 'Create a new project file.'} This decision applies to the change shown below.</p>
           <Diff changes={request.changes} />
 
           {decision === null ? (
@@ -874,6 +1041,8 @@ function Row({
               Both are shown because they are two different claims: $PATH decides what
               `grep` means, and a person vouching for a program should be looking at the
               binary rather than the word. */}
+          {request.plan && <p className="permission-scope"><strong>Execution plan:</strong> <code>{request.plan}</code></p>}
+          {!!request.writes?.length && <div className="permission-scope"><strong>Files created or modified:</strong><ul>{request.writes.map(path => <li key={path}><code>{path}</code></li>)}</ul></div>}
           <ol className="stages">
             {request.stages.map((stage, index) => (
               <li key={index}>
@@ -885,6 +1054,8 @@ function Row({
             ))}
           </ol>
 
+          <p className="permission-scope">Run this command in the project folder shown above. “Run once” approves only this execution.</p>
+          {decision === null && <p className="permission-scope"><strong>Remembered approval:</strong> {request.vouches.map((v) => v.display).join('; ')}. Covers these exact commands and trusts their output for this conversation, including after reopening it. Revoke through Permissions.</p>}
           {request.releasesPrivate && (
             <p className="warn">
               This hands your own data to the program. Whatever it does with those bytes
@@ -908,7 +1079,7 @@ function Row({
                 title={`Stop asking about: ${request.vouches.map((v) => v.display).join(', ')}`}
                 onClick={() => onDecide('run', request.request, true, true)}
               >
-                Run and don’t ask again
+                Trust command and output
               </button>
             </div>
           ) : (

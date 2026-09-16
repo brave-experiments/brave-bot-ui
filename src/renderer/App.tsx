@@ -1,3 +1,4 @@
+import type { FileAttachment } from '../shared/files'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   AskAnswer,
@@ -10,6 +11,7 @@ import type {
   TodoRow,
 } from '../shared/protocol'
 import { Sidebar } from './components/Sidebar'
+import { SessionInfo } from './components/Sessions'
 import { Transcript } from './components/Transcript'
 import { Context } from './components/Context'
 import { Gutter, useColumns } from './components/Gutter'
@@ -20,10 +22,12 @@ import { Notice } from './components/Notice'
 import { conversationModel, rememberModel } from './models'
 import type { ExportFormat } from '../shared/export'
 import { useCommandRouter, usePublishedState } from './commands'
-import { type Fork, forkOf, forkedSessions, keyOf } from '../shared/forks'
-import { botSessions, type Bot } from '../shared/bots'
+import { type Fork, forkOf, forkedSessions } from '../shared/forks'
+import { type Bot } from '../shared/bots'
 import type { Doing } from './components/BotAvatar'
 import * as t from './transcript'
+import { conversationKey } from '../shared/experience'
+import { useExperience, conversationPreferences, setConversation, experienceError } from './experience'
 import { ThemePicker } from './components/ThemePicker'
 import { applyTheme, watchAppearance } from './theme'
 import { BRAVE, BRAVE_THEME, BUILTINS, findTheme, type Theme } from '../shared/theme'
@@ -88,6 +92,11 @@ interface Live {
    * exactly once per compaction that actually happened.
    */
   archived: number
+  outcome?: 'complete' | 'failed'
+  draftId?: string
+  queuePaused?: boolean
+  queued?: { prompt: string; attachments: FileAttachment[] }[]
+  attachments?: FileAttachment[]
 }
 
 /**
@@ -161,6 +170,7 @@ async function callBot(request: {
   prompt: string
   grounded: boolean
   model: string | null
+  attachments?: string[]
 }): Promise<void> {
   const answer = await window.bravebot.sendBotTurn(request)
   if (answer.error) {
@@ -171,14 +181,59 @@ async function callBot(request: {
 
 export function App(): React.JSX.Element {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
-  const [live, setLive] = useState<Live | null>(null)
+  const [live, renderLive] = useState<Live | null>(null)
+  const liveRef = useRef<Live | null>(null)
+  const handleRef = useRef<string | null>(null)
+  const openedLives = useRef(new Map<string, Live>())
+  const [livesRevision, refreshLives] = useState(0)
+  const preferences = useExperience()
+  const setLive = useCallback((action: React.SetStateAction<Live | null>) => {
+    const old = liveRef.current
+    const next = typeof action === 'function' ? action(old) : action
+    if (old && next && old.handle === next.handle && !old.summary.id && next.summary.id) {
+      setConversation(conversationKey(next.summary.directory, next.summary.id),
+        conversationPreferences(conversationKey(old.summary.directory, old.draftId ?? old.handle)))
+      setConversation(conversationKey(old.summary.directory, old.draftId ?? old.handle), { draft: '' })
+    }
+    liveRef.current = next
+    handleRef.current = next?.handle ?? null
+    if (next) openedLives.current.set(next.handle, next)
+    renderLive(next)
+  }, [])
+  const updateSession = useCallback((handle: string, action: React.SetStateAction<Live | null>) => {
+    if (liveRef.current?.handle === handle) { setLive(action); return }
+    const old = openedLives.current.get(handle) ?? null
+    const next = typeof action === 'function' ? action(old) : action
+    if (next) {
+      if (old && !old.summary.id && next.summary.id) { setConversation(
+        conversationKey(next.summary.directory, next.summary.id),
+        conversationPreferences(conversationKey(old.summary.directory, old.draftId ?? old.handle)))
+        setConversation(conversationKey(old.summary.directory, old.draftId ?? old.handle), { draft: '' })
+      }
+      openedLives.current.set(handle, next)
+      refreshLives((n) => n + 1)
+    }
+  }, [setLive])
   const [problem, setProblem] = useState<string | null>(null)
   const [build, setBuild] = useState<string | null>(null)
   const [unconfigured, setUnconfigured] = useState<string | null>(null)
+  const [backendReady, setBackendReady] = useState<boolean | null>(null)
+  const checkBackend = useCallback(async () => {
+    try {
+      const info = await call<{ configured?: boolean }>('agent.info')
+      setBackendReady(info.configured ?? null)
+    } catch { setBackendReady(false) }
+  }, [])
+  useEffect(() => { void checkBackend() }, [checkBackend])
   const [notice, setNotice] = useState<{ title: string; body: string } | null>(null)
   // The composer's text lives here rather than in `Transcript` because the Send menu item
   // has to be grey when there is nothing to send, and only this component talks to the menu.
-  const [draft, setDraft] = useState('')
+  const draftKey = live ? conversationKey(live.summary.directory, live.summary.id ?? live.draftId ?? live.handle) : ''
+  const draft = preferences.conversations[draftKey]?.draft ?? ''
+  const setDraft = useCallback((text: string) => {
+    const current = liveRef.current
+    if (current) setConversation(conversationKey(current.summary.directory, current.summary.id ?? current.draftId ?? current.handle), { draft: text })
+  }, [])
   useEffect(() => {
     if (live?.summary.id) rememberModel(live.summary.directory, live.summary.id, live.model)
   }, [live?.summary.id, live?.summary.directory, live?.model])
@@ -219,13 +274,11 @@ export function App(): React.JSX.Element {
 
   // Read inside the event handler, which is installed once and must not close over a
   // stale session handle.
-  const handleRef = useRef<string | null>(null)
-  handleRef.current = live?.handle ?? null
+
 
   // The whole of what is on screen, for the same reason: `send` is installed once and has to know
   // whether this session belongs to a bot and whether it still carries its briefing.
-  const liveRef = useRef<Live | null>(live)
-  liveRef.current = live
+
 
   // Read inside `open`, which is installed once for the same reason. The list lives in the
   // main process; this is the copy on screen, refreshed when it can have changed.
@@ -337,15 +390,12 @@ export function App(): React.JSX.Element {
     void readForks()
     void readBots()
     const stop = window.bravebot.onEvent((message: BridgeEvent) => {
-      // Events for a session other than the one on screen are dropped rather than
-      // queued: this build shows one at a time, and holding a transcript nobody is
-      // looking at would grow without bound.
-      if (message.event !== 'agent.ready' && message.session !== handleRef.current) return
-      apply(message, setLive, setBuild, refresh)
+      if (message.event === 'agent.ready') apply(message, setLive, setBuild, refresh)
+      else if (message.session) apply(message, (action) => updateSession(message.session!, action), setBuild, refresh)
       // The list holds two things this window did not write — the session behind a bot and how
       // much compaction has taken from it — and a turn is when either can have changed. Read back
       // rather than assumed, since the main process is the one that saw the agent's answer.
-      if (message.event === 'turn.done') void readBots()
+      if (message.event === 'turn.done' || message.event === 'turn.error') void readBots()
     })
 
     // Turns nobody on this side asked for. The main process answers a compaction by asking the bot
@@ -356,12 +406,12 @@ export function App(): React.JSX.Element {
     // `turn.started` already sets `running`, so the composer locks itself and nothing here needs
     // to. What is added is the line above the reply, and the note that the briefing has been said.
     const stopConsolidation = window.bravebot.onBotConsolidation(({ session, running, delivered }) => {
-      if (session !== handleRef.current) return
-      setLive((old) =>
+      updateSession(session, (old) =>
         old
           ? {
               ...old,
               entries: running ? [...old.entries, t.consolidating()] : old.entries,
+              running,
               // Only when it actually ran. Such a turn carries the briefing, so the session is
               // grounded again and the next prompt must not carry it twice — but one that never
               // left delivered nothing, and marking it said would cost the bot the briefing over
@@ -392,19 +442,29 @@ export function App(): React.JSX.Element {
   const showSession = useCallback(
     async (summary: SessionSummary, focus?: number, bot?: { slug: string; model: string | null }) => {
     try {
-      // Let go of the one being left first. The app shows a single session and already
-      // drops events for any other (see the listener below), so a turn left running behind
-      // the user's back is one nobody will ever see finish — and if it stops to ask about a
-      // write, it waits on an answer that is never coming. `session.close` cancels it and
-      // refuses what it was waiting on, which is the honest end for it. Failures are
-      // swallowed: not being able to close the old session is no reason not to open the new.
-      const leaving = handleRef.current
-      if (leaving) await call('session.close', { session: leaving }).catch(() => undefined)
-
+      if (summary.id.startsWith('draft:')) {
+        const cached = [...openedLives.current.values()].find((item) => item.draftId === summary.id)
+        if (cached) setLive(cached)
+        else {
+          const slug = conversationPreferences(conversationKey(summary.directory, summary.id)).botSlug
+          const savedBot = botsRef.current.find((item) => item.slug === slug && item.directory === summary.directory && item.retired === 0)
+          await create(summary.directory, savedBot, summary.id)
+        }
+        return
+      }
+      const cached = [...openedLives.current.values()].find((item) =>
+        item.summary.directory === summary.directory && item.summary.id === summary.id)
+      if (cached) {
+        setLive({ ...cached, focus: focus ?? null })
+        setProblem(null)
+        return
+      }
+      bot ??= botsRef.current.find((item) => item.directory === summary.directory && (item.session === summary.id || item.slug === conversationPreferences(conversationKey(summary.directory, summary.id)).botSlug))
       const opened = await call<OpenedSession>('session.open', {
         directory: summary.directory,
         id: summary.id,
       })
+      if (bot) setConversation(conversationKey(summary.directory, summary.id), { botSlug: bot.slug })
       setLive({
         handle: opened.session,
         model: bot?.model ?? conversationModel(summary.directory, summary.id, opened.model),
@@ -435,7 +495,6 @@ export function App(): React.JSX.Element {
         bot: bot ? { slug: bot.slug, grounded: false } : null,
         archived: opened.archived,
       })
-      setDraft('')
       const notes = [opened.branchNote, opened.buildNote].filter(Boolean) as string[]
       setProblem(notes.length ? notes.join(' · ') : null)
     } catch (error) {
@@ -445,7 +504,7 @@ export function App(): React.JSX.Element {
     [],
   )
 
-  const create = useCallback(async (directory?: string, bot?: { slug: string; model: string | null }) => {
+  const create = useCallback(async (directory?: string, bot?: { slug: string; model: string | null }, draftId = `draft:${crypto.randomUUID()}`) => {
     // A directory only ever arrives here from a list somebody else handed over: File > Open
     // Recent and the chevron beside New session, which the main process keeps, or a group
     // heading in the session list, whose path came off a session the bridge reported. Never
@@ -457,8 +516,10 @@ export function App(): React.JSX.Element {
       const made = await call<{ session: string; branch: string | null; model: string | null }>('session.new', {
         directory: chosen,
       })
+      setConversation(conversationKey(chosen, draftId), { botSlug: bot?.slug ?? null })
       setLive({
         handle: made.session,
+        draftId,
         model: bot?.model ?? made.model,
         summary: {
           id: null,
@@ -490,25 +551,30 @@ export function App(): React.JSX.Element {
     if (!handle) return
     try {
       await call('trust.reply', { session: handle, trusted })
-      setLive((old) => (old ? { ...old, askingTrust: null } : old))
+      updateSession(handle, (old) => (old ? { ...old, askingTrust: null } : old))
     } catch (error) {
       setProblem(String(error))
     }
   }, [])
 
-  const send = useCallback(async (prompt: string) => {
-    const handle = handleRef.current
+  const send = useCallback(async (prompt: string, target?: string, selectedFiles?: FileAttachment[]) => {
+    const handle = target ?? handleRef.current
     if (!handle) return
     // Read before the state below is changed, because that is what clears it: this is the turn
     // that carries the briefing, and by the time it has been sent the session is grounded again.
-    const bot = liveRef.current?.bot ?? null
-    const model = liveRef.current?.model ?? null
-    setLive((old) =>
+    const sending = openedLives.current.get(handle)
+    const bot = sending?.bot ?? null
+    const model = sending?.model ?? null
+    const attachments = selectedFiles ?? sending?.attachments ?? []
+    updateSession(handle, (old) =>
       old
         ? {
             ...old,
-            entries: [...old.entries, t.userSaid(prompt)],
+            summary: old.summary.title === 'New session' ? { ...old.summary, title: prompt.slice(0, 70) } : old.summary,
+            attachments: selectedFiles ? old.attachments : [],
+            entries: [...old.entries, ...attachments.map((file): t.Entry => ({ kind: 'attached', id: crypto.randomUUID(), path: file.path })), t.userSaid(prompt)],
             running: true,
+            queuePaused: old.queued?.length ? old.queuePaused : false,
             bot: old.bot ? { ...old.bot, grounded: true } : null,
           }
         : old,
@@ -520,21 +586,22 @@ export function App(): React.JSX.Element {
         // would be a window that could have the planner read any file on the machine. So this
         // names the bot and says whether the briefing is due, and the paths are composed over
         // there from a definition this side cannot reach.
-        await callBot({ session: handle, slug: bot.slug, prompt, grounded: !bot.grounded, model })
+        await callBot({ session: handle, slug: bot.slug, prompt, grounded: !bot.grounded, model, attachments: attachments.map((file) => file.id) })
       } else {
-        await call('turn.send', { session: handle, prompt, model })
+        await call('turn.send', { session: handle, prompt, model, attachments: attachments.map((file) => file.id) })
       }
     } catch (error) {
       if (error instanceof Unconfigurable) {
         setUnconfigured(error.message)
-        setLive((old) => (old ? { ...old, running: false } : old))
+        updateSession(handle, (old) => (old ? { ...old, running: false, queuePaused: true, entries: [...old.entries, t.errored(error.message)] } : old))
         return
       }
-      setLive((old) =>
+      updateSession(handle, (old) =>
         old
           ? {
               ...old,
               entries: [...old.entries, t.errored(String(error))],
+              queuePaused: true,
               running: false,
               // Put back. Nothing was sent, so nothing was said — a briefing marked delivered by a
               // turn that failed would be one the bot never received.
@@ -545,9 +612,21 @@ export function App(): React.JSX.Element {
     }
   }, [])
 
+  useEffect(() => {
+    for (const item of openedLives.current.values()) {
+      if (item.running || !item.queued?.length || item.queuePaused || item.askingTrust) continue
+      const [message, ...remaining] = item.queued
+      updateSession(item.handle, (old) => old ? { ...old, queued: remaining } : old)
+      if (message) void send(message.prompt, item.handle, message.attachments)
+    }
+  }, [live, livesRevision, send, updateSession])
+
   const cancel = useCallback(async () => {
     const handle = handleRef.current
-    if (handle) await call('turn.cancel', { session: handle }).catch(() => undefined)
+    if (handle) {
+      updateSession(handle, (old) => old ? { ...old, queuePaused: true } : old)
+      await call('turn.cancel', { session: handle }).catch((error) => setProblem(String(error)))
+    }
   }, [])
 
   /**
@@ -568,7 +647,7 @@ export function App(): React.JSX.Element {
       const decision = approve ? 'approve' : 'reject'
       try {
         await call(METHOD[kind], { session: handle, request, decision, remember })
-        setLive((old) =>
+        updateSession(handle, (old) =>
           old
             ? { ...old, entries: t.decide(old.entries, kind, request, decision, remember) }
             : old,
@@ -591,7 +670,7 @@ export function App(): React.JSX.Element {
     if (!handle) return
     try {
       await call('ask.reply', { session: handle, request, answers })
-      setLive((old) => (old ? { ...old, entries: t.answered(old.entries, request, answers) } : old))
+      updateSession(handle, (old) => (old ? { ...old, entries: t.answered(old.entries, request, answers) } : old))
     } catch (error) {
       setProblem(String(error))
     }
@@ -607,19 +686,34 @@ export function App(): React.JSX.Element {
   /** Which sessions in the list came out of another one, for the mark beside their names. */
   const forked = useMemo(() => forkedSessions(forks), [forks])
 
-  /**
-   * The session list without the ones that belong to a bot.
-   *
-   * They have a tab of their own, and a session reachable from both would be one that could be
-   * opened twice — once as itself and once as its bot, each half of the window believing it had
-   * the conversation. A bot's session is also not a session anybody chose: it was made by opening
-   * the bot, and it is named after whatever was said to it first, which says nothing about whose
-   * it is.
-   */
-  const ownSessions = useMemo(() => {
-    const theirs = botSessions(bots)
-    return sessions.filter((session) => !theirs.has(keyOf(session.directory, session.id)))
-  }, [sessions, bots])
+  // Bot conversations and unsent drafts remain reachable from the unified session list.
+  const ownSessions = sessions.map((summary) => {
+    const current = [...openedLives.current.values()].find((item) => item.summary.id === summary.id && item.summary.directory === summary.directory)
+    return current ? { ...summary, title: current.summary.title } : summary
+  })
+  for (const current of openedLives.current.values()) {
+    const id = current.summary.id ?? current.draftId
+    if (!id || ownSessions.some((summary) => summary.id === id && summary.directory === current.summary.directory)) continue
+    ownSessions.unshift({ ...current.summary, id, updated: Date.now() / 1000, bytes: 0 })
+  }
+  for (const [key, preference] of Object.entries(preferences.conversations)) {
+    if (!preference.draft.trim()) continue
+    try {
+      const [directory, id]: unknown[] = JSON.parse(key)
+      if (typeof directory !== 'string' || typeof id !== 'string' || !id.startsWith('draft:') || ownSessions.some((session) => session.directory === directory && session.id === id)) continue
+      ownSessions.unshift({ id, directory, title: `Draft · ${preference.draft.slice(0, 60)}`, project: directory.split('/').pop() ?? directory, branch: null, updated: Date.now() / 1000, bytes: 0 })
+    } catch { /* Ignore malformed preference keys. */ }
+  }
+  const sessionInfo: Record<string, { bot?: string; state?: string }> = {}
+  for (const summary of ownSessions) {
+    const current = [...openedLives.current.values()].find((item) => (item.summary.id ?? item.draftId) === summary.id && item.summary.directory === summary.directory)
+    const owner = preferences.conversations[conversationKey(summary.directory, summary.id)]?.botSlug
+    const bot = bots.find((item) => (item.session === summary.id || item.slug === owner) && item.directory === summary.directory)
+    sessionInfo[conversationKey(summary.directory, summary.id)] = {
+      bot: bot?.name ?? bots.find((item) => item.slug === current?.bot?.slug)?.name,
+      state: current ? t.outstanding(current.entries) ? t.outstanding(current.entries)?.kind === 'ask' ? 'Needs answer' : 'Needs approval' : current.running ? 'Working' : current.entries.at(-1)?.kind === 'error' ? 'Failed' : current.outcome === 'complete' ? 'Completed' : 'Ready' : undefined,
+    }
+  }
 
   /**
    * Show a bot.
@@ -632,6 +726,17 @@ export function App(): React.JSX.Element {
    * the agent answered.
    */
   /** The bot whose session is on screen, if one is — for the header, which names it. */
+  useEffect(() => {
+    const edited = (event: Event) => {
+      const slug = (event as CustomEvent<string>).detail
+      for (const session of openedLives.current.values()) {
+        if (session.bot?.slug === slug) updateSession(session.handle, (old) => old?.bot ? { ...old, bot: { ...old.bot, grounded: false } } : old)
+      }
+    }
+    document.addEventListener('bravebot:memory-edited', edited)
+    return () => document.removeEventListener('bravebot:memory-edited', edited)
+  }, [])
+
   const openBotRecord = useMemo(
     () => (live?.bot ? (bots.find((each) => each.slug === live.bot?.slug) ?? null) : null),
     [live?.bot, bots],
@@ -703,7 +808,8 @@ export function App(): React.JSX.Element {
         setLive((old) => old?.bot?.slug === saved.slug && !old.running
           ? { ...old, model: saved.model ?? old.model } : old)
         await readBots()
-      } catch (error) { setProblem(String(error)) }
+        return true
+      } catch (error) { setProblem(String(error)); return false }
     },
     [readBots],
   )
@@ -731,8 +837,10 @@ export function App(): React.JSX.Element {
    */
   const removeBot = useCallback(
     async (slug: string) => {
-      await window.bravebot.removeBot(slug).catch(() => null)
-      await readBots()
+      try {
+        await window.bravebot.removeBot(slug)
+        await readBots()
+      } catch (error) { setProblem(String(error)) }
     },
     [readBots],
   )
@@ -740,10 +848,10 @@ export function App(): React.JSX.Element {
   /** Send whatever is in the composer, on the same terms the Send button uses. */
   const submit = useCallback(() => {
     const prompt = draft.trim()
-    if (!prompt || !handleRef.current || live?.running) return
+    if (!prompt || !handleRef.current || live?.running || live?.askingTrust || backendReady === false) return
     setDraft('')
     void send(prompt)
-  }, [draft, live?.running, send])
+  }, [draft, live?.running, send, backendReady])
 
   /**
    * Let go of the open session.
@@ -757,8 +865,8 @@ export function App(): React.JSX.Element {
     const handle = handleRef.current
     if (!handle) return
     await call('session.close', { session: handle }).catch(() => undefined)
+    openedLives.current.delete(handle)
     setLive(null)
-    setDraft('')
     void refresh()
   }, [refresh])
 
@@ -944,8 +1052,6 @@ export function App(): React.JSX.Element {
 
         // The fork first and the parent second: the cut is made out of the parent's live state,
         // so letting go of it before asking would be asking about a session that had gone.
-        await call('session.close', { session: handle }).catch(() => undefined)
-
         setLive({
           handle: forked.session,
           model: live.model,
@@ -1050,12 +1156,12 @@ export function App(): React.JSX.Element {
     () => ({
       hasSession: live !== null,
       running: live?.running ?? false,
-      canSend: live !== null && !live.running && draft.trim().length > 0,
+      canSend: live !== null && !live.running && !live.askingTrust && backendReady !== false && draft.trim().length > 0,
       canExport,
       includeTools,
       folded: collapsed,
     }),
-    [live, draft, collapsed, canExport, includeTools],
+    [live, draft, collapsed, canExport, includeTools, backendReady],
   )
   usePublishedState(menuState)
 
@@ -1063,6 +1169,8 @@ export function App(): React.JSX.Element {
     <div
       className={[
         'app',
+        !live ? 'no-session' : '',
+        preferences.density,
         dragging ? 'resizing' : '',
         folding ? 'folding' : '',
         collapsed.left ? 'left-folded' : '',
@@ -1083,21 +1191,21 @@ export function App(): React.JSX.Element {
         } as React.CSSProperties
       }
     >
-      <Sidebar
+      <SessionInfo.Provider value={sessionInfo}><Sidebar
         sessions={ownSessions}
-        openId={live?.summary.id ?? undefined}
+        openId={live?.summary.id ?? live?.draftId ?? undefined}
         forked={forked}
         onOpen={showSession}
         onNew={create}
         bots={bots}
         openSlug={live?.bot?.slug ?? null}
         openDoing={openDoing}
-        onOpenBot={openBot}
-        onSaveBot={saveBot}
+        onOpenBot={(bot) => void openBot(bot)}
+        onSaveBot={async (bot) => { await saveBot(bot) }}
         onRetireBot={retireBot}
         onRemoveBot={removeBot}
         build={build}
-      />
+      /></SessionInfo.Provider>
       <Gutter
         side="left"
         width={shown({ widths, collapsed }, 'left')}
@@ -1108,11 +1216,35 @@ export function App(): React.JSX.Element {
         onNudge={nudge}
       />
       <Transcript
+        backendReady={backendReady}
+        onCheckBackend={() => void checkBackend()}
+        onDiagnostics={() => void doctor()}
+        onSetup={() => setUnconfigured('Backend credentials are not available to this build.')}
+        storageKey={draftKey}
+        attachments={live?.attachments ?? []}
+        onAttach={() => {
+          const handle = handleRef.current
+          if (!handle) return
+          void window.bravebot.chooseAttachments(handle).then((files) => {
+            updateSession(handle, (old) => old ? { ...old, attachments: [...(old.attachments ?? []), ...files].slice(0, 5) } : old)
+          }).catch((error) => setProblem(String(error)))
+        }}
+        onRemoveAttachment={(id) => setLive((old) => old ? { ...old, attachments: old.attachments?.filter((file) => file.id !== id) } : old)}
+        queuePaused={live?.queuePaused ?? false}
+        onResumeQueued={() => setLive((old) => old ? { ...old, queuePaused: false } : old)}
+        queued={live?.queued?.map((message) => message.prompt) ?? []}
+        onQueue={() => {
+          if (!draft.trim()) return
+          setLive((old) => old ? { ...old, queued: [...(old.queued ?? []), { prompt: draft.trim(), attachments: old.attachments ?? [] }], attachments: [] } : old)
+          setDraft('')
+        }}
+        onRemoveQueued={(index) => setLive((old) => old ? { ...old, queued: old.queued?.filter((_, at) => at !== index) } : old)}
+        onNew={create}
         bot={openBotRecord}
         doing={openDoing}
         live={live}
         pending={pending}
-        problem={problem}
+        problem={experienceError() || problem}
         collapsed={collapsed}
         onToggle={toggle}
         draft={draft}
@@ -1140,10 +1272,19 @@ export function App(): React.JSX.Element {
         onNudge={nudge}
       />
       <Context live={live} />
+      {[...openedLives.current.values()].some((item) => item.handle !== live?.handle && item.running) && (
+        <div className="background-tasks" aria-label="Background tasks">
+          {[...openedLives.current.values()].filter((item) => item.handle !== live?.handle && item.running).map((item) => (
+            <button key={item.handle} onClick={() => setLive(item)}>
+              {t.outstanding(item.entries) ? t.outstanding(item.entries)?.kind === 'ask' ? 'Answer needed' : 'Approval needed' : 'Working'} · {item.summary.title}
+            </button>
+          ))}
+        </div>
+      )}
       {notice && (
         <Notice title={notice.title} body={notice.body} onClose={() => setNotice(null)} />
       )}
-      {unconfigured && <Unconfigured detail={unconfigured} />}
+      {unconfigured && <Unconfigured detail={unconfigured} onClose={() => setUnconfigured(null)} />}
       {live?.askingTrust && (
         <TrustPrompt directory={live.askingTrust} onAnswer={answerTrust} />
       )}
@@ -1224,7 +1365,8 @@ function apply(
         return {
           ...old,
           summary: { ...old.summary, id: message.data.id ?? old.summary.id },
-          running: false,
+          outcome: 'complete',
+          running: message.data.consolidating === true,
           phase: null,
           entries: [...old.entries, t.replied(message.data.reply)],
           archived: message.data.archived,
@@ -1236,9 +1378,11 @@ function apply(
         const { kind, message: detail } = message.data
         return {
           ...old,
+          summary: { ...old.summary, id: message.data.id ?? old.summary.id },
           running: false,
           phase: null,
-          entries: [...old.entries, t.errored(`${kind}: ${detail}`)],
+          entries: [...t.interruptPending(old.entries), t.errored(`${kind}: ${detail}`)],
+          queuePaused: true,
         }
       }
       default:
