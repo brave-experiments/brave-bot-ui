@@ -140,17 +140,11 @@ export function saveBot(next: Bot): void {
   putBots(withBot(bots(), { ...next, updated: Date.now() }))
 }
 
-/**
- * Note the durable id of the session behind a bot.
- *
- * Called from the one place that reads the agent's answers, and only for a bot that has none: an
- * id is minted once and a second one arriving for the same bot means something has gone wrong
- * upstream, not that the bot has moved.
- */
+/** Record the latest durable conversation without discarding any earlier IDs. */
 export function noteBotSession(slug: string, id: string): void {
   const held = bot(slug)
-  if (!held || held.session !== null) return
-  saveBot({ ...held, session: id })
+  if (!held) return
+  saveBot({ ...held, session: id, conversations: [...new Set([...held.conversations, id])] })
 }
 
 /**
@@ -171,8 +165,7 @@ export function noteBotArchived(slug: string, archived: number): void {
  *
  * For one case only: the record is gone from the agent's own store, which happens when somebody
  * deletes it or moves the checkout out from under it. Without this a bot would keep pointing at an
- * id nothing can open and never be able to take another — `noteBotSession` deliberately refuses to
- * replace one, because a second id arriving for a bot that has one is a bug rather than a move.
+ * id nothing can open. Release the continuation pointer while retaining its history entry.
  *
  * The window may ask for this and cannot say what it becomes. Null is the only value it can lead
  * to, which keeps the promise the split is made of: an id is something the agent said.

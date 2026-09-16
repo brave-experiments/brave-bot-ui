@@ -19,4 +19,13 @@ not claim to lock out another editor that concurrently changes the same authoriz
 Previews never send content to a model. Attachment selection still requires the native
 picker and a separate Send action.
 
-The file and attachment regression tests exercise these boundaries through the actual helper.
+Drafts are stored locally in `experience.json` with mode 0600; clearing a draft removes
+its saved text. Memory history retains up to 30 revisions. Reset preserves revisions for
+recovery, as stated in its confirmation. Deleting a bot removes its app-owned revision
+history and cached briefing, but keeps project memory files and saved conversations.
+Deletion errors are surfaced, and deletion is refused while a bot's conversation is running.
+These are local files, not encrypted storage or a promise of secure erasure from backups.
+
+Regression coverage includes parent-directory swaps for reads and writes, root and leaf
+symlinks, traversal, size bounds, stale edits, file permissions, removal and bot recreation,
+and actual IPC in a packaged app. See [testing.md](testing.md) for reproduction commands.

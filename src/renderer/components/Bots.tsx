@@ -1,3 +1,9 @@
+import { SidebarTools } from './SidebarTools'
+import { BotMemory } from './BotMemory'
+import { Modal } from './Modal'
+import { botHistory } from '../../shared/bot-history'
+import { useExperience } from '../experience'
+import type { SessionSummary } from '../../shared/protocol'
 /**
  * The other list in the left column: the bots somebody has defined.
  *
@@ -16,7 +22,7 @@
  * something that takes one sentence to say.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { activeBots, retiredBots, type Bot } from '../../shared/bots'
 import { newAvatarSeed } from '../../shared/avatar'
 import { BotAvatar, type Doing } from './BotAvatar'
@@ -25,12 +31,14 @@ import { ModelPicker } from './ModelPicker'
 
 interface Props {
   bots: Bot[]
+  sessions: SessionSummary[]
+  onNewConversation: (bot: Bot) => void
+  onConversation: (bot: Bot, summary: SessionSummary) => void
   /** The slug of the bot whose session is on screen, if one is. */
   openSlug: string | null
   /** What that bot is doing, so its row's face can match the header's. */
   openDoing: Doing
-  onOpen: (bot: Bot) => void
-  onSave: (bot: { slug?: string; avatar?: string; model?: string | null; name: string; purpose: string; directory: string }) => void
+  onSave: (bot: { slug?: string; avatar?: string; model?: string | null; name: string; purpose: string; directory: string }) => Promise<boolean>
   /** Put one away, or bring it back. */
   onRetire: (slug: string, retired: boolean) => void
   /** Take one away for good. Only ever reached from the archive below. */
@@ -39,9 +47,11 @@ interface Props {
 
 export function Bots({
   bots,
+  sessions,
+  onNewConversation,
+  onConversation,
   openSlug,
   openDoing,
-  onOpen,
   onSave,
   onRetire,
   onRemove,
@@ -49,6 +59,14 @@ export function Bots({
   // Which bot's form is open, by slug, or `'new'` for one that does not exist yet. Local, and for
   // the reason the session filter is: nothing outside this list reads it, and a form half filled
   // in is not a preference anybody wants remembered.
+  const [query, setQuery] = useState('')
+  const [overviewSlug, setOverviewSlug] = useState<string | null>(null)
+  const overview = bots.find(bot => bot.slug === overviewSlug) ?? null
+  const [historyQuery, setHistoryQuery] = useState('')
+  const preferences = useExperience()
+  const history = overview ? botHistory(overview, sessions, preferences) : []
+  const filteredHistory = history.filter(row => `${row.session?.title ?? ''} ${row.id}`.toLowerCase().includes(historyQuery.toLowerCase()))
+  const setOverview = (bot: Bot | null) => { setOverviewSlug(bot?.slug ?? null); setHistoryQuery('') }
   const [editing, setEditing] = useState<string | null>(null)
   // Whether the archive is open. Local for the same reason, and closed to begin with: the archive
   // is where things go to stop being in the way, and one that opened itself every launch would be
@@ -58,7 +76,7 @@ export function Bots({
   // first, so there is never a fold of rows all sitting a click away from being deleted.
   const [deleting, setDeleting] = useState<string | null>(null)
 
-  const inUse = useMemo(() => activeBots(bots), [bots])
+  const inUse = useMemo(() => activeBots(bots).filter((bot) => `${bot.name} ${bot.purpose} ${bot.directory}`.toLowerCase().includes(query.toLowerCase())), [bots, query])
   const away = useMemo(() => retiredBots(bots), [bots])
 
   return (
@@ -66,21 +84,21 @@ export function Bots({
       <header className="sessions-head">
         {/* The same control the session list's own opens with, so the two tabs begin the same
             way. No split beside it: a bot's folder is asked for once, in the form. */}
-        <button className="new" onClick={() => setEditing('new')}>
+        <SidebarTools query={query} onQuery={setQuery} label="Search bots" action={<button className="new" onClick={() => setEditing('new')}>
           <span className="plus" aria-hidden="true">
             +
           </span>
           New bot
-        </button>
+        </button>} />
       </header>
 
       <div className="session-list">
         {inUse.length === 0 && editing !== 'new' && (
           <p className="empty">
-            {away.length === 0 ? (
+            {query.trim() ? <>No bots match this search.</> : away.length === 0 ? (
               <>
                 No bots yet. A bot is a name, a purpose and a memory, working in one checkout — and
-                one session that is resumed rather than started again.
+                conversations you can continue or start afresh.
               </>
             ) : (
               // Said rather than left to the heading below, because "No bots yet" over a list of
@@ -90,45 +108,36 @@ export function Bots({
           </p>
         )}
 
-        {editing === 'new' && (
-          <BotForm
-            onCancel={() => setEditing(null)}
-            onSave={(bot) => {
-              onSave(bot)
-              setEditing(null)
-            }}
-          />
-        )}
-
-        {inUse.map((bot) =>
-          editing === bot.slug ? (
-            <BotForm
-              key={bot.slug}
-              bot={bot}
-              onCancel={() => setEditing(null)}
-              onSave={(next) => {
-                onSave(next)
-                setEditing(null)
-              }}
-              onArchive={() => {
-                onRetire(bot.slug, true)
-                setEditing(null)
-              }}
-            />
-          ) : (
-            <BotRow
-              key={bot.slug}
-              bot={bot}
-              open={bot.slug === openSlug}
-              // The open one does what its header does. The others look about, except one that has
-              // never been spoken to, which waits — the row already says so in words, and a face
-              // that has not started yet looking idly around would be saying something else.
-              doing={bot.slug === openSlug ? openDoing : bot.session === null ? 'waiting' : 'idle'}
-              onOpen={onOpen}
-              onEdit={() => setEditing(bot.slug)}
-            />
-          ),
-        )}
+        {inUse.map((bot) => <BotRow key={bot.slug} bot={bot} open={bot.slug === openSlug}
+          doing={bot.slug === openSlug ? openDoing : bot.session === null ? 'waiting' : 'idle'}
+          onOpen={() => setOverview(bot)} onEdit={() => setEditing(bot.slug)} />)}
+        {editing && <Modal title={editing === 'new' ? 'Create bot' : 'Edit bot'} onClose={() => setEditing(null)} className="bot-editor">
+          <h2>{editing === 'new' ? 'Create a bot' : 'Edit bot'}</h2>
+          <BotForm bot={bots.find((bot) => bot.slug === editing)} onCancel={() => setEditing(null)}
+            onSave={async (next) => { const saved = await onSave(next); if (saved) setEditing(null); return saved }}
+            onArchive={editing === 'new' ? undefined : () => { onRetire(editing, true); setEditing(null) }} />
+        </Modal>}
+        {overview && <Modal title={overview.name} onClose={() => setOverview(null)} className="bot-overview">
+          <div className="bot-overview-title"><BotAvatar seed={overview.avatar} size={56} doing="open" /><div><h2>{overview.name}</h2><p>{overview.directory}</p></div></div>
+          <h3>Purpose</h3><p>{overview.purpose}</p>
+          <p className="bot-note">This bot carries its purpose and saved memory into each conversation. Conversation history belongs to individual tasks.</p>
+          <div className="bot-overview-actions">
+            <button className="primary" onClick={() => { onNewConversation(overview); setOverview(null) }}>New conversation</button>
+            <button onClick={() => { setEditing(overview.slug); setOverview(null) }}>Edit bot and memory</button>
+          </div>
+          <h3>Conversation history ({history.length})</h3>
+          <p className="bot-note">All conversations for this bot, including archived conversations and drafts. Starting a new conversation keeps the earlier ones here.</p>
+          {history.length > 0 && <input className="bot-history-search" type="search" aria-label="Search bot conversations" placeholder="Search conversations…" value={historyQuery} onChange={event => setHistoryQuery(event.target.value)} />}
+          <div className="bot-conversations" aria-label="Bot conversation history">
+            {filteredHistory.map(({ id, session, archived }) => session ?
+              <button key={id} onClick={() => { onConversation(overview, session); setOverview(null) }}>
+                <strong>{session.title}</strong><span>{id.startsWith('draft:') ? 'Draft' : new Date(session.updated * 1000).toLocaleDateString()}{archived ? ' · Archived' : ''}</span>
+              </button> : <div className="bot-history-unavailable" key={id}><strong>Unavailable conversation</strong><code>{id}</code><span>The saved record is not currently available in the session list.</span></div>)}
+            {history.length === 0 && <p>No conversations yet.</p>}
+            {history.length > 0 && filteredHistory.length === 0 && <p>No conversations match “{historyQuery}”.</p>}
+          </div>
+          <button onClick={() => setOverview(null)}>Done</button>
+        </Modal>}
       </div>
 
       {/* Only when there is something in it. An empty archive is a heading about nothing, and the
@@ -258,8 +267,8 @@ function BotRow({
  * different place, so nobody arrives at it by double-clicking the first.
  *
  * What the words have to carry is that this is final, and they have to do it without overclaiming.
- * Nothing is erased: the session stays in the agent's store and the memory file stays in the
- * checkout, exactly as before. What goes is the only thing that knows they belong together.
+ * Saved sessions and project memory stay. App-owned memory revisions and the cached briefing
+ * are deleted with the bot definition.
  */
 function ArchivedRow({
   bot,
@@ -283,11 +292,8 @@ function ArchivedRow({
       <span className="bot-said">
         <span className="bot-name">{bot.name}</span>
         {asking ? (
-          // Short because the column is narrow and a warning that ellipsises is a warning that
-          // stops before the part that matters. The whole of it — that the session and the memory
-          // file are left where they are — is on the button, which is where somebody hesitating
-          // over this will already be pointing.
-          <span className="bot-warning">This cannot be undone.</span>
+          // Keep the retention notice visible and wrapping at narrow sidebar widths.
+          <span className="bot-warning">Deletes local memory history. Project files and conversations stay.</span>
         ) : (
           // The whole path in the tooltip, for the reason the row above gives: the column clips
           // it, and this is text the layout took away.
@@ -304,7 +310,7 @@ function ArchivedRow({
           <button
             type="button"
             className="bot-delete bot-delete-armed"
-            title={`Delete ${bot.name} for good. This cannot be undone.`}
+            title={`Delete ${bot.name} and its local memory history for good. Project files and conversations are kept.`}
             onClick={onDelete}
           >
             Delete
@@ -323,7 +329,7 @@ function ArchivedRow({
           <button
             type="button"
             className="bot-delete"
-            title={`Delete ${bot.name} for good. Its session and its memory file are left where they are, but nothing will point at them again.`}
+            title={`Delete ${bot.name} for good. Local memory history is deleted. Project files and conversations are kept.`}
             onClick={onAsk}
           >
             Delete
@@ -349,7 +355,7 @@ function BotForm({
   onArchive,
 }: {
   bot?: Bot
-  onSave: (bot: { slug?: string; avatar?: string; model?: string | null; name: string; purpose: string; directory: string }) => void
+  onSave: (bot: { slug?: string; avatar?: string; model?: string | null; name: string; purpose: string; directory: string }) => Promise<boolean>
   onCancel: () => void
   onArchive?: () => void
 }): React.JSX.Element {
@@ -359,17 +365,6 @@ function BotForm({
   const [name, setName] = useState(bot?.name ?? '')
   const [purpose, setPurpose] = useState(bot?.purpose ?? '')
   const [directory, setDirectory] = useState(bot?.directory ?? '')
-  const [memory, setMemory] = useState<string | null>(null)
-
-  // What the bot has remembered, read when the form opens rather than held in the list: it is a
-  // file on disk that the bot itself edits, so the copy worth showing is the one there now.
-  useEffect(() => {
-    if (!bot) return
-    void window.bravebot
-      .readBotMemory(bot.slug)
-      .then(setMemory)
-      .catch(() => undefined)
-  }, [bot])
 
   const choose = useCallback(async () => {
     // The same native picker the session list uses, and the same promise: this side never composes
@@ -377,6 +372,17 @@ function BotForm({
     const chosen = await window.bravebot.chooseDirectory()
     if (chosen) setDirectory(chosen)
   }, [])
+
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const save = async (value: Parameters<typeof onSave>[0]) => {
+    if (saving) return
+    setSaving(true); setSaveError('')
+    try {
+      if (!await onSave(value)) setSaveError('Could not save this bot. Your changes are still here; try again.')
+    } catch (error) { setSaveError(String(error)) }
+    finally { setSaving(false) }
+  }
 
   const ready = name.trim().length > 0 && purpose.trim().length > 0 && directory.length > 0
 
@@ -386,7 +392,7 @@ function BotForm({
       onSubmit={(event) => {
         event.preventDefault()
         if (ready) {
-          onSave({ slug: bot?.slug, avatar: bot ? undefined : avatar, model, name: name.trim(), purpose: purpose.trim(), directory })
+          void save({ slug: bot?.slug, avatar: bot ? undefined : avatar, model, name: name.trim(), purpose: purpose.trim(), directory })
         }
       }}
     >
@@ -438,11 +444,11 @@ function BotForm({
       </div>
 
       <div className="bot-field">
-        <span>Checkout</span>
+        <span>Project folder</span>
         {bot ? (
-          <p className="bot-fixed" title={bot.directory}>
-            {bot.directory}
-          </p>
+          <div><p className="bot-fixed" title={bot.directory}>{bot.directory}</p>
+          <p className="bot-note">The project stays fixed to keep this bot’s memory and conversations together.</p>
+          <button type="button" onClick={() => { void window.bravebot.chooseDirectory().then((folder) => { if (folder) void save({ name: `${name} copy`, purpose, model, directory: folder }) }) }}>Duplicate into another project</button></div>
         ) : (
           <button type="button" className="bot-choose" onClick={() => void choose()}>
             {directory || 'Choose a folder…'}
@@ -459,13 +465,9 @@ function BotForm({
         </p>
       )}
 
-      {bot && (
-        <div className="bot-field">
-          <span>Memory</span>
-          <pre className="bot-memory">{memory ?? 'Nothing remembered yet.'}</pre>
-        </div>
-      )}
+      {bot && <BotMemory slug={bot.slug} />}
 
+      {saveError && <p role="alert">{saveError}</p>}
       <div className="bot-actions">
         {onArchive && (
           <button
@@ -487,8 +489,8 @@ function BotForm({
         <button type="button" onClick={onCancel}>
           Cancel
         </button>
-        <button type="submit" className="bot-save" disabled={!ready}>
-          {bot ? 'Save' : 'Create'}
+        <button type="submit" className="bot-save" disabled={!ready || saving}>
+          {saving ? 'Saving…' : bot ? 'Save' : 'Create'}
         </button>
       </div>
     </form>

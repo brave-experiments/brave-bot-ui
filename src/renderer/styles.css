@@ -2152,6 +2152,37 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus
 .file-preview pre.wrapped { white-space: pre-wrap; overflow-wrap: anywhere; }
 .local-file-link { background: transparent; border: 0; padding: 0; color: var(--accent-quiet); text-decoration: underline; display: inline; }
 
+.bot-editor { scroll-padding-block: 28px 90px; }
+.bot-editor .bot-form { margin: 0; padding: 0; border: 0; background: transparent; }
+.bot-editor .bot-field { margin-top: 18px; }
+.bot-editor .bot-field > span { font-size: 13px; font-weight: 600; }
+.bot-editor .bot-field input, .bot-editor .bot-field textarea { font-size: 14px; padding: 10px 12px; }
+.bot-editor .bot-fixed { white-space: normal; overflow-wrap: anywhere; }
+.bot-editor button, .bot-overview button { min-height: 32px; border: 1px solid var(--line); border-radius: 7px; padding: 6px 12px; background: var(--bg); }
+.bot-overview .primary { background: var(--accent); }
+.bot-overview-title { display: flex; gap: 16px; align-items: center; }
+.bot-overview-title h2 { margin: 0; }
+.bot-overview-title p { margin: 4px 0; font-size: 12px; color: var(--ink-dim); overflow-wrap: anywhere; }
+.bot-overview h3 { font-size: 13px; margin-top: 24px; }
+.bot-overview-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.bot-history-search { width: 100%; margin-bottom: 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--ink); }
+.bot-conversations { display: grid; gap: 6px; margin-bottom: 20px; max-height: 300px; overflow-y: auto; }
+.bot-conversations button, .bot-history-unavailable { display: grid; gap: 4px; text-align: left; padding: 10px 12px; }
+.bot-conversations strong { font-size: 13px; overflow-wrap: anywhere; }
+.bot-conversations span, .bot-conversations code { color: var(--ink-dim); font-size: 12px; }
+.bot-history-unavailable { border: 1px dashed var(--line); border-radius: 7px; }
+.bot-edit { opacity: 1; }
+
+.bot-memory-panel { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 16px; }
+.bot-memory-panel h3 { margin: 0 0 8px; font-size: 14px; }
+.memory-tabs, .memory-actions { display: flex; gap: 6px; margin: 10px 0; }
+.memory-tabs button[aria-pressed="true"] { background: var(--bubble-agent); font-weight: 600; }
+.memory-readable { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.65; padding: 14px; background: var(--bubble-agent); max-height: 300px; overflow: auto; border-radius: 8px; }
+.memory-history details { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.memory-history pre { max-height: 240px; overflow: auto; white-space: pre-wrap; font-size: 12px; }
+.bot-memory-panel > textarea { width: 100%; font: 13px/1.5 var(--mono); padding: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 8px; }
+.memory-reset { padding: 12px; border: 1px solid var(--warn); border-radius: 8px; }
+
 .backend-status { display: flex; flex-direction: column; gap: 5px; padding: 12px 20px; background: var(--warn-bg); font-size: 12px; }
 .backend-status > div { display: flex; gap: 6px; }
 .backend-status button { border: 1px solid var(--line); background: var(--bg); border-radius: 5px; padding: 5px 8px; }
@@ -2180,12 +2211,24 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus
 }
 .modal button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .modal button:disabled { opacity: .5; }
+.modal .bot-save, .modal button.primary { background: var(--accent); color: var(--accent-ink); }
 
 .diff .line-number { width: 3.5em; flex: 0 0 3.5em; text-align: right; padding-right: .7em; color: var(--ink-dim); user-select: none; font-variant-numeric: tabular-nums; }
 
 .interrupted-request { padding: 12px 16px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink-dim); }
 .interrupted-request pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; }
+
+.bot-open .bot-open-button { background: var(--bubble-user); color: var(--bubble-user-ink); }
+.bot-open .bot-where { color: var(--bubble-user-ink); opacity: 1; }
+.memory-readable { white-space: normal; }
+.memory-readable p { margin: 0 0 12px; }
+.memory-readable pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .app .composer { padding-inline: max(20px, calc((100% - 880px) / 2)); }
 .app .attention-bar { padding-inline: max(20px, calc((100% - 880px) / 2)); }
 
 .diff { font-size: 13px; line-height: 1.65; }
+
+.modal .bot-avatar-refresh { padding: 0; width: 32px; height: 32px; display: grid; place-items: center; }
+.memory-readable h1, .memory-readable h2, .memory-readable h3 { font-size: 16px; line-height: 1.4; margin: 0 0 12px; }
+.memory-readable ul, .memory-readable ol { padding-left: 22px; }
+.bot-editor .bot-actions { position: sticky; bottom: -28px; background: var(--bg); padding-block: 12px; z-index: 2; }

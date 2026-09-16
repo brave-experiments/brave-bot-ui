@@ -33,6 +33,8 @@ import { Bots } from './Bots'
 
 interface Props {
   sessions: SessionSummary[]
+  onNewBotConversation: (bot: Bot) => void
+  onBotConversation: (bot: Bot, summary: SessionSummary) => void
   openId: string | undefined
   forked: ReadonlySet<string>
   onOpen: (summary: SessionSummary) => void
@@ -41,8 +43,7 @@ interface Props {
   openSlug: string | null
   /** What that bot is doing, so its row's face can match the header's. */
   openDoing: Doing
-  onOpenBot: (bot: Bot) => void
-  onSaveBot: (bot: { slug?: string; avatar?: string; model?: string | null; name: string; purpose: string; directory: string }) => void
+  onSaveBot: (bot: { slug?: string; avatar?: string; model?: string | null; name: string; purpose: string; directory: string }) => Promise<boolean>
   onRetireBot: (slug: string, retired: boolean) => void
   onRemoveBot: (slug: string) => void
   build: string | null
@@ -50,6 +51,8 @@ interface Props {
 
 export function Sidebar({
   sessions,
+  onNewBotConversation,
+  onBotConversation,
   openId,
   forked,
   onOpen,
@@ -57,7 +60,6 @@ export function Sidebar({
   bots,
   openSlug,
   openDoing,
-  onOpenBot,
   onSaveBot,
   onRetireBot,
   onRemoveBot,
@@ -131,9 +133,11 @@ export function Sidebar({
       <div className="sidebar-body" hidden={tab !== 'bots'}>
         <Bots
           bots={bots}
+          sessions={sessions}
+          onNewConversation={onNewBotConversation}
+          onConversation={onBotConversation}
           openSlug={openSlug}
           openDoing={openDoing}
-          onOpen={onOpenBot}
           onSave={onSaveBot}
           onRetire={onRetireBot}
           onRemove={onRemoveBot}
