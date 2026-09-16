@@ -1,3 +1,4 @@
+import { readProjectText } from './project-files'
 /**
  * Looking at the folder a session is working in.
  *
@@ -10,18 +11,20 @@
  *
  * The lexical half of the check is `isSubpath` in `shared/files.ts`, and it is not enough on its
  * own — `foo/link` is a fine relative path and the link can point at `/etc`. So every resolution
- * here goes through `realpath` and must land inside the root's own `realpath`. A symlink out of
+ * for listing/opening goes through `realpath` and must land inside the root's own `realpath`. A symlink out of
  * the project is refused rather than followed, including one whose *target* is what somebody
  * double-clicked: a link is a way out of the folder, and this panel is about the folder.
  *
- * Nothing here reads a file. The panel shows names and asks the operating system to open one;
- * contents never cross into the renderer, so this adds no route by which something the agent was
- * refused could arrive there anyway.
+ * Text reads additionally use pinned directory descriptors through the secure-file helper.
+ * Previews are returned only to the person reviewing the project. Sending file contents to
+ * the agent requires a separate native selection and an opaque attachment token.
  */
 
-import { shell } from 'electron'
+import { shell, dialog, type BrowserWindow } from 'electron'
+import { randomUUID } from 'node:crypto'
 import { readdirSync, realpathSync, statSync } from 'node:fs'
-import { join, sep } from 'node:path'
+import { readdir } from 'node:fs/promises'
+import { join, sep, relative } from 'node:path'
 import { isProjectPath } from '../shared/recents'
 import {
   ROWS_MAX,
@@ -29,6 +32,10 @@ import {
   type FileRow,
   type Listing,
   type OpenOutcome,
+  type FilePreview,
+  type FileSearch,
+  isSubpath,
+  type FileAttachment,
 } from '../shared/files'
 
 /**
@@ -39,6 +46,7 @@ import {
  * one on disk would be a root nothing is running in.
  */
 const roots = new Map<string, string>()
+const attachments = new Map<string, Map<string, string>>()
 
 /**
  * Remember where a session is working.
@@ -55,6 +63,47 @@ export function noteRoot(handle: string, directory: unknown): void {
 /** Forget a session that has been closed. Its handle is no longer an answer to anything. */
 export function forgetRoot(handle: string): void {
   roots.delete(handle)
+  attachments.delete(handle)
+}
+
+/** Attachment authority comes from the native picker, never a renderer-supplied path. */
+export async function chooseAttachments(window: BrowserWindow, handle: string): Promise<FileAttachment[]> {
+  const root = roots.get(handle)
+  if (!root) throw new Error('Open a project before attaching files.')
+  const selected = await dialog.showOpenDialog(window, {
+    title: 'Choose project files to attach as trusted context',
+    message: 'Selected contents will be shared with the model when you send your message.',
+    defaultPath: root, properties: ['openFile', 'multiSelections'],
+  })
+  if (selected.canceled) return []
+  if (selected.filePaths.length > 5) throw new Error('Attach up to five files at a time.')
+  const chosen = selected.filePaths.map((file) => {
+    const path = relative(realpathSync(root), realpathSync(file))
+    const target = isSubpath(path) && path ? inside(handle, path) : null
+    if (!target || !validAttachment(root, path)) throw new Error('Choose text files inside this project, each under 256 KB.')
+    return { id: randomUUID(), path }
+  })
+  const tokens = attachments.get(handle) ?? new Map<string, string>()
+  for (const item of chosen) tokens.set(item.id, item.path)
+  attachments.set(handle, tokens)
+  return chosen
+}
+
+export function attachmentPaths(handle: string, ids: unknown): string[] {
+  if (ids === undefined) return []
+  if (!Array.isArray(ids) || ids.length > 5) throw new Error('Invalid attachments.')
+  return ids.map((id) => {
+    const path = typeof id === 'string' ? attachments.get(handle)?.get(id) : null
+    const target = path ? inside(handle, path) : null
+    if (!path || !target || !validAttachment(roots.get(handle)!, path)) throw new Error('An attachment is no longer available. Choose it again.')
+    return path
+  })
+}
+
+/** Revalidate text and size at selection and send, including files replaced since selection. */
+function validAttachment(root: string, path: string): boolean {
+  const file = readProjectText(root, path, 256 * 1024)
+  return file !== null && !file.truncated
 }
 
 /**
@@ -66,6 +115,7 @@ export function forgetRoot(handle: string): void {
  * a path it may not read exists.
  */
 function inside(handle: string, subpath: string): string | null {
+  if (!isSubpath(subpath)) return null
   const root = roots.get(handle)
   if (root === undefined) return null
   try {
@@ -77,6 +127,38 @@ function inside(handle: string, subpath: string): string | null {
     // No such path, or one this process cannot resolve. Either way there is nothing to list.
     return null
   }
+}
+
+/** Human-only raw preview. Reading here never releases content to the agent. */
+export function preview(handle: string, subpath: string): FilePreview | null {
+  const root = roots.get(handle)
+  if (!root || !isSubpath(subpath) || !subpath) return null
+  const file = readProjectText(root, subpath)
+  return file ? { path: subpath, ...file } : null
+}
+
+/** Search names recursively, independently of which tree branches the user expanded. */
+export async function search(handle: string, query: string, hidden: boolean): Promise<FileSearch> {
+  const paths: string[] = [], pending = [''], seen = new Set<string>()
+  const terms = query.toLowerCase().trim().split(/\s+/).filter(Boolean)
+  let examined = 0, incomplete = false
+  while (pending.length && examined < 50000 && paths.length < 500) {
+    const path = pending.shift()!
+    const directory = inside(handle, path)
+    if (!directory || seen.has(directory)) continue
+    seen.add(directory)
+    let rows
+    try { rows = await readdir(directory, { withFileTypes: true }) }
+    catch { incomplete = true; continue }
+    for (const row of rows) {
+      if (++examined > 50000 || paths.length >= 500) { incomplete = true; break }
+      if ((!hidden && row.name.startsWith('.')) || ['node_modules', '.git', 'target', 'dist'].includes(row.name)) continue
+      const relative = path ? `${path}/${row.name}` : row.name
+      if (row.isDirectory()) pending.push(relative)
+      else if (row.isFile() && terms.every((term) => relative.toLowerCase().includes(term))) paths.push(relative)
+    }
+  }
+  return { paths: paths.sort(), incomplete: incomplete || pending.length > 0 }
 }
 
 /** What kind of thing an entry is, with a symlink resolved to what it points at. */

@@ -37,6 +37,8 @@ check(
   'the agent ships beside the app as a resource',
 )
 
+check(existsSync(`${BUNDLE}/Contents/Resources/bravebot-ui-files`), 'the secure file helper ships beside the app')
+
 const app = await electron.launch({
   executablePath: `${BUNDLE}/Contents/MacOS/Brave Bot`,
   timeout: 60000,
