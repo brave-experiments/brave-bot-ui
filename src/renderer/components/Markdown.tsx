@@ -1,7 +1,8 @@
-import { memo } from 'react'
+import { memo, isValidElement, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
+import { isSubpath } from '../../shared/files'
 
 /**
  * The model's own words, formatted.
@@ -61,8 +62,13 @@ const PLUGINS = [
 ]
 
 const COMPONENTS: Components = {
+  pre({ children }) { return <CodeBlock>{children}</CodeBlock> },
   a({ href, children }) {
     const url = safeUrl(href)
+    const local = href?.replace(/^\.\//, '').replace(/(?::\d+|#L\d+)$/, '')
+    if (!url && local && isSubpath(local) && !local.includes(':')) return <button className="local-file-link" onClick={() => {
+      document.dispatchEvent(new CustomEvent('bravebot:preview-file', { detail: local }))
+    }}>{children}</button>
     // `target="_blank"` is load-bearing, not decoration. The main process refuses
     // in-window navigation outright and answers a window-open by opening the user's
     // browser, so this is the only form of link that does anything at all.
@@ -113,6 +119,27 @@ const COMPONENTS: Components = {
       </div>
     )
   },
+}
+
+function plain(node: ReactNode): string {
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(plain).join('')
+  return isValidElement<{ children?: ReactNode }>(node) ? plain(node.props.children) : ''
+}
+
+function CodeBlock({ children }: { children: ReactNode }): React.JSX.Element {
+  const [wrap, setWrap] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [error, setError] = useState(false)
+  const language = isValidElement<{ className?: string }>(children) ? children.props.className?.replace('language-', '') : undefined
+  return <div className="code-block">
+    <div className="code-toolbar"><span>{language || 'Code'}</span>
+      <button aria-pressed={wrap} onClick={() => setWrap(!wrap)}>Wrap</button>
+      <button onClick={() => { void navigator.clipboard.writeText(plain(children)).then(() => { setCopied(true); setError(false) }).catch(() => setError(true)) }}>{copied ? 'Copied' : 'Copy code'}</button>
+    </div>
+    {error && <p role="alert">Could not copy. Select the code and copy it manually.</p>}
+    <pre className={wrap ? 'code-wrapped' : ''}>{children}</pre>
+  </div>
 }
 
 /**

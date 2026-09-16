@@ -81,6 +81,18 @@ test('memory edits use compare-and-replace and preserve recoverable history', ()
   } finally { rmSync(directory, { recursive: true, force: true }) }
 })
 
+test('write status follows execution outcome even when its tool row precedes the approval', () => {
+  const { written } = load('src/renderer/components/Context.tsx')
+  const approval = { kind: 'confirm', id: 'approval', request: { path: 'a.ts' }, decision: 'approve' }
+  const tool = (note, failed = false) => ({ kind: 'tool', id: 'tool', activity: { verb: 'Write', target: 'a.ts', note, failed, changes: [] } })
+  assert.equal(written([approval])[0].state, 'approved')
+  assert.equal(written([tool(null), approval])[0].state, 'applying')
+  assert.equal(written([tool('done'), approval])[0].state, 'applied')
+  assert.equal(written([tool('disk full', true), approval])[0].state, 'failed')
+  assert.equal(written([tool('done'), approval, tool(null)])[0].state, 'applying')
+})
+
+
 test('attachment grants are per session and revalidate changed files at send', async () => {
   const root = mkdtempSync(join(tmpdir(), 'bravebot-ux-attachment-'))
   const selected = join(root, 'notes.txt')
@@ -137,6 +149,30 @@ test('request IDs reused in later turns never rewrite prior answers or approvals
   assert.equal(approvals[1].decision, 'reject')
 })
 
+
+test('built-in accent and message foregrounds meet normal-text contrast', () => {
+  const { BUILTINS, roleVariables } = load('src/shared/theme.ts')
+  const luminance = (hex) => {
+    const linear = hex.slice(1).match(/../g).map((channel) => parseInt(channel, 16) / 255).map((c) => c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4)
+    return .2126 * linear[0] + .7152 * linear[1] + .0722 * linear[2]
+  }
+  for (const theme of BUILTINS) for (const dark of [false, true]) {
+    const vars = roleVariables(theme, dark)
+    for (const role of ['note', 'primary']) {
+      const a = luminance(vars[`--role-${role}`]), b = luminance(vars[`--role-${role}-ink`])
+      assert.ok((Math.max(a, b) + .05) / (Math.min(a, b) + .05) >= 4.5, `${theme.name} ${role}`)
+    }
+  }
+})
+
+
+test('reference-backed writes and approval paths share one execution outcome', () => {
+  const { written } = load('src/renderer/components/Context.tsx')
+  const tool = { kind: 'tool', id: 'tool', activity: { verb: 'Write', target: 'ref:3(U,priv):src/sample.txt', note: 'done', failed: false, changes: [] } }
+  const approval = { kind: 'confirm', id: 'approval', request: { path: 'src/sample.txt' }, decision: 'approve' }
+  assert.deepEqual(written([tool, approval]), [{ target: 'src/sample.txt', state: 'applied' }])
+  assert.equal(written([{ ...approval, decision: null, interrupted: true }])[0].state, 'cancelled')
+})
 
 test('bot history includes every saved, associated and draft conversation without mixing bots or projects', () => {
   const { botHistory } = load('src/shared/bot-history.ts')

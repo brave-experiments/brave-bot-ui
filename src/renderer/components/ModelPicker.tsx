@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ModelCatalogue, ModelOption } from '../../shared/protocol'
+import { setExperience, useExperience } from '../experience'
 
 const CAPABILITIES: Record<string, [string, string]> = {
   text: ['Text', 'Generates text'],
@@ -21,6 +22,7 @@ export function ModelPicker({ model, disabled, onChoose, scope = 'conversation' 
   onChoose: (model: string) => void
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
+  const preferences = useExperience()
   const [catalogue, setCatalogue] = useState<ModelCatalogue | null>(null)
   const [loading, setLoading] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
@@ -72,8 +74,11 @@ export function ModelPicker({ model, disabled, onChoose, scope = 'conversation' 
         `${key} ${CAPABILITIES[key]?.join(' ') ?? ''}`).join(' ')
       const searchable = `${row.name} ${row.id} ${row.provider} ${capabilities}`.toLowerCase()
       return words.every((word) => searchable.includes(word))
+    }).sort((a, b) => {
+      const rank = (row: ModelOption) => row.id === model ? -2 : preferences.recentModels.includes(row.id) ? preferences.recentModels.indexOf(row.id) : 100
+      return rank(a) - rank(b)
     })
-  }, [catalogue, model, query])
+  }, [catalogue, model, query, preferences.recentModels])
   useEffect(() => { setActive(0) }, [query, catalogue])
   useEffect(() => {
     list.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest' })
@@ -83,7 +88,10 @@ export function ModelPicker({ model, disabled, onChoose, scope = 'conversation' 
   const selected = catalogue?.models.find((row) => row.id === model)
   const label = selected?.name ?? model ?? 'Configured default'
   const compactLabel = label.split('/').pop() || label
-  const choose = (row: ModelOption) => { onChoose(row.id); close() }
+  const choose = (row: ModelOption) => {
+    setExperience('recentModels', [row.id, ...preferences.recentModels.filter((id) => id !== row.id)].slice(0, 8))
+    onChoose(row.id); close()
+  }
 
   return <div className="model-picker" ref={root} onBlur={(event) => {
     if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false)
@@ -126,11 +134,11 @@ export function ModelPicker({ model, disabled, onChoose, scope = 'conversation' 
           onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setActive(index)} onClick={() => choose(row)}>
           <span className="model-check" aria-hidden="true">{row.id === model ? '✓' : ''}</span>
           <span className="model-description"><span className="model-name">{row.name}</span>
-            <span className="model-detail">{row.provider}{row.premium ? ' · Premium' : ''}</span>
+            <span className="model-detail">{row.provider}{row.premium ? ' · Premium' : ''}{row.contextWindow ? ` · ${row.contextWindow.toLocaleString()} context tokens` : ''}{preferences.recentModels.includes(row.id) ? ' · Recent' : ''}</span>
             {!!row.capabilities?.length && <span className="model-capabilities" aria-label="Provider-reported capabilities">
-              {row.capabilities.map((key) => {
+              {row.capabilities.filter((key) => ['text', 'tools'].includes(key)).map((key) => {
                 const badge = CAPABILITIES[key]
-                return badge ? <span className="model-capability" key={key} title={`${badge[1]} · Reported by provider; availability in this app may differ`}>
+                return badge ? <span className="model-capability" key={key} title={`${badge[1]} · Supported by this app and reported by the provider`}>
                   {badge[0]}
                 </span> : null
               })}
@@ -141,6 +149,7 @@ export function ModelPicker({ model, disabled, onChoose, scope = 'conversation' 
       </div>
       {!loading && options.length === 0 && <p className="model-status">{query ? 'No models match your search.' : 'No models available. Check your backend settings.'}</p>}
       <div className="model-footnote">{scope === 'bot' ? 'Saved with this bot. Applies to its next message.' : 'Applies to the next message in this conversation.'}</div>
+      <p className="model-footnote">Brave Bot uses text and tools. Other provider capabilities, such as image or audio generation, are not available here. Pricing is not supplied by this catalogue.</p>
     </div>}
   </div>
 }

@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Fold } from './Fold'
 import { FileTree } from './FileTree'
-import { PanelIcon } from './PanelIcon'
-import { PANEL_NAMES, type PanelName } from '../../shared/state'
+import { type PanelName } from '../../shared/state'
 import type { Activity, Phase, Shown, TodoRow } from '../../shared/protocol'
 import type { Entry } from '../transcript'
 
@@ -27,7 +26,7 @@ interface Live {
  * name in the preferences file is a panel at all — so the column, the bar and the file on disk are
  * all talking about the same five things.
  */
-const PANELS = PANEL_NAMES
+
 
 /**
  * The right-hand column: what this session has touched, and the folder it is touching it in.
@@ -37,44 +36,16 @@ const PANELS = PANEL_NAMES
  * the disk, because the question it answers — what else is in there, and what does this file look
  * like in a real editor — is not one the transcript can be asked.
  */
-export function Context({ live }: { live: Live | null }): React.JSX.Element {
-  // Which panels are *off*. Held here rather than in each panel, because the row of buttons at the
-  // top has to be able to say so — and declared above the empty case, so the hooks run on every
-  // render the way the rules require.
-  //
-  // The off ones rather than the on ones, all the way down to the file: a panel added to this
-  // window in a later build then arrives visible under a preference written before it existed,
-  // which is the column's own default. `shared/state.ts` says the same thing about the shape.
-  const [off, setOff] = useState<ReadonlySet<PanelName>>(() => new Set())
+export function Context({ live, onClose }: { live: Live | null; onClose: () => void }): React.JSX.Element {
+  const [tab, setTab] = useState<'overview' | 'files'>('overview')
+  const off = new Set<PanelName>(tab === 'overview' ? ['files'] : ['plan', 'read', 'writes', 'confined'])
+  const reveal = (path: string) => {
+    const entry = [...(live?.entries ?? [])].reverse().find((entry) =>
+      entry.kind === 'tool' ? fileTarget(entry.activity.target) === path : entry.kind === 'confirm' ? entry.request.path === path : false)
+    if (entry) document.dispatchEvent(new CustomEvent('bravebot:reveal-entry', { detail: entry.id }))
+  }
 
-  // Read once, and written on every change after the read has landed — the arrangement the
-  // session list keeps for its own preference, and the `ready` guard is why: without it the empty
-  // initial state races the read and writes "every panel is on" over what somebody chose.
-  const ready = useRef(false)
-  useEffect(() => {
-    void window.bravebot
-      .readPanels()
-      .then((panels) => setOff(new Set(panels.off)))
-      .catch(() => undefined)
-      .finally(() => (ready.current = true))
-  }, [])
-  useEffect(() => {
-    if (!ready.current) return
-    try {
-      window.bravebot.writePanels({ off: [...off] })
-    } catch {
-      // The column is still arranged the way it was asked to be, for this session at least.
-    }
-  }, [off])
-
-  const toggle = (panel: PanelName): void =>
-    setOff((was) => {
-      const next = new Set(was)
-      if (!next.delete(panel)) next.add(panel)
-      return next
-    })
-
-  if (!live) return <aside className="context" id="context-column" />
+  if (!live) return <aside className={`context ${tab === 'files' ? 'context-files' : ''}`} id="context-column" />
 
   const files = touched(live.entries)
   const writes = written(live.entries)
@@ -93,13 +64,13 @@ export function Context({ live }: { live: Live | null }): React.JSX.Element {
   const labels: Record<PanelName, string> = {
     plan: 'Plan',
     read: onlyReplayed ? 'Calls made' : 'Files read',
-    writes: 'Writes',
+    writes: 'Changes',
     confined: 'Confined content',
     files: 'Files',
   }
 
   return (
-    <aside className="context" id="context-column">
+    <aside className={`context ${tab === 'files' ? 'context-files' : ''}`} id="context-column">
       {/* One connected row, because these five are one choice about one column rather than five
           unrelated switches — the shape a segmented control has on this platform.
 
@@ -112,26 +83,12 @@ export function Context({ live }: { live: Live | null }): React.JSX.Element {
           column will come back at when it unfolds — which a full-width row of buttons plus its
           own margins overflows. The wrapper takes that width and the bar sits inside it. */}
       <div className="context-head">
-        <div className="panel-bar" role="group" aria-label="Which panels to show">
-          {PANELS.map((panel) => (
-            <button
-              key={panel}
-              className="panel-pick"
-              aria-pressed={!off.has(panel)}
-              aria-controls={`panel-${panel}`}
-              aria-label={labels[panel]}
-              // The name stays put and the verb goes in the tooltip, the rule `ColumnToggle`
-              // states: a control that renames itself is one the reader has to find again.
-              title={`${off.has(panel) ? 'Show' : 'Hide'} ${labels[panel].toLowerCase()}`}
-              onClick={() => toggle(panel)}
-            >
-              <PanelIcon panel={panel} />
-            </button>
-          ))}
+        <div className="inspector-title"><strong>Project context</strong><button className="drawer-close" onClick={onClose} aria-label="Close context panel">×</button></div>
+        <div className="inspector-tabs" role="tablist" aria-label="Project context">
+          {(['overview', 'files'] as const).map((name) => <button key={name} role="tab" aria-selected={tab === name} onClick={() => setTab(name)}>{name === 'overview' ? 'Overview' : 'Files'}</button>)}
         </div>
-      </div>
 
-      {off.size === PANELS.length && <p className="none">Every panel is hidden.</p>}
+      </div>
 
       <Section id="plan" title="Plan" count={live.todos.length} off={off.has('plan')}>
         {live.todos.length === 0 ? (
@@ -189,7 +146,7 @@ export function Context({ live }: { live: Live | null }): React.JSX.Element {
           <ul className="files">
             {files.map((file) => (
               <li key={file.target} className={file.confined ? 'confined' : ''}>
-                <code title={file.target}>{file.target}</code>
+                <button className="context-link" onClick={() => reveal(file.target)} title={file.target}>{file.target}</button>
                 {file.confined && <span className="tag">confined</span>}
               </li>
             ))}
@@ -197,7 +154,7 @@ export function Context({ live }: { live: Live | null }): React.JSX.Element {
         )}
       </Section>
 
-      <Section id="writes" title="Writes" count={writes.length} off={off.has('writes')}>
+      <Section id="writes" title="Changes" count={writes.length} off={off.has('writes')}>
         {writes.length === 0 ? (
           <p className="none">
             {onlyReplayed
@@ -208,7 +165,7 @@ export function Context({ live }: { live: Live | null }): React.JSX.Element {
           <ul className="files">
             {writes.map((write) => (
               <li key={write.target} className={write.state}>
-                <code title={write.target}>{write.target}</code>
+                <button className="context-link" onClick={() => reveal(write.target)} title={write.target}>{write.target}</button>
                 <span className="tag">{write.state}</span>
               </li>
             ))}
@@ -253,14 +210,14 @@ export function Context({ live }: { live: Live | null }): React.JSX.Element {
 
           Keyed by the handle so switching sessions resets the tree rather than showing one
           project's folders under another's root while the new listing arrives. */}
-      <Section id="files" title="Files" off={off.has('files')}>
+      <section className={`files-panel ${off.has('files') ? 'off' : ''}`} id="panel-files" aria-label="Project files">
         <FileTree
           key={live.handle}
           session={live.handle}
           root={live.summary.directory}
           running={live.running}
         />
-      </Section>
+      </section>
     </aside>
   )
 }
@@ -331,10 +288,15 @@ function touched(entries: Entry[]): { target: string; confined: boolean }[] {
   return [...seen].map(([target, confined]) => ({ target, confined }))
 }
 
+/** The agent decorates reference targets with a slot and label; match their underlying path. */
+function fileTarget(target: string): string {
+  return target.replace(/^ref:\d+\([TU],(?:pub|priv)\):/, '').replace(/^\.\//, '')
+}
+
 /** One file the turn wrote, and how far that write got. */
 interface Write {
   target: string
-  state: 'applied' | 'refused' | 'waiting'
+  state: 'approved' | 'applying' | 'applied' | 'failed' | 'refused' | 'waiting' | 'cancelled'
 }
 
 /**
@@ -346,15 +308,17 @@ interface Write {
  * nothing had been written underneath a transcript plainly showing a write. Both are read
  * now, and merged by path so a confirmed write is one row rather than two.
  */
-function written(entries: Entry[]): Write[] {
+export function written(entries: Entry[]): Write[] {
   const rows = new Map<string, Write>()
+  const calls = new Map<string, Activity>()
   for (const entry of entries) {
     if (entry.kind === 'confirm') {
+      const call = calls.get(entry.request.path)
       rows.set(entry.request.path, {
         target: entry.request.path,
         state:
-          entry.decision === 'approve'
-            ? 'applied'
+          entry.interrupted ? 'cancelled' : entry.decision === 'approve'
+            ? call ? call.failed ? 'failed' : call.note === null ? 'applying' : 'applied' : 'approved'
             : entry.decision === 'reject'
               ? 'refused'
               : 'waiting',
@@ -362,17 +326,18 @@ function written(entries: Entry[]): Write[] {
       continue
     }
     if (entry.kind !== 'tool' || !isWrite(entry.activity) || !entry.activity.target) continue
+    const target = fileTarget(entry.activity.target)
+    calls.set(target, entry.activity)
     // A call still running has not changed anything yet, and a refused or failed one never
     // will. Neither may read as "applied".
     const state = entry.activity.failed
-      ? 'refused'
+      ? 'failed'
       : entry.activity.note === null
-        ? 'waiting'
+        ? 'applying'
         : 'applied'
     // An outcome already recorded for this path — a decision, or the finish of the same
     // call — outranks a line that has not finished, so a pending row cannot overwrite it.
-    if (state === 'waiting' && rows.has(entry.activity.target)) continue
-    rows.set(entry.activity.target, { target: entry.activity.target, state })
+    rows.set(target, { target, state })
   }
   return [...rows.values()]
 }

@@ -66,7 +66,7 @@ try {
 
   await trigger.click()
   await page.getByRole('option', { name: /Claude Sonnet/ }).waitFor()
-  assert.deepEqual(await page.getByRole('option', { name: /Claude Sonnet/ }).locator('.model-capability').allTextContents(), ['Text', 'Vision', 'Tools', 'Reasoning'])
+  assert.deepEqual(await page.getByRole('option', { name: /Claude Sonnet/ }).locator('.model-capability').allTextContents(), ['Text', 'Tools'])
   assert.equal(await page.getByRole('option', { name: /Brave model/ }).locator('.model-capability').count(), 0)
   const search = page.getByRole('combobox', { name: 'Search models' })
   await search.fill('VISION')

@@ -77,6 +77,22 @@ try {
   await overview();await page.locator('.bot-conversations button').filter({hasText:'Review the sample project'}).click();
   await page.getByText('Review the project and show a code example.',{exact:true}).waitFor();
   await snap('03-open-archived-conversation');
+  await page.getByRole('tab',{name:'Files',exact:true}).click();
+  assert.equal(await page.locator('#panel-files .panel-head').count(),0);
+  assert.equal(await page.getByRole('searchbox',{name:'Search project files by name'}).count(),0);
+  const panel=await page.locator('.context').boundingBox();
+  const tree=await page.locator('.tree-body').boundingBox();
+  assert.ok(Math.abs(panel.y+panel.height-tree.y-tree.height-14)<2,'File list fills panel height');
+  await snap('03-files-full-height');
+  await page.getByRole('button',{name:'Search files',exact:true}).click();
+  const fileSearch=page.getByRole('searchbox',{name:'Search project files by name'});
+  await fileSearch.fill('sample');
+  await page.locator('.file-search-results button').filter({hasText:'src/nested/sample.txt'}).waitFor();
+  await snap('03-files-search');
+  await fileSearch.press('Escape');
+  assert.equal(await fileSearch.count(),0);
+  assert.equal(await page.getByRole('button',{name:'Search files',exact:true}).evaluate(el=>el===document.activeElement),true);
+
   await overview();await page.getByRole('button',{name:'New conversation',exact:true}).click();
   await page.getByRole('button',{name:"Don't trust",exact:true}).click();await page.getByRole('dialog').waitFor({state:'hidden'});
   await page.getByRole('textbox',{name:'Message the agent'}).fill('Keep this newer conversation draft');

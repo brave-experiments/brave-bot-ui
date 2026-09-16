@@ -429,6 +429,14 @@ function isLight(hex: string): boolean {
   return 2126 * r + 7152 * g + 722 * b > 1_270_000
 }
 
+/** Choose the higher WCAG contrast, using linear-light luminance rather than encoded RGB. */
+function contrastInk(hex: string): string {
+  const channels = channel6(hex.replace(/^#/, '')) ?? [0, 0, 0]
+  const linear = channels.map((channel) => { const c = channel / 255; return c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4 })
+  const luminance = .2126 * linear[0]! + .7152 * linear[1]! + .0722 * linear[2]!
+  return (luminance + .05) / .05 >= 1.05 / (luminance + .05) ? '#000000' : '#ffffff'
+}
+
 function channel6(hex: string): [number, number, number] | null {
   if (!/^[0-9a-fA-F]{6}$/.test(hex)) return null
   return [
@@ -514,8 +522,8 @@ export function roleVariables(theme: Theme, dark: boolean): Record<string, strin
   }
   const variables: Record<string, string> = {}
   for (const role of ROLE_NAMES) variables[`--role-${role}`] = resolved[role]
-  variables['--role-note-ink'] = isLight(resolved.note) ? '#000000' : '#ffffff'
-  variables['--role-primary-ink'] = isLight(resolved.primary) ? '#000000' : '#ffffff'
+  variables['--role-note-ink'] = contrastInk(resolved.note)
+  variables['--role-primary-ink'] = contrastInk(resolved.primary)
   variables['--role-scheme'] = isLight(resolved.background) ? 'light' : 'dark'
   return variables
 }

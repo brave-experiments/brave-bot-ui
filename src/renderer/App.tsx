@@ -1226,7 +1226,7 @@ export function App(): React.JSX.Element {
         onReset={reset}
         onNudge={nudge}
       />
-      <Context live={live} />
+      <Context live={live} onClose={() => toggle('right')} />
       {[...openedLives.current.values()].some((item) => item.handle !== live?.handle && item.running) && (
         <div className="background-tasks" aria-label="Background tasks">
           {[...openedLives.current.values()].filter((item) => item.handle !== live?.handle && item.running).map((item) => (

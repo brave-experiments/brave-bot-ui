@@ -1,3 +1,4 @@
+import { Modal } from './Modal'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { BRAVE, findTheme, roleVariables, type Theme } from '../../shared/theme'
 import { applyTheme } from '../theme'
@@ -104,14 +105,7 @@ export function ThemePicker(props: Props): React.JSX.Element {
   const dark = window.matchMedia('(prefers-color-scheme: dark)').matches
 
   return (
-    <div className="theme-scrim" onMouseDown={cancel}>
-      <div
-        className="theme-picker"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="theme-title"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
+    <Modal title="Theme" className="theme-picker" onClose={cancel}>
         <h2 id="theme-title">Theme</h2>
         <div
           className="theme-list"
@@ -156,7 +150,7 @@ export function ThemePicker(props: Props): React.JSX.Element {
         <p className="theme-aside">
           Add your own as JSON in <code>{directory}</code>.
         </p>
-      </div>
-    </div>
+      <div className="theme-actions"><button onClick={cancel}>Cancel</button><button onClick={keep}>Use theme</button></div>
+    </Modal>
   )
 }

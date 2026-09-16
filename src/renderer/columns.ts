@@ -9,8 +9,8 @@
 
 /** What each side column may be, and where it starts. */
 export const SIDES = {
-  left: { min: 200, max: 460, initial: 280 },
-  right: { min: 240, max: 520, initial: 320 },
+  left: { min: 200, max: 400, initial: 250 },
+  right: { min: 240, max: 420, initial: 300 },
 } as const
 
 export type Side = keyof typeof SIDES
@@ -21,7 +21,7 @@ export type Side = keyof typeof SIDES
  * The transcript is the reason the window is open; the other two columns are apparatus.
  * So when something has to give, it is never this.
  */
-const CENTER_MIN = 380
+const CENTER_MIN = 480
 
 /**
  * The two 1px dividers, which are part of the window even though nobody sizes them.
@@ -99,6 +99,9 @@ const clamp = (value: number, min: number, max: number): number =>
  * clamped at the moment it comes back, which is the moment it starts to mean something.
  */
 export function fit(widths: Widths, available: number, collapsed: Record<Side, boolean>): Widths {
+  // On small windows the inspector overlays the conversation and consumes no grid width.
+  if (available <= 1120) collapsed = { ...collapsed, right: true }
+
   let left = collapsed.left ? widths.left : clamp(widths.left, SIDES.left.min, SIDES.left.max)
   let right = collapsed.right ? widths.right : clamp(widths.right, SIDES.right.min, SIDES.right.max)
 
