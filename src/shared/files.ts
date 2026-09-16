@@ -51,6 +51,10 @@ export interface Listing {
 /** What became of a double-click. */
 export type OpenOutcome = { status: 'opened' } | { status: 'failed'; message: string }
 
+export interface FilePreview { path: string; text: string; truncated: boolean }
+export interface FileSearch { paths: string[]; incomplete: boolean }
+export interface FileAttachment { id: string; path: string }
+
 /**
  * Enough rows that no real source directory is clipped, few enough that one `readdir` cannot
  * hand the renderer a list it will spend a second laying out.

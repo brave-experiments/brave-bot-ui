@@ -23,6 +23,8 @@ import { existsSync, readFileSync } from 'node:fs'
 const { version } = JSON.parse(readFileSync('package.json', 'utf8'))
 
 const AGENT = 'target/debug/bravebot-rpc'
+const FILES = 'target/debug/bravebot-ui-files'
+if (!existsSync(FILES)) throw new Error('Secure file helper missing — run npm run bridge first')
 if (!existsSync(AGENT)) {
   console.error(`no agent binary at ${AGENT} — run \`npm run bridge\` first`)
   process.exit(1)
@@ -43,7 +45,7 @@ const paths = await packager({
   overwrite: true,
   prune: true,
   asar: true,
-  extraResource: [AGENT],
+  extraResource: [AGENT, FILES],
   // What not to carry. `target` is the Rust build directory and is gigabytes of object
   // files; `src` and `crates` are sources whose output is already in `out/`. Leaving any of
   // them in would ship the whole workshop with the furniture.

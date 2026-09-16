@@ -1,3 +1,4 @@
+import { readProjectText } from './project-files'
 /**
  * Where a bot's definition is kept, and where the two files it speaks through are made.
  *
@@ -437,5 +438,5 @@ export function ground(bot: Bot, nudge = false): Grounding | null {
 export function memory(slug: unknown): string | null {
   const held = bot(slug)
   if (!held) return null
-  return readable(memoryFile(held.directory, held.slug))
+  return readProjectText(held.directory, memoryPath(held.slug), MEMORY_MAX)?.text ?? null
 }

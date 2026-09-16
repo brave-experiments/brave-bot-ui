@@ -50,7 +50,7 @@ if [ -d "$AGENT" ]; then
   AGENT="$(cd "$AGENT" && pwd -P)"
 fi
 
-build() { cargo build -p bravebot-bridge "$@"; }
+build() { cargo build -p bravebot-bridge -p bravebot-ui-files "$@"; }
 
 if [ ! -d "$AGENT" ]; then
   echo "warning: no credential checkout at $AGENT (set BRAVEBOT_DIR)." >&2
@@ -68,7 +68,7 @@ fi
 if command -v direnv >/dev/null 2>&1 && [ -f "$AGENT/.envrc" ]; then
   if direnv exec "$AGENT" true 2>/dev/null; then
     echo "building with credentials from $AGENT/.envrc" >&2
-    direnv exec "$AGENT" cargo build -p bravebot-bridge "$@"
+    direnv exec "$AGENT" cargo build -p bravebot-bridge -p bravebot-ui-files "$@"
     exit $?
   fi
   echo "warning: $AGENT/.envrc is not allowed. Run: direnv allow $AGENT" >&2

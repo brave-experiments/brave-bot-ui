@@ -40,7 +40,7 @@ import {
 } from './bots'
 import { isBotModel, isSlug, slugFor, withoutBot, type Bot } from '../shared/bots'
 import { isSessionId, parseForkResult } from '../shared/forks'
-import { forgetRoot, list, noteRoot, open as openInApp } from './files'
+import { forgetRoot, list, noteRoot, open as openInApp, preview, search, chooseAttachments, attachmentPaths } from './files'
 import { isSubpath } from '../shared/files'
 import {
   parseExportRequest,
@@ -128,6 +128,7 @@ async function sendBotTurn(
   nudge = false,
   recall = true,
   model?: string | null,
+  attachments?: unknown,
 ): Promise<{ ok?: unknown; error?: BotFailure }> {
   if (!bridge) return { error: { code: 'no_bridge', message: 'the agent is not running' } }
 
@@ -158,6 +159,7 @@ async function sendBotTurn(
   }
 
   try {
+    params.files = [...((params.files as string[] | undefined) ?? []), ...attachmentPaths(session, attachments)]
     return { ok: await bridge.request('turn.send', params) }
   } catch (error) {
     if (error instanceof BridgeError) {
@@ -415,8 +417,8 @@ function sanitised(method: string, params: unknown): Record<string, unknown> {
   // one a person can find again, and that is a claim about who asked — which this process makes
   // and a window does not get to. Nothing worse than a lost history entry is at stake; it is here
   // because the answer to "may the renderer say this?" is the same either way.
-  const { files: _files, dropped: _dropped, recall: _recall, ...rest } = held
-  return rest
+  const { files: _files, dropped: _dropped, recall: _recall, attachments, ...rest } = held
+  return { ...rest, files: attachmentPaths(typeof rest.session === 'string' ? rest.session : '', attachments) }
 }
 
 app.whenReady().then(() => {
@@ -662,7 +664,7 @@ app.whenReady().then(() => {
       if (typeof value !== 'object' || value === null) {
         return { error: { code: 'bad_request', message: 'not a request' } }
       }
-      const { session, slug, prompt, grounded, model } = value as Record<string, unknown>
+      const { session, slug, prompt, grounded, model, attachments } = value as Record<string, unknown>
       if (!isSessionId(session) || typeof prompt !== 'string') {
         return { error: { code: 'bad_request', message: 'not a request' } }
       }
@@ -684,7 +686,7 @@ app.whenReady().then(() => {
       // question about *its* session, which this process cannot see, so that answer stands.
       const nudge = grounded !== true && nudgeDue(held)
       if (nudge) noteBotNudged(held.slug)
-      return sendBotTurn(session, held, prompt, grounded === true || nudge, nudge, true, model as string | null | undefined)
+      return sendBotTurn(session, held, prompt, grounded === true || nudge, nudge, true, model as string | null | undefined, attachments)
     },
   )
 
@@ -746,6 +748,16 @@ app.whenReady().then(() => {
   //
   // Note what this does not touch: `ALLOWED` above. The tree reaches no agent method, so the list
   // of things the renderer may ask the agent to do is exactly as long as it was.
+  ipcMain.handle('bravebot:files:preview', (_event, session: unknown, path: unknown) => {
+    return typeof session === 'string' && isSubpath(path) ? preview(session, path) : null
+  })
+  ipcMain.handle('bravebot:files:choose-attachments', (_event, session: unknown) => {
+    if (!window || typeof session !== 'string') throw new Error('No active project.')
+    return chooseAttachments(window, session)
+  })
+  ipcMain.handle('bravebot:files:search', (_event, session: unknown, query: unknown, hidden: unknown) => {
+    return typeof session === 'string' && typeof query === 'string' && query.length < 1000 ? search(session, query, hidden === true) : { paths: [], incomplete: true }
+  })
   ipcMain.handle('bravebot:files:list', (_event, session: unknown, path: unknown) => {
     if (!isSessionId(session) || !isSubpath(path)) return null
     return list(session, path)

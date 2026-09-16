@@ -27,7 +27,7 @@ import type { CommandId, ContextCommandId, ContextRef, WindowState } from '../sh
 import type { ExportOutcome, ExportRequest } from '../shared/export'
 import type { Fork } from '../shared/forks'
 import type { Bot } from '../shared/bots'
-import type { Listing, OpenOutcome } from '../shared/files'
+import type { Listing, OpenOutcome, FilePreview, FileSearch, FileAttachment } from '../shared/files'
 import type { Theme } from '../shared/theme'
 
 /** Everything the picker needs: what is on offer, which of them is chosen, and where to put one. */
@@ -181,6 +181,7 @@ const api = {
     /** The preview seed, used only when creating a bot. */
     avatar?: string
     model?: string | null
+    attachments?: string[]
     name: string
     purpose: string
     directory: string
@@ -247,6 +248,7 @@ const api = {
     prompt: string
     grounded: boolean
     model?: string | null
+    attachments?: string[]
   }): Promise<Answer<{ turn: number }>> {
     return ipcRenderer.invoke('bravebot:bots:send', request) as Promise<Answer<{ turn: number }>>
   },
@@ -262,7 +264,15 @@ const api = {
    * Names and kinds only. Nothing on this bridge reads a file's contents, so it adds no way for
    * something the agent was refused to reach the renderer regardless.
    */
-  listFiles(session: string, path: string): Promise<Listing | null> {
+  previewFile(session: string, path: string): Promise<FilePreview | null> {
+    return ipcRenderer.invoke('bravebot:files:preview', session, path) as Promise<FilePreview | null>
+  },
+  chooseAttachments(session: string): Promise<FileAttachment[]> {
+    return ipcRenderer.invoke('bravebot:files:choose-attachments', session) as Promise<FileAttachment[]>
+  },
+  searchFiles(session: string, query: string, hidden: boolean): Promise<FileSearch> {
+    return ipcRenderer.invoke('bravebot:files:search', session, query, hidden) as Promise<FileSearch>
+  },  listFiles(session: string, path: string): Promise<Listing | null> {
     return ipcRenderer.invoke('bravebot:files:list', session, path) as Promise<Listing | null>
   },
 
