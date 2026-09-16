@@ -1,6 +1,8 @@
 # UI and UX implementation audit
 
-Branch: `codex/ui-ux-redesign`
+Historical audit of `codex/ui-ux-redesign`, subsequently merged through PRs #37,
+#39, #40, #41 and #42. Counts and live-run observations below describe the original
+implementation, not a fresh test result. Use [testing](testing.md) for current gates.
 
 The full review is the scope. Runtime checks use the actual Electron application and isolated test projects.
 Compilation, interaction assertions, screenshots, and live-agent checks provide
@@ -35,8 +37,8 @@ complementary evidence; their boundaries are recorded below.
 ## Acceptance evidence
 
 The Electron driver is `scripts/drive-ux-acceptance.mjs`. It launches the production
-build with a fresh user-data directory and disposable project. It records 41
-screenshots and fails on assertion failures or renderer exceptions. Screenshots
+build with a fresh user-data directory and disposable project. It records screenshots
+(currently 42) and fails on assertion failures or renderer exceptions. Screenshots
 were opened and visually inspected, including the final dark scrollbar and
 memory-reset confirmation refinements.
 

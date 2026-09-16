@@ -81,10 +81,11 @@ Each driver launches the app, prints a line per assertion and leaves screenshots
 `/tmp/bravebot-ui/` or a driver-specific path in `/tmp`. Eight of the checks cost real tokens:
 `drive:markdown`, `drive:run`, `drive:ask`, `drive:bot-turn`, `drive:bot-memory`, `drive-turn.mjs`,
 `drive-models-live.mjs` and `smoke-turn.sh` send an
-actual prompt. Live checks use the backend credentials configured in settings, the environment,
-or the agent binary.
+actual prompt. Live checks require backend credentials from the process environment or compiled
+into the agent binary; the UI's setup help does not store credentials. See
+[setup](setup.md#credentials).
 
-The drivers share `bravebot-ui.json`, so one that leaves a column folded — or a panel turned off —
+Some older drivers share the default profile's `bravebot-ui.json`, so one that leaves a column folded — or a panel turned off —
 would make the next one's measurements meaningless. `drive-columns.mjs` normalises the columns at
 the start of a run and puts them back at the end, `drive-panels.mjs` turns every panel back on
 before it measures one and again before it finishes, and `drive-tree.mjs` puts the file tree back
@@ -108,11 +109,12 @@ table above. Two jobs:
   revision the gitlink pins, then `cargo clippy --all-targets --all-features -- -D warnings`
   and `cargo test --all`.
 
+The workflow does not run the Node regression tests, Electron drivers, packaged-app
+checks, or the upstream agent's full test suite. Run the applicable local checks above.
+
 So Clippy *is* a lint step, on the Rust side; there is none on the TypeScript side, where `tsc`
-is the whole gate. `cargo fmt --all -- --check` is deliberately absent: rustfmt would rewrite
-around 490 lines of the bridge crate, mostly breaking method chains and one-line `assert!`
-calls that are on one line on purpose, and reformatting the crate is a change to make on its
-own rather than as a side effect of turning CI on. The reasoning for each of these lives in
+is the whole gate. `cargo fmt --all -- --check` is deliberately absent because the bridge is not
+rustfmt-clean; introducing that gate requires a separate formatting change. The reasoning for each of these lives in
 comments in the workflow itself.
 
 No `drive:*` driver runs in CI: they want a macOS runner and a display, and eight of the live checks spend

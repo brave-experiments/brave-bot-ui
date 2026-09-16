@@ -1,4 +1,11 @@
-# Phase 0 — `bravebot-bridge`: the library and its protocol
+# `bravebot-bridge`: the library and its protocol
+
+This document began as the Phase 0 design. The request and event descriptions below
+cover the current bridge; §13–§14 retain historical implementation notes. For exact
+wire shapes, consult [`protocol.rs`](../crates/bravebot-bridge/src/protocol.rs),
+[`wire.rs`](../crates/bravebot-bridge/src/wire.rs),
+[`bridge.rs`](../crates/bravebot-bridge/src/bridge.rs) and
+[the UI types](../src/shared/protocol.ts). Setup instructions live in [setup.md](setup.md).
 
 The Electron app does not drive a terminal and does not parse one. It talks to a Rust
 **library**, `bravebot-bridge`, which lives in this repository and depends on
@@ -54,13 +61,15 @@ channel for the reply — the same `mpsc` dance `remote_confirm.rs` already does
 napi's threadsafe machinery, plus a standing invariant that the JS main thread must never
 block or the whole app deadlocks. The complexity is relocated, not removed.
 
-**The refusal guarantee stops being structural.** This is the one that decides it. Across
-a pipe, "the UI died" *is* a closed pipe, which is *already* a refusal — it follows from
-the shape of the thing rather than from code remembering to handle it. In-process, a
-renderer crash and an agent crash are one event, and there is no surviving side left to
-refuse anything. For a project whose thesis is that protection comes from structure
-rather than from a filter that has to recognise an attack, dissolving the process
-boundary is the wrong direction.
+**Process isolation makes shutdown explicit.** Closing the bridge's stdin drops the
+bridge and refuses pending questions. Electron closes stdin on window close and app
+quit. A native addon in the main process would share that process's failure boundary;
+the renderer remains a separate process in either design.
+
+This is not a guarantee that every display failure closes the pipe. A renderer-only
+crash currently has no dedicated shutdown handler, and the transport ignores stdout
+write failures. In those cases a question can remain pending until shutdown or
+cancellation, but cannot become an approval. See [security](security.md).
 
 **Practical drag.** A native module needs rebuilding and re-testing per Electron ABI,
 with prebuilds per architecture, where a plain binary is already cross-built by the
@@ -76,14 +85,18 @@ None of this is permanent. §2.2 is what keeps it cheap to revisit.
 Entirely in this repository:
 
 ```
-bravebot-ui/
-  crates/bravebot-bridge/
-    Cargo.toml
-    src/lib.rs            all of it: session store access, turn driving,
-    src/session.rs        the Confirmer / Reporter / Sink implementations,
-    src/wire.rs           the JSON projections of §6
-    src/bin/bravebot-rpc.rs    ~100 lines: read stdin, frame stdout, nothing else
+crates/bravebot-bridge/
+  src/lib.rs               crate root and public modules
+  src/bridge.rs            dispatch, session lifecycle and turns
+  src/turn.rs              Confirmer, Reporter and audit sink
+  src/protocol.rs          message envelopes and errors
+  src/wire.rs              agent types projected into JSON
+  src/store.rs             shared session records
+  src/fork.rs              conversation cuts
+  src/running.rs           pending replies and cancellation
+  src/bin/bravebot-rpc.rs  stdin/stdout transport
 ```
+
 
 `crates/bravebot-bridge/Cargo.toml` depends on the agent as a normal Cargo dependency — a
 path dependency into `vendor/bravebot`, which is a git submodule, so the path says where the
@@ -103,7 +116,7 @@ This works today, unmodified, and it was checked rather than assumed:
 - **Every module the bridge needs is already `pub`**: `bravebot_tui::{sessions, store, audit}`,
   every module of `bravebot_agent`, and `bravebot_core::{event, label, todo, trust}`.
 - `crates/tui/build.rs` shells out to git to stamp `BRAVEBOT_BUILD` and degrades to
-  `"0.1.0 (no git)"` when there is none, so it compiles as a git or vendored dependency.
+  a version string without a git revision when there is none, so it compiles as a git or vendored dependency.
 
 ### 2.1 Depend on `bravebot-tui`, and do not extract from it
 
@@ -127,10 +140,9 @@ string with no coordination needed.
 
 ### 2.2 Keeping the linkage replaceable
 
-Everything above the transport lives in `lib.rs` and knows nothing about stdio. `bravebot-rpc`
-is a framing shim: read a line, call a library method, serialise the result. The library
-API mirrors §7 one-to-one — `list_sessions`, `open_session`, `send_turn`, `reply_confirm`
-— and takes a callback for events rather than writing them anywhere.
+Everything above the transport lives in library modules and knows nothing about stdio. `bravebot-rpc`
+is a framing shim: read a line, call a library method, serialise the result. `Bridge::dispatch` routes the methods in §7 and takes a callback for events rather
+than writing them directly to stdout.
 
 If in-process linkage is wanted later, it is a second front-end beside `bravebot-rpc`, and the
 library does not change. Two rules preserve that, and reviewers should enforce them:
@@ -147,8 +159,9 @@ Honest limits. Two things could eventually want an upstream change, and neither 
 - **Structured `doctor` output.** The checks live in `crates/cli/src/main.rs`, a binary,
   so they cannot be called as a library. v1 shells out to `bravebot doctor` and shows its text
   (§7.3). A small upstream extraction would be nicer and is optional.
-- **Command approval.** When an exec tool lands it adds a `Confirmer` method, which the
-  bridge must implement. That is upstream changing under us, not us changing upstream.
+- **New approval types.** Command approval is implemented. The v0.8.0 fetch-host,
+  language-server and manifest-plan requests are currently refused; adding UI support
+  requires adapting the bridge, not editing upstream.
 
 If anything else appears to need an upstream edit, that is a signal the bridge is
 reaching for something it should not, and it should be raised rather than patched.
@@ -177,11 +190,10 @@ reaching for something it should not, and it should be raised rather than patche
 bravebot-rpc
 ```
 
-No arguments in v1. Configuration comes from the environment via `Config::from_env`,
-exactly as the CLI does, so `bravebot-rpc` sees credentials on the same terms `bravebot` does and
-the app inherits whatever the user's shell already set up. `bravebot-rpc --version` prints the
-same `BUILD` string as `bravebot --version` — the same constant, since both read
-`bravebot_tui::BUILD` — and the client should surface it, because a transcript read after the
+Normal operation takes no arguments. `--version` (or `-V`) prints the bridge version
+and the upstream build string. Configuration comes from runtime variables and baked
+values via `Config::from_env`; a shell-launched app inherits that shell's environment.
+The client should surface the build string, because a transcript read after the
 fact is read to find out what went wrong and the first question is which build produced
 it.
 
@@ -190,43 +202,15 @@ one on `PATH`, with the single exception of `doctor` (§7.3, §2.3).
 
 ### 3.2 Credentials are a build-time input
 
-`crates/config/build.rs` upstream **bakes the backend credentials into the binary at
-compile time** and *fails the build* when they are absent, deliberately: a release binary
-is built where the secrets are and used anywhere, so it does not demand them again from
-every directory it is started in.
+The upstream configuration build script bakes available Brave backend values into
+`bravebot-rpc`; runtime values override them. This repository opts into unconfigured
+builds with `BRAVEBOT_ALLOW_UNCONFIGURED_BUILD=1` in `.cargo/config.toml`, so missing
+credentials do not prevent development or CI builds. They do prevent inference unless
+configuration is supplied at runtime. See [credentials](setup.md#credentials) for
+loading, strict build validation and the difference between shell and Finder launches.
 
-This matters more for a window than for a terminal, and the difference is what makes it a
-trap. `bravebot` is run from a shell that usually has direnv loaded, so even an unconfigured
-binary finds what it needs in the environment. **An app launched from Finder, or by
-`npm run dev`, has no such environment.** An unconfigured build therefore starts cleanly,
-lists sessions, opens them, and fails only at the first inference request with
-`SERVICES_KEY_AICHAT is not set and was not built in`. Everything works until the one
-thing that matters.
-
-Two things follow, and both are needed:
-
-- **Build through direnv.** `scripts/build-bridge.sh` (what `npm run bridge` runs) finds
-  the agent — `$BRAVEBOT_DIR` if set, otherwise `vendor/bravebot`, which is the same tree
-  `crates/bravebot-bridge/Cargo.toml` depends on — and builds via `direnv exec` when its
-  `.envrc` is allowed, so the credentials are captured. `$BRAVEBOT_DIR` is credentials
-  only now that the submodule decides the sources: it can name an older sibling checkout
-  holding the `.envrc` without changing what gets compiled. The path is canonicalised first: direnv's allow list is keyed on the physical
-  path of the `.envrc`, so a checkout reached through a symlink otherwise reads as
-  un-allowed even after `direnv allow`. It warns loudly rather than silently producing a
-  binary that cannot infer. Verified: a turn runs from a shell with all three variables
-  explicitly unset.
-- **`BRAVEBOT_ALLOW_UNCONFIGURED_BUILD=1` stays set** in `.cargo/config.toml`, so a checkout
-  with no secrets still compiles and the 47 tests still run. It only suppresses the
-  build failure; it does not prevent baking, so it costs nothing when credentials are
-  present.
-
-The app also has to fail *well*, because the cause is a build step and nothing the user
-does in the window will fix it. A `config` error code (§7.4) is surfaced as its own
-screen naming the three steps that fix it, not as a line in a status bar.
-
-**For packaging:** a release build must be produced the way the agent's own releases are,
-with the credentials present. This is the single easiest way to ship an app that looks
-fine and cannot answer a question.
+`agent.info` exposes `configured` for readiness checks. Setup help and diagnostics
+explain missing configuration without exposing credential values.
 
 ## 4. Message envelope
 
@@ -238,7 +222,8 @@ Three shapes, distinguished by which keys are present.
 { "id": 17, "method": "turn.send", "params": { ... } }
 ```
 
-`id` is a client-chosen positive integer, unique within the process lifetime.
+`id` is a client-chosen unsigned integer, unique within the process lifetime.
+The parser accepts zero; the Electron client generates increasing IDs.
 
 **Response** (agent → client), exactly one per request, `ok` xor `error`:
 
@@ -380,7 +365,8 @@ Loads the `Record` via `sessions::load` and the trail and todos via `sessions::r
 - `branchNote` / `buildNote` are the existing `sessions::branch_note` and
   `sessions::build_note` outputs: a sentence, or `null` when there is nothing to say.
 
-`session.open` does **not** start a turn and does **not** ask about trust. It is a read.
+`session.open` does **not** start a turn. If the record has no saved trust map,
+it emits `trust.request`; the client must answer before sending a turn.
 
 #### `session.new`
 
@@ -480,7 +466,7 @@ differently: the front-end puts it in the composer and the person edits it.
 **Lineage is not in the record.** `Record` has no field for a parent, and adding one is an
 upstream change (§2); worse, `Handle::save` rebuilds the record wholesale, so a key written
 beside it would be erased by the fork's first turn. The front-end keeps it instead, in a
-`forks.json` of its own under `userData`, written by the main process **from this response** —
+`forks` key in `bravebot-ui.json` under `userData`, written by the main process **from this response** —
 never from what the renderer asked for. That is the same promise the recents list makes: the
 renderer can read the list and ask for something on it, and has no way to write to it.
 
@@ -545,12 +531,12 @@ file is there immediately before the send, not once when it was first named.
 
 Neither list may be named by a renderer in this app; see §9 and `src/main/index.ts`. Spawns the worker thread and calls `turn::resume` with an
 RPC `Confirmer`, an RPC `Reporter`, and a `Trail` sink — the same call shape as
-`crates/tui/src/app.rs:562`, differing only in where the three handles send.
+the upstream TUI, differing only in where the three handles send.
 
 Returns immediately: `{ "turn": 5 }`, the turn number within the session. Progress
 arrives as events; completion as `turn.done` or `turn.error`.
 
-The prompt is appended to `~/.bravebot/history` (via the moved `store::append_history`), so
+The prompt is appended to `~/.bravebot/history` (via `store::append_history`), so
 recall works across both front-ends, and it names the session if the session has no name yet.
 
 `recall` (optional, default `true`) governs both. A front-end that sends a turn **on its own
@@ -571,7 +557,7 @@ flight errors `turn_in_flight`. Different sessions run concurrently.
 ```
 
 Calls `Cancel::cancel()` on that turn's token — a fresh token per turn, never reused,
-matching `app.rs:540`. Returns `{}` immediately; the turn ends with
+matching the upstream cancellation model. Returns `{}` immediately; the turn ends with
 `turn.error` / `Cancelled` when the engine notices. Cancelling when nothing is running is
 not an error.
 
@@ -588,6 +574,23 @@ covers the race where the question is registered just after the stop request.
 
 See §8. Returns `{}`. An unknown or already-answered `request` errors
 `no_such_request` and changes nothing — an approval is single-use and cannot be replayed.
+
+#### Other decision replies
+
+`run.reply`, `output.reply`, `vouch.reply` and `ask.reply` all require `session` and
+`request`, and must match the pending question's kind as well as its ID.
+`run.reply` accepts `decision` and `remember`; only an approval with literal
+`remember: true` records a command grant. Output and vouch replies accept `decision`.
+`ask.reply` accepts an `answers` array, whose entries contain `typed` text or `chosen`
+indices; unreadable entries decline. Choices are fitted to the question before use.
+
+#### Permissions
+
+`permissions.list` takes `session` and returns `paths` and `commands`.
+`permissions.revoke` takes `session` plus either `kind: "path"` and `path`, or
+`kind: "command"` and `command: { program, args }`. It returns the updated lists.
+These methods refuse with `turn_in_flight` while the session is running. Revocation
+can reduce existing grants; it cannot add trust.
 
 ### 7.3 Trust and diagnostics
 
@@ -612,7 +615,7 @@ machine anyone will try it on.
 
 **v1 shells out.** The checks live in `crates/cli/src/main.rs`, a binary, so they cannot
 be called as a library without an upstream change (§2.3). The bridge runs `bravebot doctor`,
-captures stdout, and returns it whole:
+captures stdout and stderr, and returns their combined text:
 
 ```json
 { "id": 9, "ok": { "structured": false, "text": "…", "exitCode": 0,
@@ -629,7 +632,9 @@ instead. The flag exists so the client can be written once against both.
 
 #### `agent.info`
 
-`{ "build": "…", "version": "0.1.0", "home": "/Users/me/.bravebot" }`. Sent as the
+`{ "build": "…", "version": "0.1.0", "home": "/Users/me/.bravebot",
+"configured": true, "defaultModel": "…" }`. `version` is the bridge package
+version; `home` and `defaultModel` may be null. Sent as the
 `agent.ready` event at startup and also available as a request.
 
 ### 7.4 Error codes
@@ -649,11 +654,11 @@ instead. The flag exists so the client can be written once against both.
 
 ## 8. Events
 
-One per `remote_confirm::ToMain` variant, plus lifecycle. All carry `session`.
+Approval, progress and lifecycle events carry `session`, except for `agent.ready`.
 
 | event | `data` | source |
 |---|---|---|
-| `agent.ready` | `{ build, version, home }` | startup, no `session` |
+| `agent.ready` | `{ build, version, home, configured, defaultModel }` | startup, no `session` |
 | `turn.started` | `{ turn }` | `turn.send` accepted |
 | `phase` | `{ phase }` | `Reporter::phase` |
 | `narration` | `{ text }` | `Reporter::narration`, **empty ones dropped** |
@@ -665,6 +670,11 @@ One per `remote_confirm::ToMain` variant, plus lifecycle. All carry `session`.
 | `tokens` | `{ written }` | `Reporter::output_tokens`, **only when the figure changes** |
 | `audit` | `{ at, turn, event }` | the `Sink`, via `audit::as_json` |
 | `confirm.request` | see §8.1 | `Confirmer::confirm_write` |
+| `run.request` | `{ request, stages, directory, plan, writes, releasesPrivate, vouches, summary }` | command approval |
+| `output.request` | `{ request, command, reference, lines, output, summary }` | admit command output |
+| `vouch.request` | preview and label fields from `wire::vouch_request` | trust a quarantined path |
+| `ask.request` | `{ request, prompts }` | user questions |
+| `trust.request` | `{ directory }` | initial project trust |
 | `turn.done` | see §8.2 | `Ok(Outcome)` |
 | `turn.error` | see §8.3 | `Err(TurnError)` |
 
@@ -712,12 +722,14 @@ whose events all share one second cannot say which came first.
 } }
 ```
 
-- `request` is agent-assigned, monotonic per session, and **single-use**.
+- `request` is agent-assigned and **single-use** for its pending question. IDs can
+  recur in later turns; clients must discard pending questions when a turn ends.
 - `changes` is `WriteRequest::diff()`, already condensed. The full `contents` is **not**
   sent: the whole point of the design is that a reviewer reads a few lines rather than
   spotting a difference in a whole file, and shipping the body to the renderer invites a
   client to show it instead.
 - `existing` distinguishes create from overwrite without sending the old body.
+- `added`, `removed` and `exact` describe the diff counts and whether it is exact.
 - `untrusted: true` means the body came from somewhere nobody vouched for — a file the
   planner never read, returned by an isolated processor. The Rust doc comment is explicit
   that reviewing this is a different act from reviewing the model's own work and the
@@ -790,10 +802,12 @@ preferences to this ID just as they do for `turn.done`.
 
 Therefore:
 
-- **Every path that cannot deliver a question, or cannot receive an answer, resolves to
-  `Decision::Reject`.** A closed stdout, a closed stdin, EOF, a serialisation failure, a
-  client that exits with a confirmation outstanding, `session.close`, or process
-  shutdown. A channel that cannot carry the question cannot carry consent either.
+- **Cancellation, session close and bridge shutdown refuse pending questions.**
+  EOF on stdin drops the bridge. Malformed decisions never approve. The current
+  transport ignores stdout write errors, so a closed stdout alone can leave a question
+  waiting; likewise a renderer-only crash does not automatically stop the child.
+  These are liveness limitations, not approval paths.
+
 - **There is no timeout-to-approve.** There is no timeout at all in v1: a write waits for
   a human indefinitely, which is what it should do. If a timeout is ever added it
   resolves to refusal.
@@ -801,8 +815,7 @@ Therefore:
   because nobody was watching would let the display outrank the work.
 - **An approval is bound to its `request` id and consumed on use.** A replayed
   `confirm.reply` errors and changes nothing.
-- **A cancel does not answer a pending write.** These are separate decisions and
-  conflating them would let a cancel approve something.
+- **A cancel refuses a pending write.** It wakes the blocked confirmer without approval.
 
 These are the protocol's actual security properties. §12 makes them tests.
 
@@ -833,42 +846,37 @@ default: defaulting either way is the mistake this design exists to avoid.
 - One writer, holding a mutex on stdout, so lines cannot interleave. This is the same
   reason the kernel never prints.
 - One worker thread per running turn, holding its own `Cancel`, its own `Egress`, and
-  cloned `Config` / `Workspace` handles — as `app.rs:544` does.
+  its configuration and workspace state.
 - The `Confirmer` blocks its worker on an `mpsc::Receiver<Decision>`, which the dispatch
   thread feeds from `confirm.reply`. Unchanged from `RemoteConfirmer`; only the source of
   the answer moves.
-- v1 caps concurrent turns at 4 and errors `turn_in_flight` beyond that, because each
-  turn is a live model connection and an unbounded fan-out is a bill, not a feature.
+- A session permits one running turn. There is currently no global four-turn cap;
+  different sessions can run concurrently and each can incur model usage.
 
 ---
 
-## 11. Out of scope for v1
+## 11. Current limits
 
-- **Command approval.** There is no exec tool. `crates/agent/src/tools.rs:1988` asserts
-  no tool name contains `"run"`, and `Confirmer` has exactly one method,
-  `confirm_write`. The README's "you approve every command" describes the design, not the
-  current code. When an exec tool lands it will add a `Confirmer` method, and this
-  protocol grows a `confirm.command` event alongside `confirm.request` — same
-  request-id and same refusal-by-default rules.
-- **Streaming reply tokens.** `Reporter` reports `output_tokens` as a count, not text.
-  The reply arrives whole, in `turn.done`. Token-by-token streaming would need a change
-  in the turn engine and is not worth it for v1.
-- **MCP configuration**, subscription import (`import-leo-creds`), skills authoring, and
-  workspace file browsing. All are reachable from the CLI; the app can shell out or wait.
-- **Multiple clients on one `bravebot-rpc`.** One process, one client.
+- Fetch-host, language-server and manifest-plan approval requests are refused until
+  their UI is implemented. Command, output, vouch and question approvals are implemented.
+- Replies arrive whole in `turn.done`; output-token events report counts, not text.
+- MCP configuration, subscription import and skills authoring have no dedicated UI.
+- File browsing, previews and attachments are Electron IPC features, not RPC methods.
+- One `bravebot-rpc` process has one client. There is no multi-client transport.
 
 ---
 
-## 12. Tests to write with the code
+## 12. Verification contracts
 
 The first six are the security properties, not nice-to-haves. Each should fail loudly if
 someone later makes the obvious "simplification".
 
 1. A closed stdin with a confirmation outstanding yields `Decision::Reject`.
-2. A write to a closed stdout yields `Decision::Reject` rather than proceeding.
+2. Transport-loss coverage must distinguish stdin EOF from a stdout-only failure;
+   the latter currently has the waiting-state limitation described in §8.4.
 3. `session.close` during a pending confirmation rejects it, then joins the worker.
 4. A replayed `confirm.reply` for a consumed `request` errors and performs no write.
-5. `turn.cancel` leaves a pending confirmation pending — it does not approve it.
+5. `turn.cancel` wakes and refuses a pending confirmation; it never approves it.
 6. `turn.send` before `trust.reply` on a fresh session is refused.
 7. A malformed line is answered or logged and the process survives; the next valid
    request is served.
@@ -890,9 +898,11 @@ someone later makes the obvious "simplification".
 
 ---
 
-## 13. Implementation order and status
+## 13. Historical implementation order and status
 
-**Built and verified live. 47 tests passing, upstream clean at `1ba33f9`.**
+The following records the original Phase 0 milestone: **47 tests passing, upstream
+clean at `1ba33f9`**. It is historical evidence, not the current dependency pin or
+test count. See [testing](testing.md) for current validation commands.
 
 A real turn has now run end to end through `bravebot-rpc` (`scripts/smoke-turn.sh`, in a shell
 where direnv has loaded the agent's `.envrc`): five tool rounds, a gate refusal, two
@@ -934,7 +944,10 @@ rather than waiting for the whole of Phase 0.
 
 ---
 
-## 14. Decisions taken, and what is still open
+## 14. Historical decisions and follow-ups
+
+The original decisions below explain the implementation sequence. Later UI work
+added grouping and bot lists; live audit streaming is now implemented (§8).
 
 Settled:
 
