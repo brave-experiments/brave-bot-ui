@@ -43,7 +43,7 @@ export function useColumns(): {
   nudge: (side: Side, by: number) => void
   toggle: (side: Side) => void
 } {
-  const [layout, setLayout] = useState<Layout>(INITIAL_LAYOUT)
+  const [layout, setLayout] = useState<Layout>(() => ({ ...INITIAL_LAYOUT, collapsed: { left: false, right: window.innerWidth <= 1120 } }))
   const [dragging, setDragging] = useState<Side | null>(null)
   // Armed by a fold and by nothing else. A drag, an arrow key and a window resize all
   // change the same widths and must all land instantly; only a fold is a movement anyone
@@ -61,7 +61,7 @@ export function useColumns(): {
       if (live && stored) {
         setLayout({
           widths: fit(stored.widths, window.innerWidth, stored.collapsed),
-          collapsed: stored.collapsed,
+          collapsed: window.innerWidth <= 1120 ? { ...stored.collapsed, right: true } : stored.collapsed,
         })
       }
       loaded.current = true
@@ -76,8 +76,15 @@ export function useColumns(): {
   const from = useRef<{ x: number; widths: Widths } | null>(null)
 
   useEffect(() => {
-    const onResize = (): void =>
-      setLayout((old) => ({ ...old, widths: fit(old.widths, window.innerWidth, old.collapsed) }))
+    let narrow = window.innerWidth <= 1120
+    const onResize = (): void => {
+      const nextNarrow = window.innerWidth <= 1120
+      setLayout((old) => {
+        const collapsed = nextNarrow && !narrow ? { ...old.collapsed, right: true } : old.collapsed
+        return { ...old, collapsed, widths: fit(old.widths, window.innerWidth, collapsed) }
+      })
+      narrow = nextNarrow
+    }
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
@@ -209,7 +216,7 @@ export function Gutter({
 
   return (
     <div
-      className={`gutter ${dragging ? 'dragging' : ''} ${collapsed ? 'inert' : ''}`}
+      className={`gutter ${side} ${dragging ? 'dragging' : ''} ${collapsed ? 'inert' : ''}`}
       // Kept as a separator, and kept named, even when it does nothing: announcing it as
       // unavailable says more than having it disappear from under the reader.
       role="separator"

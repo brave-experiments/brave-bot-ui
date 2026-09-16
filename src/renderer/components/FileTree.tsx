@@ -1,3 +1,5 @@
+import { FilePreview } from './FilePreview'
+import type { FileSearch } from '../../shared/files'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Fold } from './Fold'
 import { FileGlyph } from './FileGlyph'
@@ -39,6 +41,22 @@ export function FileTree({
   const [unreadable, setUnreadable] = useState<ReadonlySet<string>>(new Set())
   const [hidden, setHidden] = useState(false)
   const [query, setQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const searchButton = useRef<HTMLButtonElement>(null)
+  const closeSearch = () => { setQuery(''); setSearchOpen(false); searchButton.current?.focus() }
+  const [results, setResults] = useState<FileSearch | null>(null)
+  const [searching, setSearching] = useState(false)
+  const [previewPath, setPreviewPath] = useState<string | null>(null)
+  useEffect(() => {
+    if (!query.trim()) { setResults(null); setSearching(false); return }
+    let gone = false
+    setResults(null)
+    setSearching(true)
+    const timer = setTimeout(() => { void window.bravebot.searchFiles(session, query, hidden).then((value) => {
+      if (!gone) setResults(value)
+    }).catch(() => { if (!gone) setProblem('Project search failed. Try again.') }).finally(() => { if (!gone) setSearching(false) }) }, 180)
+    return () => { gone = true; clearTimeout(timer) }
+  }, [session, query, hidden])
   const [problem, setProblem] = useState<string | null>(null)
 
   /**
@@ -116,8 +134,7 @@ export function FileTree({
       // it runs in the process that would be doing the asking — but it means a bug in this file
       // fails as a message rather than as a request.
       if (!isSubpath(path) || path === '') return
-      const outcome = await window.bravebot.openFile(session, path)
-      setProblem(outcome.status === 'failed' ? outcome.message : null)
+      setPreviewPath(path)
     },
     [session],
   )
@@ -137,6 +154,11 @@ export function FileTree({
         <code className="tree-root" title={root}>
           {root}
         </code>
+        <button ref={searchButton} className={`tree-tool ${searchOpen ? 'on' : ''}`}
+          title="Search files" aria-label="Search files" aria-expanded={searchOpen}
+          onClick={() => searchOpen ? closeSearch() : setSearchOpen(true)}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg>
+        </button>
         {/* Labelled with the thing it is about rather than with an eye or a dot: `.*` is what a
             dotfile looks like, and it is legible at 10px where a pictogram is not. */}
         <button
@@ -152,26 +174,13 @@ export function FileTree({
         </button>
       </div>
 
-      <input
-        type="search"
-        className="tree-find"
-        value={query}
-        placeholder="Filter files"
-        aria-label="Filter files by name"
-        // Escape clears rather than blurs, the way the session filter's box does — an
-        // accelerator would be swallowed by AppKit before the renderer saw it.
-        title="Filter files by name · Escape clears it"
-        onChange={(event) => setQuery(event.target.value)}
-        onKeyDown={(event) => event.key === 'Escape' && setQuery('')}
-      />
-
-      {/* Said whenever a query is running, because the tree is listed a folder at a time and a
-          filter can only search what has been read. Somebody typing a filename they know is in
-          the project and getting nothing has been told something false unless this line is
-          here. */}
-      {terms.length > 0 && (
-        <p className="tree-note">Only folders you have opened have been read.</p>
-      )}
+      {searchOpen && <div className="tree-search">
+        <input autoFocus type="search" className="tree-find" value={query}
+          placeholder="Search project filenames…" aria-label="Search project files by name"
+          onChange={event => setQuery(event.target.value)}
+          onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); closeSearch() } }} />
+        <button className="tree-tool" aria-label="Close file search" onClick={closeSearch}>×</button>
+      </div>}
 
       {problem && <p className="tree-problem">{problem}</p>}
 
@@ -182,7 +191,13 @@ export function FileTree({
           with forty things in its root would otherwise push the column's own scrollbar down and
           take the header with it. */}
       <div className="tree-body">
-        {rootListing === undefined ? (
+        {terms.length > 0 ? <div className="file-search-results">
+          {searching && <p role="status">Searching project…</p>}
+          {!searching && results?.paths.length === 0 && <p>No matching files.</p>}
+          {results?.paths.map((path) => <button key={path} onClick={() => setPreviewPath(path)} title={path}>{path}</button>)}
+          <p className="tree-note">Search skips .git, node_modules, target and dist. Symbolic-link directories are not followed.</p>
+          {results?.incomplete && <p role="status">Results are limited or some folders could not be read. Narrow the search.</p>}
+        </div> : rootListing === undefined ? (
           <p className="none">{unreadable.has('') ? 'That folder cannot be read.' : 'Reading…'}</p>
         ) : (
           <Rows
@@ -200,6 +215,7 @@ export function FileTree({
           />
         )}
       </div>
+      {previewPath && <FilePreview session={session} path={previewPath} onClose={() => setPreviewPath(null)} />}
     </div>
   )
 }

@@ -2,6 +2,42 @@
 
 The gates a change has to pass, and the drivers that prove the window works. Setup is in the [README](../README.md).
 
+## Backend v0.8.0 compatibility
+
+The submodule pins `3259f8b`, the upstream `v0.8.0` release.
+The bridge uses policy-audited model-list decoding and Bedrock's per-model names and
+context windows. Trust maps are rooted in the session project. Resuming a terminal
+session preserves its saved side conversations and rewind checkpoints.
+The UI does not yet present fetch-host, language-server, or manifest-plan approvals;
+those new requests are refused without consuming another pending approval.
+
+## Current regression checks
+
+- `npm run build`: bridge and secure-file helper builds, TypeScript, and Electron bundles.
+- After building, `node --test scripts/*.test.mjs`: renderer state, models, file access,
+  memory retention, avatar motion and traits. File tests use the actual secure-file helper.
+- `cargo test --all` and `cargo clippy --all-targets --all-features -- -D warnings`: bridge
+  and secure-file helper gates, including deterministic parent-directory replacement attacks.
+- After building, `node scripts/drive-ux-acceptance.mjs`, `node scripts/drive-bot-history.mjs`,
+  and `node scripts/drive-models.mjs`: isolated Electron acceptance checks with deterministic
+  provider replies. These cover the current tab layout, search, history, drafts, approvals,
+  memory, and model selection. Command approvals include the resolved execution plan and
+  files written by redirections.
+- `node scripts/drive-secure-files.mjs`: real preview and memory IPC, symlink rejection,
+  edit conflicts, history deletion and bot recreation, without model calls. To verify packaging,
+  build with `node scripts/package.mjs`, then set `SECURE_FILES_APP` to the packaged executable
+  when running the same driver. Both `bravebot-rpc` and `bravebot-ui-files` must ship in Resources.
+- For a submodule update, also run
+  `cargo test --manifest-path vendor/bravebot/Cargo.toml --target-dir target --all --locked`.
+  On Apple Silicon with an Intel Rust toolchain, add `--target aarch64-apple-darwin`
+  and `--config 'target.aarch64-apple-darwin.runner=["/usr/bin/arch","-arm64"]'`
+  (install the target with `rustup target add aarch64-apple-darwin`). The upstream confinement tests
+  need native subprocesses: translated binaries can fail with `Failed to open libRosettaRuntime`.
+
+The session-store and confinement tests need filesystem and subprocess access outside the
+Codex sandbox. A missing temporary session record under that sandbox is not a passing test;
+rerun with the required access.
+
 The Rust side has eight integration suites under `crates/bravebot-bridge/tests/` — the protocol
 projections, dispatch, the layering rules the crate docs describe, and the refusal
 guarantees that the security model rests on.

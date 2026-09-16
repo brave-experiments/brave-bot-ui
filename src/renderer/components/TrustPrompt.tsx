@@ -1,3 +1,4 @@
+import { Modal } from './Modal'
 interface Props {
   directory: string
   onAnswer: (trusted: boolean) => void
@@ -12,8 +13,7 @@ interface Props {
  */
 export function TrustPrompt({ directory, onAnswer }: Props): React.JSX.Element {
   return (
-    <div className="scrim">
-      <div className="trust" role="dialog" aria-modal="true" aria-labelledby="trust-title">
+    <Modal title="Project trust" className="trust">
         <h2 id="trust-title">Do you trust this directory?</h2>
         <code className="path">{directory}</code>
         <p>
@@ -26,8 +26,7 @@ export function TrustPrompt({ directory, onAnswer }: Props): React.JSX.Element {
           see every change before it is applied.
         </p>
         <p className="aside">
-          Either way, every write is shown to you first. This answer lasts for this session
-          only.
+          Trusted writes may apply directly. Changes involving untrusted content require review. Your trust choice is saved with this conversation.
         </p>
         <div className="trust-actions">
           <button className="decline" onClick={() => onAnswer(false)}>
@@ -37,7 +36,6 @@ export function TrustPrompt({ directory, onAnswer }: Props): React.JSX.Element {
             Trust this directory
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
