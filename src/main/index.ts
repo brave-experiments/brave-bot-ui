@@ -54,6 +54,7 @@ import {
 import { printToPdf } from './export'
 import { readThemes, themesDirectory, watchThemes } from './theme'
 import { parseChosenTheme } from '../shared/theme'
+import { readExperience, writeExperience } from './experience'
 
 /**
  * Which live session belongs to which bot, for the length of this run.
@@ -66,6 +67,7 @@ import { parseChosenTheme } from '../shared/theme'
  * whose session was closed and reopened is a new handle for the same bot.
  */
 const botHandles = new Map<string, string>()
+const runningHandles = new Set<string>()
 
 /**
  * The handles currently running a turn this app sent rather than a person.
@@ -249,6 +251,8 @@ function createWindow(): void {
   window.webContents.on('will-navigate', (event) => event.preventDefault())
 
   bridge = new Bridge((message) => {
+    if (message.session && message.event === 'turn.started') runningHandles.add(message.session)
+    if (message.session && (message.event === 'turn.done' || message.event === 'turn.error')) runningHandles.delete(message.session)
     // What this app has to say about the event, held until the event itself has been sent. See
     // the note where it is called.
     let after: (() => void) | null = null
@@ -276,8 +280,15 @@ function createWindow(): void {
         noteBotMemory(slug)
 
         // A consolidation ending is the end of it. Answering it with another would be a loop.
-        if (consolidating.delete(handle)) after = () => ended(handle, slug, true)
-        else if (message.data.archived > before) after = () => void consolidate(handle, slug)
+        if (consolidating.delete(handle)) {
+          // Keep the queue held until the ordered completion announcement releases it.
+          message.data.consolidating = true
+          after = () => ended(handle, slug, true)
+        }
+        else if (message.data.archived > before) {
+          message.data.consolidating = true
+          after = () => void consolidate(handle, slug)
+        }
       }
     }
     // A turn this app sent can fail like any other, and a flag left set would mean the next
@@ -285,6 +296,8 @@ function createWindow(): void {
     // ordinary `turn.error` it is about to receive.
     if (message.event === 'turn.error' && typeof message.session === 'string') {
       const handle = message.session
+      const slug = botHandles.get(handle)
+      if (slug && message.data.id) noteBotSession(slug, message.data.id)
       if (consolidating.delete(handle)) {
         after = () => ended(handle, botHandles.get(handle) ?? null, true)
       }
@@ -320,6 +333,10 @@ function createWindow(): void {
   window.on('closed', () => {
     stopWatchingThemes?.()
     stopWatchingThemes = null
+    bridge?.dispose()
+    bridge = null
+    runningHandles.clear()
+    botHandles.clear()
     window = null
   })
 
@@ -354,6 +371,8 @@ const ALLOWED = new Set([
   'vouch.reply',
   'ask.reply',
   'trust.reply',
+  'permissions.list',
+  'permissions.revoke',
   'doctor',
 ])
 
@@ -543,6 +562,8 @@ app.whenReady().then(() => {
   // in and on the way out — so what lands on disk is the parsed value and never the object
   // the renderer happened to pass.
 
+  ipcMain.handle('bravebot:experience:read', () => readExperience())
+  ipcMain.handle('bravebot:experience:write', (_event, key: unknown, value: unknown) => writeExperience(key, value))
   ipcMain.handle('bravebot:layout:read', () => readState().layout)
 
   ipcMain.handle('bravebot:layout:write', (_event, value: unknown) => {
@@ -630,7 +651,8 @@ app.whenReady().then(() => {
   ipcMain.handle('bravebot:bots:remove', (_event, slug: unknown) => {
     const held = bot(slug)
     if (!held) return null
-    // The definition goes and nothing else does. Its session is a session like any other and stays
+    if ([...botHandles].some(([handle, owner]) => owner === held.slug && runningHandles.has(handle))) throw new Error('Stop this bot’s running conversations before deleting it.')
+    // The definition goes. Its session is a session like any other and stays
     // in the agent's own store, and its memory is a file in somebody's checkout that this app did
     // not put there on its own account. Deleting either would make a bot's removal a destructive
     // act, which is not what removing a row from a list looks like.
@@ -646,6 +668,7 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('bravebot:bots:memory', (_event, slug: unknown) => memory(slug))
+
 
   // Asked for when the window finds a bot pointing at a session the agent no longer lists. What it
   // becomes is not the window's to say — see `releaseBotSession`.

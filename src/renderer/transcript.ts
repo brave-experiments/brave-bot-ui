@@ -26,7 +26,7 @@ import type {
 import type { ExportTurn } from '../shared/export'
 import { CONSOLIDATION_MARK } from '../shared/bots'
 
-export type Entry =
+export type Entry = (
   | { kind: 'user'; id: string; text: string }
   | { kind: 'assistant'; id: string; text: string }
   | { kind: 'narration'; id: string; text: string }
@@ -95,6 +95,7 @@ export type Entry =
   | { kind: 'error'; id: string; text: string }
   /** A replayed tool line from a stored session: no outcome, because none was kept. */
   | { kind: 'replayed-tool'; id: string; text: string }
+) & { interrupted?: boolean }
 
 let counter = 0
 const nextId = (): string => `e${++counter}`
@@ -252,7 +253,7 @@ const isAsking = (entry: Entry): entry is Asking =>
  * declined every question — where `null` means nobody has replied at all.
  */
 const unanswered = (entry: Asking): boolean =>
-  entry.kind === 'ask' ? entry.answers === null : entry.decision === null
+  !entry.interrupted && (entry.kind === 'ask' ? entry.answers === null : entry.decision === null)
 
 /** A decision-carrying question, which is every kind but `ask`. */
 type Decided = Exclude<Asking, { kind: 'ask' }>
@@ -273,7 +274,7 @@ export function decide(
   remember = false,
 ): Entry[] {
   return entries.map((entry) =>
-    isAsking(entry) && entry.kind === kind && entry.request.request === request
+    isAsking(entry) && unanswered(entry) && entry.kind === kind && entry.request.request === request
       ? entry.kind === 'run'
         ? { ...entry, decision, remember }
         : { ...entry, decision }
@@ -302,7 +303,7 @@ export function answered(
   answers: AskAnswer[],
 ): Entry[] {
   return entries.map((entry) =>
-    entry.kind === 'ask' && entry.request.request === request ? { ...entry, answers } : entry,
+    entry.kind === 'ask' && unanswered(entry) && entry.request.request === request ? { ...entry, answers } : entry,
   )
 }
 
@@ -392,4 +393,40 @@ export function conversation(entries: Entry[], tools = false): ExportTurn[] {
     }
   }
   return turns
+}
+
+
+/** Search user-visible content, excluding protocol identifiers and internal metadata. */
+export function searchableText(entry: Entry): string {
+  if ('text' in entry) return entry.text
+  switch (entry.kind) {
+    case 'attached': return entry.path
+    case 'consolidation': return 'Updating persistent memory'
+    case 'tool': return [entry.activity.verb, entry.activity.target, entry.activity.note, ...entry.activity.changes.map((change) => 'text' in change ? change.text : '')].join(' ')
+    case 'quarantined': return [entry.shown.origin, entry.shown.label, ...entry.shown.preview].join(' ')
+    case 'confirm': return [entry.request.path, entry.request.intent, ...entry.request.changes.map((change) => 'text' in change ? change.text : '')].join(' ')
+    case 'run': return [entry.request.summary, entry.request.directory, ...entry.request.stages.map((stage) => stage.display)].join(' ')
+    case 'output': return [entry.request.command, entry.request.summary, entry.request.output].join(' ')
+    case 'vouch': return [entry.request.path, entry.request.preview].join(' ')
+    case 'ask': return entry.request.prompts.map((prompt) => [prompt.header, prompt.question, ...prompt.rows.map((row) => `${row.label} ${row.detail ?? ''}`)].join(' ')).join(' ')
+  }
+}
+
+/** Elided spans retain their lengths, so both source and proposed line numbers remain exact. */
+export function numberedDiffLines(changes: Change[]): (ReturnType<typeof diffLines>[number] & { before: number | null; after: number | null })[] {
+  let before = 1, after = 1
+  return diffLines(changes).map((line, index) => {
+    const change = changes[index]!
+    if (change.kind === 'elided') {
+      before += change.lines; after += change.lines
+      return { ...line, before: null, after: null }
+    }
+    return { ...line, before: change.kind === 'added' ? null : before++, after: change.kind === 'removed' ? null : after++ }
+  })
+}
+
+
+/** Ending a turn invalidates its pending approval channels; keep evidence without live controls. */
+export function interruptPending(entries: Entry[]): Entry[] {
+  return entries.map((entry) => isAsking(entry) && unanswered(entry) ? { ...entry, interrupted: true } : entry)
 }

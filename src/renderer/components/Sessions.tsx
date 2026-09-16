@@ -1,10 +1,14 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { SidebarTools } from './SidebarTools'
+import { createContext, useContext, useCallback, useMemo, useRef, useState } from 'react'
 import type { SessionSummary } from '../../shared/protocol'
 import type { ContextTarget } from '../../shared/commands'
 import { keyOf } from '../../shared/forks'
 import { Fold } from './Fold'
 import { ForkIcon } from './ForkIcon'
 import { PopMenu, type PopItem } from './PopMenu'
+import { conversationKey } from '../../shared/experience'
+import { useExperience, setConversation } from '../experience'
+export const SessionInfo = createContext<Record<string, { bot?: string; state?: string }>>({})
 
 interface Props {
   sessions: SessionSummary[]
@@ -71,7 +75,11 @@ export function Sessions({
   // clicked session up in `sessions` by id. Filtering a copy it holds would make a menu item
   // fail on a row that is hidden a moment later.
   const [query, setQuery] = useState('')
-  const shown = useMemo(() => matching(sessions, query), [sessions, query])
+  const preferences = useExperience()
+  const [archive, setArchive] = useState(false)
+  const shown = useMemo(() => matching(sessions, query).filter((session) =>
+    !!preferences.conversations[conversationKey(session.directory, session.id)]?.archived === archive
+  ).sort((a, b) => Number(!!preferences.conversations[conversationKey(b.directory, b.id)]?.pinned) - Number(!!preferences.conversations[conversationKey(a.directory, a.id)]?.pinned)), [sessions, query, preferences, archive])
 
   // Unlike the query, this is remembered between launches: which way somebody likes their
   // list is not a per-run thought. The stored value arrives asynchronously and so cannot
@@ -98,24 +106,7 @@ export function Sessions({
   return (
     <>
       <header className="sessions-head">
-        <NewSession onNew={onNew} />
-        <div className="session-tools">
-          <input
-            type="search"
-            className="session-find"
-            value={query}
-            placeholder="Filter sessions"
-            aria-label="Filter sessions"
-            // The placeholder says what the box is; the tooltip says the one thing about it
-            // that is not on screen anywhere. Escape is deliberately not in the menu — see
-            // the note on the handler below — so without this it is a key nobody finds.
-            title="Filter sessions · Escape clears it"
-            onChange={(event) => setQuery(event.target.value)}
-            // Escape clears rather than blurs, and is handled here rather than as a command:
-            // an accelerator would be swallowed by AppKit before the renderer saw it, and the
-            // composer already treats Escape as a local key.
-            onKeyDown={(event) => event.key === 'Escape' && setQuery('')}
-          />
+        <SidebarTools query={query} onQuery={setQuery} label="Filter sessions" action={<NewSession onNew={onNew} />}>
           {/* The label stays put and `aria-pressed` carries the state, with the verb in the
               tooltip — the same disclosure discipline the column folds follow. A control
               that renamed itself would be one the reader has to re-find after every press. */}
@@ -128,7 +119,8 @@ export function Sessions({
           >
             <span aria-hidden="true">▤</span>
           </button>
-        </div>
+        </SidebarTools>
+        <div className="session-scope"><button aria-pressed={!archive} onClick={() => setArchive(false)}>Conversations</button><button aria-pressed={archive} onClick={() => setArchive(true)}>Archived</button></div>
       </header>
 
       <div className="session-list">
@@ -141,7 +133,7 @@ export function Sessions({
         {/* Said separately, because the message above is a fact about the machine and would
             be a lie about a list that is merely filtered down to nothing. */}
         {sessions.length > 0 && shown.length === 0 && (
-          <p className="empty">No session matches “{query}”.</p>
+          <p className="empty">{query.trim() ? `No conversation matches “${query}”.` : archive ? 'No archived conversations.' : 'No active conversations. Start a new session or restore one from Archived.'}</p>
         )}
         {!grouped &&
           shown.map((session) => (
@@ -272,40 +264,28 @@ function Session({
   forked: boolean
   onOpen: (summary: SessionSummary) => void
 }): React.JSX.Element {
-  return (
-    <button
-      className={`session ${session.id === openId ? 'current' : ''}`}
-      onClick={() => onOpen(session)}
-      onContextMenu={contextMenu('session', session.id)}
-    >
-      {/* What the column clipped, not the prompt it came from: the agent shortens a title
-          to 60 characters and an ellipsis of its own before it is ever stored, and this
-          cannot get back what was dropped there. It gets back what the column dropped on
-          top of that, which at this width is most of it — and two sessions in a project
-          often differ only in the part that gets cut. The mark is left out of it: it is
-          said in words beside the glyph, and a tooltip is for what the column clipped. */}
-      {/* The word the glyph stands in for, said to a reader who does not see glyphs. Outside
-          the title and not inside it: `.offscreen` is taken out of the flow, so this costs
-          the layout nothing wherever it sits — and inside, it would be part of what the
-          title element *says*, which is a session's name and nothing else. */}
-      {forked && <span className="offscreen">Forked. </span>}
+  const key = conversationKey(session.directory, session.id)
+  const preferences = useExperience().conversations[key]
+  const info = useContext(SessionInfo)[key]
+  const [menu, setMenu] = useState(false)
+  const anchor = useRef<HTMLButtonElement>(null)
+  return <div className={`session-row ${session.id === openId ? 'current' : ''}`}>
+    <button className={`session ${session.id === openId ? 'current' : ''}`} onClick={() => onOpen(session)} onContextMenu={contextMenu('session', session.id)}>
       <span className="session-title" title={session.title}>
-        {/* Before the name rather than after it, so the marks line up down the column
-            instead of hanging off titles of every length. */}
-        {forked && (
-          <span className="fork-mark">
-            <ForkIcon size={11} />
-          </span>
-        )}
-        {session.title}
+        {preferences?.pinned && <svg className="session-pin" width="13" height="15" viewBox="0 0 16 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" role="img" aria-label="Pinned" focusable="false">
+          <path d="M5 2h6M6 2v6l-3 4h10l-3-4V2M8 12v4" />
+        </svg>}
+        {forked && <span className="fork-mark"><ForkIcon size={11} /></span>}{session.title}
       </span>
-      <span className="session-where">
-        {session.project}
-        {session.branch && <span className="branch"> · {session.branch}</span>}
-        <span className="when"> · {ago(session.updated)}</span>
-      </span>
+      <span className="session-where">{session.project}{session.branch && <span className="branch"> · {session.branch}</span>} · {ago(session.updated)}</span>
+      {(info?.bot || info?.state) && <span className="session-badges">{info.bot && <span>{info.bot}</span>}{info.state && <span className={`session-state ${info.state.toLowerCase().replaceAll(' ', '-')}`}>{info.state}</span>}</span>}
     </button>
-  )
+    <button ref={anchor} className="session-more" aria-label={`Actions for ${session.title}`} aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(!menu)}>⋯</button>
+    <PopMenu open={menu} anchor={anchor} label="Conversation actions" onClose={() => setMenu(false)}
+      items={[{ id: 'pin', label: preferences?.pinned ? 'Unpin conversation' : 'Pin conversation' }, { id: 'archive', label: preferences?.archived ? 'Restore conversation' : 'Archive conversation' }]}
+      onChoose={(id) => setConversation(key, id === 'pin' ? { pinned: !preferences?.pinned } : { archived: !preferences?.archived })} />
+  </div>
+
 }
 
 /**
