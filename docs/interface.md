@@ -1,7 +1,7 @@
 # The interface
 
 What the window shows and why it is shaped that way. The setup and build instructions
-are in the [README](../README.md); the protocol underneath is in
+are in [setup](setup.md) and [development](development.md); the protocol underneath is in
 [`phase-0-rpc-protocol.md`](phase-0-rpc-protocol.md).
 
 - [What it looks like](#what-it-looks-like)
@@ -17,7 +17,8 @@ are in the [README](../README.md); the protocol underneath is in
 
 Three columns, each side one resizable and foldable:
 
-- **Sessions** — everything under `~/.bravebot/sessions`, newest first, and a button to start a
+- **Sessions** — saved conversations under `~/.bravebot/sessions`, with bot histories
+  accessed through the Bots tab, and a button to start a
   new one against any directory. A second tab beside it holds the **bots**: named, persistent
   agents with a purpose and a memory, each pinned to one checkout. See *Bots* below.
 - **Transcript** — the conversation, with the turn's tool calls gathered into runs that
@@ -26,26 +27,35 @@ Three columns, each side one resizable and foldable:
   **command** to run (as the argv, plus the binary each name resolved to), whether the
   planner may **read what a command printed** (as the bytes in full), whether to **vouch**
   for a quarantined path, and a **series of questions** the planner wants to put to you —
-  choices to pick from, or your own words. The turn blocks until one is answered, and every
-  failure to answer — a closed window, a crash, a dropped pipe — is a refusal. For the last
+  choices to pick from, or your own words. The turn blocks until one is answered.
+  Window close and app shutdown refuse outstanding questions. For the last
   of the five that means *no answers at all* rather than a decline per question: a decline
   somebody made and a question that never reached them must not look alike.
-- **Context** — what the session has touched: the plan, files read, writes and how far each
-  got, and anything quarantined. A row of connected buttons at the top of the column turns
-  each panel on and off; a panel that is off keeps everything it knew, including its fold and
-  which folders were open in its tree, so turning it back on does not undo any of that — and, last, the one panel that reads the disk rather than the
-  transcript: a **file tree** of the folder the session is working in. Directories list when
-  you open one rather than up front, dot-prefixed entries sit behind a toggle, each file
-  carries a two-letter badge for its type, and a box above the tree filters by name — which
-  searches what has been read and says so, since the tree is listed a folder at a time. A
-  double-click hands a file to whichever app the system assigns its type. It re-reads the
-  folder when a turn finishes, which is the moment its contents can have changed.
+- **Context** — an inspector with **Overview**, **Changes** and **Files** tabs.
+  Overview summarises the plan, reads and confined material; Changes distinguishes
+  pending decisions, approved writes and their actual execution outcomes. Files
+  provides a lazily loaded tree and project-wide filename search, including folders
+  not yet expanded. Text files can be previewed or opened in their default app.
+  On narrow windows the inspector opens as a drawer.
 
-The two side columns fold to nothing from a chevron at either end of the transcript's
-header, and their widths and fold states survive a relaunch.
+The two side columns fold from controls in the transcript header, and their widths
+and fold states survive a relaunch. Focus mode hides the sidebars; density can be
+comfortable or compact.
 
-The layers icon to the left of the message box opens the conversation's model picker.
-Search by name, provider, or capability (for example, `vision` or `openrouter reasoning`),
+Drafts and reading positions survive conversation switches and restarts. A running
+conversation can continue in the background. Drafting during a run does not send
+anything: **Queue message** explicitly queues a follow-up. Stop or an error pauses
+the queue; **Resume queue** is required to continue it. Automatic bot-memory
+maintenance reserves the session until it finishes.
+
+Conversation actions include pin, archive and restore. **Find** searches the current
+conversation. Code blocks offer copy and wrap controls; local file references can
+open previews. **New activity** returns to the latest entries when new events arrive
+while you are reading older ones. **Permissions** lists and revokes path and command
+grants after the current turn stops.
+
+The model control in the composer opens the conversation's model picker.
+Search by name, provider, or reported capability (for example, `text` or `tools`),
 then click a model or use the arrow keys and Enter. Escape
 closes the picker. New conversations use the agent's configured default when available;
 the default is also marked in the list. A choice applies to subsequent messages and is
@@ -53,11 +63,11 @@ remembered locally for that conversation across app restarts. Forks inherit the 
 choice. The picker is disabled while a turn is running.
 
 Available models come from the agent's configured backends, including OpenRouter.
-Small badges beneath each gateway model show reported capabilities such as Text, Vision,
-Tools, and Reasoning. Hover a badge for its meaning. Input and output capabilities are
-distinguished: Vision means image understanding, while Images out means image generation.
-These describe the provider's model; they do not enable new input or output types in this
-app. Models without reported metadata have no badges.
+Badges show the capabilities the app exposes: **Text** and **Tools**. The catalogue
+may report other capabilities, but selecting such a model does not enable image,
+audio or video input/output here. Context-window sizes are shown when available,
+and recently chosen models appear near the top. Pricing is not supplied by the catalogue.
+
 Refresh retries discovery if a provider is unavailable; the configured default remains
 selectable. Choosing a model does not change the agent's global default.
 
@@ -84,11 +94,11 @@ A forked session says so in its header, with a link back to the session it came 
 opens it at the prompt the cut was made in front of. The session list marks a fork beside its
 name. All three are the same mark — the control on a prompt, the banner, and the row — because
 they are the same idea. None of it can live in the agent's own record — that has no field for a
-parent, and it is rewritten after every turn — so the lineage comes from a file this app keeps
-beside the recents list, written by the main process from what the agent answered rather than
+parent, and it is rewritten after every turn — so lineage is stored in the `forks`
+key beside `recents` in `bravebot-ui.json`. The main process writes it from the agent's answer rather than
 from anything the window asked for.
 
-An **Export** button sits beside Send, and File › Export offers the same three formats:
+An **Export** button sits in the conversation header, and File › Export offers the same three formats:
 plain text, Markdown, or a PDF that keeps the window's own bubbles. What it writes by default
 is the *conversation* — what was asked and what came back — and never the diffs, approval
 cards or confined blobs. That is the same argument the per-entry Copy makes: those things are
@@ -113,12 +123,17 @@ whole extra window.
 The left column has two lists. The **Sessions** tab is everything above; the **Bots** tab is the
 people who have one.
 
-A bot is a name, a purpose somebody wrote, a memory it keeps, and one checkout it works in. Behind
-it is a single session that is *resumed* rather than begun again — so where a session is an
-occasion, a bot is somebody, and the tab holds the second because a list that answered both
-questions would answer neither well. A bot's sessions do not appear in the sessions list: one
-record openable from two places is one that could be open twice, each half of the window believing
-it had the conversation.
+A bot has a name, purpose, model choice, avatar, project and persistent memory.
+Its overview lists its conversations and offers **Continue** and **New conversation**.
+Starting a new conversation preserves earlier history; the bot's purpose and project
+memory carry across conversations. Bot-associated conversations are accessed through
+the bot rather than mixed into the ordinary conversation list.
+
+The editor keeps the project fixed. **Duplicate into another project** creates a
+separate bot. The memory editor offers readable and raw views, explicit saves,
+reset with confirmation, and revision history for review and restoration. Reset
+preserves history; deleting a bot removes its app-owned history and cached briefing.
+See [file retention](file-access-security.md) for what stays in the project.
 
 #### Archiving one
 
@@ -148,9 +163,9 @@ question is asked *in the row* rather than in a dialog, for the reason the agent
 are asked in the transcript: a modal takes the thing being decided off the screen and replaces it
 with a sentence about it, and here the sentence needs the bot's name still beside it.
 
-What it does is narrower than the word. Nothing is erased — the session stays in `~/.bravebot`
-and the memory file stays in the checkout, exactly as they did under Forget. What goes is the
-only thing that knew they belonged together, which is why it is final and why it asks.
+Deletion removes the bot definition, cached briefing and app-owned memory revision
+history. Saved conversations stay under `~/.bravebot`, and the project memory file
+stays in the checkout. Deletion is refused while a bot conversation is running.
 
 Archiving changes nothing in the sessions tab. An archived bot still owns its session — that is
 what makes restoring it a restoration — so the conversation does not surface there while the bot
@@ -164,89 +179,16 @@ Restore button would be saying something untrue.
 
 #### The face
 
-Each bot has a face: a small three-dimensional figure, built with three.js from a seed minted when
-the bot was made, turning slowly. The seed is *stored* rather than derived from the name, because a
-face that changed when a bot was renamed would not be a face.
+Each bot has a seed-based three-dimensional avatar rendered with three.js. Its stored
+seed keeps the identity stable across renames. New avatars use versioned traits;
+older seeds retain their original appearance. Avatar colours do not change with themes.
 
-The brief was friendly and approachable, and the figures take that literally — round, large-headed,
-big low-set eyes with a white catchlight in each, and no mouth, because a fixed mouth is either a
-grin that never fits what the bot just said or a line that reads as sullen.
-
-Each is painted in **one** colour from a fixed set, with its parts told apart by *shade* of it
-rather than by a second hue: the head is the colour itself, the body a deeper version, and the small
-pieces on top — an ear, a bobble, a collar — a paler one. So a bot is "the blue one" rather than
-"the blue and yellow one", which is a thing somebody can hold in their head about eight bots at
-once. The shades are far apart on purpose; one step of difference reads as a shadow rather than as a
-different part, and the figure goes back to being one blob at 38 pixels.
-
-The set is primaries and near-primaries — the colours of moulded plastic — and it deliberately holds
-**no orange and no brown**. They are muted rather than pure: each is its primary at roughly two
-thirds of full saturation, pulled a little toward mid lightness. Fully saturated versions came
-first and shouted — eight of them down a column, each small and each at maximum chroma, is a lot of
-noise beside a list of quiet grey text, and the avatar ends up competing with the name it belongs
-to. What is kept is the *hue*, which is the part doing the identifying: a bot is still recognisably
-the blue one or the green one. `yellow` and `lime` are the pair that needs watching, since muting
-moves everything toward grey and two hues 40° apart converge on the way — `lime` is pushed greener
-and darker than a straight muting would give it, to keep the two apart at 38 pixels. These were first built in the window's own accent, on
-the argument that every colour here means something and a bot picking a hue would say something it
-did not mean; that turned out to be wrong in practice for a reason the argument could not see. The
-accent is a warm orange, and a warm orange sphere with two eyes in it is not an abstract mark, it is
-a *face* — the whole thing read as skin. A figure this simple is read as a body before it is read as
-anything else, so the colour has to say "painted object" loudly enough to stop that, which a dusty
-blue does and no shade of orange can. A single hue makes that rule stricter rather than
-looser: there is no second colour to carry the signal if the first one fails to.
-
-The cost, stated plainly: the figures no longer follow a theme. A palette somebody writes repaints
-the window and leaves the bots alone. That is the right trade for a face — one that changed colour
-with the furniture would be a worse identity than one that does not — but it is a trade.
-
-What else differs between them is the head, what is on top of it, the ears, the set of the eyes, and
-the body.
-
-Every piece has a thin drawn edge around it, in a dark version of its own colour, and the whole
-figure sits on a faint neutral disc. Neither is decoration. The pale pieces — a bobble, an ear, a
-collar — sit against the *page* rather than against the head, and on a light theme pale paint on an
-off-white column was invisible: two of the six traits were being thrown away in light mode. The
-edge gives them a line to be seen by on any background and separates an ear from the head it is
-pressed against; the disc gives every avatar the same shape in the row and a surface behind it. The
-lighting is mostly flat — a strong key on a saturated colour clips a channel and drains the hue —
-with a hemisphere light to put the underside of the head into shadow so a sphere reads as a sphere
-rather than a disc; the numbers are set so that a surface facing the camera renders at exactly the
-paint's hex.
-
-Two things about it are load-bearing rather than decorative:
-
-- **One WebGL context, however many bots.** A page gets a limited number — Chromium's cap is around
-  sixteen, and past it the *oldest* context is dropped rather than the newest refused, so a long
-  list would silently blank the rows at the top. There is one renderer drawing into one offscreen
-  canvas, and each avatar is a plain 2D canvas the result is copied into.
-- **The motion is a function of the clock, not of frames.** A figure turns at the same rate on a
-  busy machine as an idle one, a dropped frame is skipped rather than accumulated, and two avatars
-  mounted a minute apart are at the same point in the turn. Each one's offset into the cycle comes
-  from its seed — as does the rate of its bob — so a column of them does not move as a block. The
-  loop stops when nothing is on screen and when the window is hidden, and it draws at thirty frames
-  a second rather than sixty: at a twenty-four-second turn the difference is a fraction of a pixel
-  a frame, and half the frames is half the GPU for the same picture.
-
-The face also knows what its bot is doing, and shows it as posture rather than expression — what a
-person shows across a room. A bot in the list looks slowly about; one that has never been spoken to
-faces forward and only blinks; the one on screen looks at the reader and holds; one whose turn is
-running looks down and a little aside, as at a page, and blinks more often; and one whose last turn
-ended in an error tilts its head — "hm" — and lets it go over a few seconds. Coming out of a turn
-that did not fail, it nods, once. None of that is a mouth or an eyebrow: an animated expression
-beside a stack trace looks like the bot is apologising, and a posture does not. Two smaller things
-sell the rest: the blink is lopsided and every fourth one is a double, which is the one aperiodic
-thing in the motion; and whatever is on the head — a bobble, an aerial — is on a spring and lags
-the head by a frame, which is follow-through, the oldest trick in animation. Under
-`prefers-reduced-motion` the continuous motion stops; what is left is a still figure that blinks and
-takes up its posture when its state changes.
-
-Where there is no WebGL to be had, the same seed draws the same face flat instead — head, body, the
-two eyes and their catchlights, the same shades and the same drawn edge, read from the same traits —
-so a bot is recognisably itself on a machine with no GPU. A list of bots with no faces is a worse
-list, but a list that failed to draw its rows because of a graphics driver would be the tail wagging
-the dog. See `src/renderer/avatar/` and
-`src/renderer/components/BotAvatar.tsx`.
+The avatars share a WebGL renderer rather than allocating a context per bot.
+A flat canvas fallback uses the same traits when WebGL is unavailable. Motion is
+clock-based and deterministic: quiet pauses, brief glances and irregular blinks,
+with posture changes for running and failed turns and a single completion nod.
+Reduced-motion preferences suppress continuous movement. See
+`src/renderer/avatar/` and `src/renderer/components/BotAvatar.tsx`.
 
 #### How a purpose reaches the model
 
@@ -300,17 +242,14 @@ Two things close that, and neither of them attaches anything to an ordinary turn
 
 - **A compaction is answered with a turn of the app's own.** A rise in the archive is the one moment
   memory is unambiguously *for*, since it is the only thing that survived. Instead of waiting for
-  the next prompt to carry the briefing, the main process sends a turn saying so, grounded — which
-  is not an extra cost, because that prompt would have carried the briefing anyway. What it spends
-  is a round trip.
+  the next prompt to carry the briefing, the main process sends a turn saying so, grounded. This is an additional model request and can incur provider usage and cost.
 - **A bot that has stopped writing is grounded early.** A count on the bot rises each time one of
   its turns ends without its memory file's mtime moving, and at six the next turn carries the
   briefing whether the window thought it was due or not, with one extra paragraph asking whether
   anything since is worth keeping. It resets on the nudge as well as on a write, so a bot that
   ignores it gets six more turns of quiet rather than a briefing stapled to everything it is asked.
 
-Both figures are main-written, like the session id and the archive watermark beside them: the form
-can say four things about a bot, and when it is reminded to remember is not one of them.
+Both figures are main-written, like the session id and the archive watermark beside them: the editor does not control when a bot is reminded to remember.
 
 Neither checks that the model wrote anything, because checking would mean parsing what it said, and
 the rule this feature is built on is that the change the agent applied is the record. The mtime is
@@ -366,12 +305,15 @@ Two more things are honestly imperfect and worth knowing:
 
 #### What the window cannot do
 
-`turn.send` takes two lists of file paths and admits both to the planner as trusted context.
-Nothing else a renderer can say has that reach — the file tree is confined to roots the main
-process learnt from the agent, the folder picker is native, and the preload has never carried a
-file's contents in either direction. So the renderer may not name either list: they are stripped
-from any `turn.send` arriving on the general channel, and a bot's turn goes through
-`bravebot:bots:send`, which is handed a *bot* and composes the paths itself.
+The bridge protocol accepts `files` and `dropped` paths, both admitted as trusted
+context. The main process strips those raw lists from renderer requests. User
+attachments instead use native-picker grants bound to the session and revalidated
+when sending; bot briefings are composed by the main process from a bot definition.
+
+The preload does carry file contents for previews and memory editing. These are
+bounded, explicit operations rather than unrestricted filesystem access, and previews
+do not send contents to a model. See [security](security.md) and
+[file access](file-access-security.md).
 
 ### The name in the menu bar
 
@@ -385,7 +327,7 @@ It runs from `npm run dev` and from `postinstall`, because an `npm install` rest
 original. If the menu bar ever says "Electron" again, `npm run name-dev-app` puts it back.
 
 In a release there is no hack: `scripts/package.mjs` names the bundle `Brave Bot`, and AppKit
-reads that. See [Build and packaging](../README.md#build-and-packaging).
+reads that. See [packaging](development.md#packaging).
 
 ## Keys
 
@@ -421,9 +363,8 @@ or moved is refused by the bridge with `not_a_directory` rather than failing qui
 folded group regardless — a heading with nothing under it is the opposite of what somebody
 who just typed a search asked for — and the fold is still there when the box is cleared.
 
-Grouping and which groups are folded are both remembered between launches, in a file of its
-own beside the one holding the column widths: which way you like your list is not a per-run
-thought, and one hand-edited preference should not cost you the other. The *folded* ones are
+Grouping and collapsed groups are remembered in the `view` key of `bravebot-ui.json`,
+separate from the `layout` key holding column widths. The *folded* ones are
 what is written down rather than the open ones, so a checkout started since last launch
 arrives open instead of hidden behind a heading nobody has ever collapsed.
 
@@ -458,23 +399,27 @@ The parts worth naming, not every file:
 ```
 crates/bravebot-bridge/     the Rust library and the bravebot-rpc binary
   src/lib.rs                the crate root, and the layering rules the tests assert
-  src/bridge.rs             session store access, turn driving, Confirmer/Reporter/Sink
+  src/bridge.rs             dispatch and session/turn lifecycle
   src/protocol.rs           the request and event types
   src/wire.rs               the JSON projections of the protocol
   src/store.rs              reading and writing the records under ~/.bravebot
   src/turn.rs               one turn, and everything that can block it
   src/fork.rs               cutting a conversation in front of a message
   src/running.rs            what is in flight, and what may answer it
-  src/emit.rs               framing events onto stdout
+  src/emit.rs               events delivered through the listener
   src/bin/bravebot-rpc.rs   read stdin, frame stdout, nothing else
   tests/                    the integration suites, including the refusal guarantees
+crates/bravebot-ui-files/  descriptor-based helper for previews and bot memory
 src/main/                   Electron main: one window, one child process, a narrow channel
   index.ts                  the window, and the allow-list of what the renderer may call
   bridge.ts                 the child process, and its lifetime
   menu.ts                   the application menu, built from the shared command list
   bots.ts                   the bots, and the two files each one speaks through
   state.ts                  bravebot-ui.json: one key replaced at a time, rest untouched
-  files.ts                  listing and opening inside a session's own folder
+  files.ts                  listing, search, preview, opening and attachment grants
+  project-files.ts          client for the secure-file helper
+  experience.ts             drafts, scroll position, pins, archives and density
+  memory.ts                 bot-memory editing and revision history
   recents.ts                the projects opened before, which only this side writes
   forks.ts                  which session came out of which
   export.ts                 text, Markdown and the second renderer that draws the PDF
@@ -489,7 +434,7 @@ src/renderer/               the React app
   transcript.ts             gathering a turn's tool calls into runs
   theme.ts                  putting a palette on the window, as DOM rather than as a render
   export.tsx                the PDF entry point, using the components the window uses
-  components/               twenty of them; ThemePicker, Sidebar, Transcript, FileTree,
+  components/               ThemePicker, Sidebar, Transcript, FileTree,
                             Diff, TrustPrompt and BotAvatar are the load-bearing ones
   avatar/stage.ts           one WebGL context, however many avatars, and their clock
   avatar/figure.ts          what a friendly figure is made of, and what a seed varies
@@ -509,7 +454,7 @@ docs/                       the protocol design, this document, testing and the 
 
 ### What is remembered
 
-One file, `bravebot-ui.json` under `app.getPath('userData')`, with a key per shape:
+`bravebot-ui.json` under `app.getPath('userData')` holds application preferences:
 
 | Key | What it holds |
 | --- | --- |
@@ -518,11 +463,18 @@ One file, `bravebot-ui.json` under `app.getPath('userData')`, with a key per sha
 | `panels` | Which panels in the context column are turned **off** |
 | `recents` | The projects opened before, newest first |
 | `forks` | Which session came out of which |
-| `bots` | The bots defined here: name, purpose, avatar seed, checkout, session and compaction watermark |
+| `bots` | The bots defined here: name, purpose, avatar seed, checkout, model, conversation IDs and memory bookkeeping |
 | `theme` | Which palette the window is painted in, by name |
 
-A file rather than `localStorage`, because the renderer is loaded from `file://` and Chromium
-discards storage for that origin between launches — measured, not assumed.
+Additional state lives outside this file:
+
+- `experience.json`: per-conversation drafts, scroll, pins, archives and bot associations;
+  also density and recent model choices.
+- `bots/<slug>/ground.md` and `memory-history.json`: cached briefing and memory revisions.
+- Project `.bravebot-ui/bots/<slug>.md`: the bot's persistent memory.
+- Renderer `localStorage`: per-conversation model choices, keyed by project and session ID.
+
+See [file access and retention](file-access-security.md) for retention and permissions.
 
 One file, but not one judgement: `src/shared/state.ts` decides nothing itself. It delegates each
 key whole to the validator that already owned that shape — `parseLayout`, `parseView`,
@@ -536,13 +488,11 @@ The renderer reaches five of those keys, and only through a channel of its own p
 native picker and from what the *agent* answered — the window can read them and has no way to
 write a line into either.
 
-`bots` is the one key that is written from both sides, and the split runs through the middle of a
-single record. A bot's name, purpose and checkout are a preference somebody types and cross from
-the window like any other. Its slug, its avatar seed, the id of the session behind it and the count
-of what compaction has taken from that session do not: the first two are minted in the main process
-so that a string arriving from a window never becomes a path segment, and the last two are read off
-what the *agent* answered on `turn.done`, which is the same promise the fork lineage makes one line
-up.
+Bot records split user preferences from main-process bookkeeping. The editor supplies
+name, purpose and model; a native picker supplies the project at creation. The project
+cannot change on an existing bot. Main-process code validates the avatar seed, creates
+the slug, and records conversation IDs and memory bookkeeping from agent events.
+Renderer input cannot replace those bookkeeping fields through the bot editor.
 
 This replaces `layout.json`, `view.json`, `recents.json` and `forks.json`. Those are read once, on
 the first launch after the change, so nobody loses their columns to a rename; they are then left

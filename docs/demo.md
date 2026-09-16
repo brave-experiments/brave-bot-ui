@@ -4,7 +4,7 @@ The [drivers](testing.md) assert; `npm run demo` performs. Same Playwright, same
 class names — but paced in beats rather than in milliseconds, and it films itself:
 
 ```bash
-npm run demo -- --record             # the whole product, no model calls, to a .mov
+npm run demo -- --record             # cached world: no new model calls; first run seeds it
 npm run demo -- --record --live      # plus a real turn, an approval card, a question,
                                      #   a bot at work — its face looking down at the page —
                                      #   writing its own memory, and what it kept
@@ -19,8 +19,9 @@ It needs Screen Recording permission for whatever is running it; without that th
 out empty and the run says so.
 
 The capture is then re-encoded, because the raw one is not a file anybody wants to be sent.
-`screencapture` records at the display's own resolution and refresh rate — retina, at **120
-fps** — which is around 45 MB for three minutes of a mostly stationary window, and nothing in
+`screencapture` records at the display's own resolution and refresh rate — retina at
+120 fps on the display used for the original recording — which produced
+around 45 MB for three minutes of a mostly stationary window, and nothing in
 its flag list changes that. So it is fixed afterwards: halved to logical resolution, dropped to
 30 fps, and encoded at a CRF where the app's own text is still sharp at 1:1. That is about 4 MB
 for the same footage. `--width 0` keeps the retina resolution, `--crf` and `--fps` move the
@@ -47,6 +48,9 @@ File ▸ Open Recent is filmed, and the bots list is real names and purposes and
 filmed. With both redirections the session list, the recents, the bots, the column widths and the
 file tree are all the world's. `/Users/Shared` rather than the home directory because every path in
 it ends up on screen, and a home directory has somebody's name in it.
+
+The projects under `scripts/demo/project/` are fictional demo fixtures; their READMEs
+describe the sample world rather than this application's setup.
 
 The world holds two invented checkouts — `harbour-lights` and `tide-tables`, copied out of
 `scripts/demo/project/` — the sessions the demo earned in them, two resident bots (`RESIDENT_BOTS`:

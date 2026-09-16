@@ -1,58 +1,153 @@
-# Why setup looks like this
+# Setup
 
-The commands are in the [README](../README.md). This is the reasoning behind the two parts
-of it that look like more ceremony than they need: the pinned submodule and the credentials
-file outside every checkout.
+## Prerequisites
 
-## Why the agent is a pinned submodule
+- **macOS**, with Xcode Command Line Tools (`xcode-select --install`) for native builds.
+  The window uses macOS traffic lights and sidebar vibrancy.
+- **Current stable Rust**, preferably installed with rustup. `rust-toolchain.toml`
+  selects stable and Clippy; `rustup update stable` updates an existing installation.
+  The workspace declares Rust 1.88 as its minimum.
+- **Node 22.12+ and npm**. CI uses Node 24. The app uses Electron 44 and React 19.
+- **Git**, including submodule support.
+- **Optional: direnv**, for loading backend credentials. It is unnecessary for
+  builds without credentials or when the required variables are already exported.
 
-`crates/bravebot-bridge` depends on the agent by path — `../../vendor/bravebot/crates/*` — so
-a clone without submodules leaves an empty directory and nothing compiles.
-`scripts/build-bridge.sh` says so rather than letting cargo report a missing `Cargo.toml`.
+## Clone and run
 
-The pin is the point. The bridge builds against the agent's internals, which carry no
-compatibility promise: a field added to a struct it constructs is a build break here, with
-nothing changed on this side. Before the submodule that break arrived at whatever moment a
-developer next pulled the sibling checkout. Now it arrives when somebody moves the pin
-deliberately:
+```bash
+git clone --recurse-submodules https://github.com/brave-experiments/brave-bot-ui.git
+cd brave-bot-ui
+npm ci
+npm run dev
+```
+
+`npm ci` installs the locked dependency versions and runs Electron runtime setup.
+`npm run dev` builds both Rust executables and starts Electron with hot reload.
+To build and preview without hot reload, see [development](development.md).
+
+For a clone made without submodules:
+
+```bash
+git submodule update --init --recursive
+```
+
+## Credentials
+
+A fresh checkout builds without secrets and can display saved sessions. Inference
+requires backend configuration. For the Brave backend, supply these exported names:
+
+| Variable | Purpose |
+| --- | --- |
+| `SERVICES_KEY_AICHAT` | Backend signing key |
+| `BRAVE_SERVICES_KEY_ID` | Key identifier |
+| `BRAVE_AI_CHAT_ENDPOINT` | Backend endpoint |
+| `BRAVE_AI_CHAT_DEFAULT_MODEL` | Optional default model; otherwise `automatic` |
+| `BRAVE_AI_CHAT_PREMIUM_ENDPOINT` | Optional premium endpoint |
+
+Use the exported names, not the `DEV_`/`PROD_` inputs used by the agent's example
+configuration. Keep the values outside the checkout, for example in
+`~/.config/bravebot/env`, as `NAME=value` lines. Create it with your editor and set
+its permissions to 0600. Do not commit the values.
+
+With direnv installed, add this line to a `.envrc` in the UI repository (preserve
+any existing contents):
+
+```bash
+dotenv_if_exists ~/.config/bravebot/env
+```
+
+After reviewing that file, allow it and explicitly run the build through it:
+
+```bash
+direnv allow .
+direnv exec . npm run build
+npm start
+```
+
+For hot reload with the same environment, use `direnv exec . npm run dev`.
+A shell with direnv integration can load these variables automatically; `direnv allow`
+alone does not export them into a shell without that integration.
+
+The agent's configuration build script bakes available Brave backend values into
+`bravebot-rpc`. Runtime environment values override baked ones. Keeping a credential
+file outside Git lets multiple checkouts use it and keeps it through re-clones.
+The file is not automatically discovered: the `.envrc` above is what loads it.
+
+Alternatively, `scripts/build-bridge.sh` loads an allowed `.envrc` from
+`vendor/bravebot` via direnv. `BRAVEBOT_DIR` (or the legacy `BUA_AGENT_DIR`) can point
+to a different credential checkout. These variables affect credential loading only;
+Cargo still compiles `vendor/bravebot`. The script canonicalises the directory for
+direnv's allow list. It first uses an already-exported `SERVICES_KEY_AICHAT` when present.
+
+### Builds without credentials
+
+`.cargo/config.toml` sets `BRAVEBOT_ALLOW_UNCONFIGURED_BUILD=1`, allowing missing
+credentials during development and CI. This does not prevent baking values that
+are present. Missing credentials therefore do **not** make this checkout's build
+fail; they prevent inference at runtime. The app offers backend diagnostics and setup help.
+
+For a Brave-backend build that must fail if required values are missing, run:
+
+```bash
+direnv exec . env BRAVEBOT_ALLOW_UNCONFIGURED_BUILD=0 npm run build
+```
+
+An app started from a configured shell inherits its environment; Finder does not
+load your shell's `.envrc`. A distributable Brave-backend app needs the required
+configuration baked in. See [packaging](development.md#packaging).
+The agent also supports runtime Bedrock configuration; its variable definitions are
+in [`env_var.rs`](../vendor/bravebot/crates/config/src/env_var.rs). Bedrock/AWS values
+are not baked into the binary by this build script.
+
+## Updating an existing checkout
+
+After pulling changes, synchronise any changed URL and check out the committed pin:
+
+```bash
+git pull --ff-only
+git submodule sync --recursive
+git submodule update --init --recursive
+npm ci
+```
+
+`vendor/bravebot` points to [brave/bravebot](https://github.com/brave/bravebot),
+currently at v0.8.0 (`3259f8b`). A URL update alone does not change that revision.
+`npm run bridge` warns if the checked-out submodule differs from the pin.
+
+### Intentionally updating the pin
+
+The bridge depends on upstream internals by path. Pinning makes an incompatible
+upstream change arrive in a reviewed update rather than during an unrelated build.
+Choose an explicit revision, then run the [submodule-update checks](testing.md#current-regression-checks)
+and review any lockfile changes before committing:
 
 ```bash
 git -C vendor/bravebot fetch origin
-git -C vendor/bravebot checkout <rev>       # or origin/main
-cargo test --all                            # the upgrade is a test pass, not a version bump
-git add vendor/bravebot && git commit
+# Replace <revision> with the intended tag or commit.
+git -C vendor/bravebot checkout <revision>
+npm run build
+cargo test --all
+git add vendor/bravebot Cargo.lock
+git commit -S -m "Update the bravebot submodule pin"
 ```
 
-CI compiles the pinned revision too, from one checkout with `submodules: true`, so an
-upstream commit cannot turn this repository red on its own and a bump of the pin is a pull
-request that CI runs before it lands.
+CI checks the committed revision. Commits intended for `main` must have verified
+signatures under the repository rules.
 
-After a `git pull` that moves the pin, run `git submodule update` — git leaves the submodule
-where it was, and the build that follows would otherwise compile an agent nobody chose.
-`npm run bridge` warns when the two disagree.
+## Electron runtime troubleshooting
 
-## Why the credentials live outside every checkout
+Electron 44's npm package needs a separate runtime download. The repository's
+postinstall runs that installer and names the development app **Brave Bot**.
+Development and preview commands also run setup and reuse an installed runtime.
 
-The [README's Credentials section](../README.md#credentials) recommends keeping the values in
-`~/.config/bravebot/env` and reading them from a `.envrc` here. Putting them in
-`vendor/bravebot/.envrc` also works, and `BRAVEBOT_DIR` can still point at an older sibling
-checkout instead. Three things follow from preferring the file outside:
+If you see `Error: Electron uninstall`, or installed with `--ignore-scripts`, run:
 
-- **The secret outlives the checkout it was for.** A `.envrc` inside the agent's tree is one
-  `git clean -xdff`, or one re-clone, away from being gone, and what you lose is the one file
-  you cannot get back from a remote. The agent's move from a sibling checkout to a submodule
-  is the same lesson already collected once: that path changed, and anything kept under it
-  had to move with it.
-- **One file feeds the build and the run.** The build bakes the values in; separately, the
-  agent lets a variable present at run time override a baked one, so an app started from
-  this shell reaches the backend even when the binary it spawns was built without
-  credentials. Those are two different failure modes and this answers both.
-- **One copy of the secret, in a directory no `git add -A` can reach.** `.envrc` is in this
-  repository's `.gitignore`, which matters more here than in the agent's tree: there, the
-  agent's own `.gitignore` was already covering for you.
+```bash
+npm run setup:electron
+npm run build
+npm start
+```
 
-`BRAVEBOT_DIR` — and `BUA_AGENT_DIR`, which some shell profiles still set from before the
-agent was renamed — are credentials only: cargo compiles the submodule either way. The path
-is resolved to its real one, because direnv's allow list is keyed on the physical path and a
-checkout reached through a symlink otherwise reads as un-allowed however many times you allow
-it.
+Unset `ELECTRON_SKIP_BINARY_DOWNLOAD` before launching. CI sets it to `1` because
+its TypeScript check does not need an Electron executable. If installation fails,
+check the installer output and retry setup after fixing the download problem.
