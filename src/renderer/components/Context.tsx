@@ -36,7 +36,7 @@ interface Live {
  * the disk, because the question it answers — what else is in there, and what does this file look
  * like in a real editor — is not one the transcript can be asked.
  */
-export function Context({ live, onClose }: { live: Live | null; onClose: () => void }): React.JSX.Element {
+export function Context({ live, onClose, audit }: { live: Live | null; onClose: () => void; audit?: React.ReactNode }): React.JSX.Element {
   const [tab, setTab] = useState<'overview' | 'files'>('overview')
   const off = new Set<PanelName>(tab === 'overview' ? ['files'] : ['plan', 'read', 'writes', 'confined'])
   const reveal = (path: string) => {
@@ -71,6 +71,7 @@ export function Context({ live, onClose }: { live: Live | null; onClose: () => v
 
   return (
     <aside className={`context ${tab === 'files' ? 'context-files' : ''}`} id="context-column">
+      <div className="context-content" hidden={!!audit}>
       {/* One connected row, because these five are one choice about one column rather than five
           unrelated switches — the shape a segmented control has on this platform.
 
@@ -218,6 +219,8 @@ export function Context({ live, onClose }: { live: Live | null; onClose: () => v
           running={live.running}
         />
       </section>
+      </div>
+      {audit}
     </aside>
   )
 }

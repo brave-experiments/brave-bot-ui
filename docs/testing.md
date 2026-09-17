@@ -16,6 +16,9 @@ those new requests are refused without consuming another pending approval.
 - `npm run build`: bridge and secure-file helper builds, TypeScript, and Electron bundles.
 - After building, `node --test scripts/*.test.mjs`: renderer state, models, file access,
   memory retention, avatar motion and traits. File tests use the actual secure-file helper.
+- After building, `node scripts/drive-turn-details.mjs`: notices, completed-turn usage,
+  live and unavailable audits, background delivery, disclosure persistence, cancellation,
+  focus restoration and the narrow context drawer, using an isolated profile and synthetic events.
 - `cargo test --all` and `cargo clippy --all-targets --all-features -- -D warnings`: bridge
   and secure-file helper gates, including deterministic parent-directory replacement attacks.
 - After building, `node scripts/drive-ux-acceptance.mjs`, `node scripts/drive-bot-history.mjs`,

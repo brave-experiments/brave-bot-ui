@@ -18,12 +18,15 @@ import type { Bot } from '../../shared/bots'
 import { conversationPreferences, setConversation, setExperience, useExperience } from '../experience'
 import { ErrorCard } from './ErrorCard'
 import { FilePreview } from './FilePreview'
+import { TurnFooter, TurnNotices, type OpenAudit } from './TurnDetails'
+import type { Turns, TurnDisclosure } from '../turn-details'
 
 interface Live {
   model: string | null
   handle: string
   summary: { title: string; project: string; branch: string | null; directory: string }
   entries: t.Entry[]
+  turns: Turns
   todos: TodoRow[]
   quarantine: Shown[]
   phase: Phase | null
@@ -51,6 +54,8 @@ export type Answer = (
 export type AnswerQuestions = (request: number, answers: AskAnswer[]) => void
 
 interface Props {
+  onAudit: OpenAudit
+  onTurnDisclosure: (turn: number, field: TurnDisclosure, open: boolean) => void
   attachments: FileAttachment[]
   onAttach: () => void
   onRemoveAttachment: (id: string) => void
@@ -140,6 +145,8 @@ function ColumnToggle({
 
 /** The middle column: the conversation, and everything the turn did inside it. */
 export function Transcript({
+  onAudit,
+  onTurnDisclosure,
   attachments,
   onAttach,
   onRemoveAttachment,
@@ -425,7 +432,7 @@ export function Transcript({
                 run.entry.id,
               )}
             >
-              <Row
+              {run.entry.kind === 'turn-start' ? <TurnNotices details={live.turns[run.entry.number]} onDisclosure={onTurnDisclosure} /> : <Row
                 entry={run.entry}
                 onRecover={() => { onDraft((draft.trim() ? `${draft}\n\n` : '') + 'Continue the previous task from the current project state. First check which actions already completed; do not repeat successful commands or writes. Resolve the last error before proceeding.'); input.current?.focus() }}
                 onChooseModel={() => { (document.querySelector('.composer .model-trigger') as HTMLButtonElement | null)?.click() }}
@@ -435,7 +442,9 @@ export function Transcript({
                 // Greyed rather than gone while a turn runs, the way the menu item is: a
                 // control that disappears is one the reader has to go looking for again.
                 forkable={!live.running}
-              />
+              />}
+              {(run.entry.kind === 'assistant' || (run.entry.kind === 'error' && run.entry.turn !== undefined)) &&
+                <TurnFooter details={run.entry.turn === undefined ? undefined : live.turns[run.entry.turn]} onDisclosure={onTurnDisclosure} onAudit={onAudit} />}
             </div>
           ),
         )}
@@ -454,6 +463,8 @@ export function Transcript({
             )}
             {live.phase ? phaseWord(live.phase) : 'Working'}
             {live.tokens > 0 && <span className="count"> · {live.tokens} tokens written</span>}
+            {Object.values(live.turns).filter((turn) => turn.status === 'running').slice(-1).map((turn) =>
+              <button className="turn-audit-link" key={turn.turn} aria-controls="turn-audit-inspector" onClick={(event) => onAudit(turn.turn, event.currentTarget)}>Audit</button>)}
             <button className="cancel" onClick={onCancel}>
               Cancel
             </button>
@@ -878,6 +889,7 @@ function Row({
 }): React.JSX.Element {
   if (entry.interrupted) return <div className="interrupted-request"><strong>Request cancelled when the turn ended</strong><details><summary>Request details</summary><pre>{t.searchableText(entry)}</pre></details></div>
   switch (entry.kind) {
+    case 'turn-start': return <></>
     case 'user':
       return (
         <div className="bubble user">

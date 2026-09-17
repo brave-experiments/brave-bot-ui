@@ -5,6 +5,7 @@ are in [setup](setup.md) and [development](development.md); the protocol underne
 [`phase-0-rpc-protocol.md`](phase-0-rpc-protocol.md).
 
 - [What it looks like](#what-it-looks-like)
+- [Turn notices, usage and audit](#turn-notices-usage-and-audit)
 - [Forking, and export](#forking)
 - [Bots](#bots)
 - [The name in the menu bar](#the-name-in-the-menu-bar)
@@ -70,6 +71,32 @@ and recently chosen models appear near the top. Pricing is not supplied by the c
 
 Refresh retries discovery if a provider is unavailable; the configured default remains
 selectable. Choosing a model does not change the agent's global default.
+
+### Turn notices, usage and audit
+
+**Turn notices** appear beneath the prompt when the turn finishes. New or changed
+groups start expanded; an identical group on the next turn starts collapsed. The
+agent's messages are shown verbatim, without guessing their severity from the text.
+
+The footer beneath a completed reply shows the model actually used and total tokens.
+Expand it for exact total and output tokens and the number of tool-calling rounds.
+Total usage includes every request in the turn; it is not context-window occupancy.
+Cancelled turns have no final usage report. The live tokens-written counter remains
+available while work is running.
+
+**Audit** opens that turn's policy decisions in the context column (or the drawer in
+a narrow window). **Policy blocked an action** indicates that a gate refused something;
+it does not mean the whole task failed. Refusals appear first, with expandable recorded
+evidence. **All captured events** reveals the ordered stream, including unfamiliar event
+types. This inspector cannot grant permissions; approval cards remain in the transcript.
+Close or press Escape inside the inspector to restore the previous context view and focus.
+
+Notices, usage and captured audit events survive conversation switches in the current
+window. The bridge does not yet return these per-turn details when reopening saved
+conversations after a restart, so older replies show **Audit unavailable**. Session-wide
+token totals are never presented as the usage of one reply. Failed captures and retention
+limits are labelled explicitly: the UI retains whole records up to 1,000 events or
+256 KiB per turn, and 2 MiB per session, releasing older turns' evidence as necessary.
 
 ### Forking
 
