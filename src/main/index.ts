@@ -227,11 +227,15 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 560,
     show: false,
-    // Traffic lights inset over the sessions column, which is where a chat app puts them.
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 16, y: 18 },
-    vibrancy: 'sidebar',
-    backgroundColor: '#00000000',
+    // Keep native window controls on Linux; inset traffic lights and vibrancy are macOS-only.
+    ...(process.platform === 'darwin'
+      ? {
+          titleBarStyle: 'hiddenInset' as const,
+          trafficLightPosition: { x: 16, y: 18 },
+          vibrancy: 'sidebar' as const,
+          backgroundColor: '#00000000',
+        }
+      : { backgroundColor: '#181818' }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,

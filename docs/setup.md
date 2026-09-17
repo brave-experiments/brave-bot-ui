@@ -2,8 +2,11 @@
 
 ## Prerequisites
 
-- **macOS**, with Xcode Command Line Tools (`xcode-select --install`) for native builds.
-  The window uses macOS traffic lights and sidebar vibrancy.
+- **macOS or Linux**. macOS needs Xcode Command Line Tools (`xcode-select --install`).
+  Linux needs a C/C++ compiler and linker (for example, `base-devel` on Arch or
+  `build-essential` on Debian/Ubuntu), plus a graphical desktop and Electron's
+  GTK 3, NSS, and ALSA runtime libraries. The window uses native Linux decorations;
+  inset traffic lights and sidebar vibrancy are enabled only on macOS.
 - **Current stable Rust**, preferably installed with rustup. `rust-toolchain.toml`
   selects stable and Clippy; `rustup update stable` updates an existing installation.
   The workspace declares Rust 1.88 as its minimum.

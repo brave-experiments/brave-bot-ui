@@ -1,4 +1,4 @@
-// Build a real `.app`.
+// Build a native macOS app or Linux application directory.
 //
 // Everything the app needs at run time is already in `out/` — the main process, the preload
 // and the renderer, all bundled — so packaging is mostly a matter of saying what to leave
@@ -22,6 +22,10 @@ import { existsSync, readFileSync } from 'node:fs'
 
 const { version } = JSON.parse(readFileSync('package.json', 'utf8'))
 
+if (!['darwin', 'linux'].includes(process.platform)) {
+  throw new Error(`Packaging is not supported on ${process.platform}`)
+}
+
 const AGENT = 'target/debug/bravebot-rpc'
 const FILES = 'target/debug/bravebot-ui-files'
 if (!existsSync(FILES)) throw new Error('Secure file helper missing — run npm run bridge first')
@@ -40,8 +44,8 @@ const paths = await packager({
   name: 'Brave Bot',
   appBundleId: 'dev.bravebot.ui',
   appVersion: version,
-  platform: 'darwin',
-  arch: process.arch === 'arm64' ? 'arm64' : 'x64',
+  platform: process.platform,
+  arch: process.arch,
   overwrite: true,
   prune: true,
   asar: true,
@@ -52,6 +56,7 @@ const paths = await packager({
   ignore: [
     /^\/src($|\/)/,
     /^\/crates($|\/)/,
+    /^\/vendor($|\/)/,
     /^\/target($|\/)/,
     /^\/docs($|\/)/,
     /^\/dist($|\/)/,
