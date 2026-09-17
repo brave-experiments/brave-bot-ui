@@ -1,6 +1,6 @@
 # bravebot-ui
 
-A macOS desktop interface to [bravebot](https://github.com/brave/bravebot), the
+A macOS and Linux desktop interface to [bravebot](https://github.com/brave/bravebot), the
 prompt-injection-resistant coding agent. Built with Electron, React and a Rust bridge,
 it uses the agent as a pinned dependency without modifying its sources.
 
@@ -10,7 +10,7 @@ and persistent bots with conversation histories and project memory.
 
 ## Quick start
 
-Install macOS development tools, current stable Rust, and Node 22.12+ with npm
+Install your platform's development tools, current stable Rust, and Node 22.12+ with npm
 (Node 24 is used in CI). See [setup](docs/setup.md) for prerequisites and credentials.
 
 ```bash

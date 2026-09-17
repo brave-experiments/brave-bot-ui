@@ -12,7 +12,7 @@ Start with [setup](setup.md), then use these commands from the repository root.
 | `npm run typecheck` | Run `tsc --noEmit` |
 | `npm run build` | Build both Rust executables, typecheck, bundle into `out/` |
 | `npm start` | Set up Electron and preview the existing bundle; does not rebuild it |
-| `npm run package` | Build both Rust executables, bundle, package a macOS `.app`; does not typecheck |
+| `npm run package` | Build both Rust executables, bundle, package for macOS or Linux; does not typecheck |
 | `cargo test --all` | Test the Rust workspace |
 | `cargo clippy --all-targets --all-features -- -D warnings` | Lint the Rust workspace |
 | `npm run drive` / `npm run drive:<name>` | Run a named Electron driver; see [testing](testing.md) |
@@ -28,6 +28,11 @@ See [testing](testing.md#what-ci-runs) for exactly what CI checks and what must 
 npm run build
 npm start
 ```
+
+With a desktop display available, `npm run drive:smoke` checks that the window and
+main UI are visible and the Rust bridge responds, then saves a screenshot under
+`/tmp/bravebot-ui/`. To check a Linux package, run
+`npm run drive:smoke -- "./dist/Brave Bot-linux-x64/Brave Bot"`.
 
 `scripts/build-bridge.sh` builds the Rust bridge and secure-file helper. TypeScript
 then checks the code and electron-vite bundles the main process, preload and React
@@ -46,8 +51,10 @@ npm run package
 
 `npm run package` does not typecheck. It builds the Rust executables and Electron
 bundles, then `scripts/package.mjs` uses `@electron/packager` to create
-`dist/Brave Bot-darwin-<arch>/Brave Bot.app`. The architecture follows the Node
-process (`arm64` or `x64`). Rust uses its configured toolchain target; for a native
+`dist/Brave Bot-darwin-<arch>/Brave Bot.app` on macOS or
+`dist/Brave Bot-linux-<arch>/` on Linux. Launch the Linux package with
+`"./dist/Brave Bot-linux-x64/Brave Bot"` (replace `x64` for other architectures).
+The platform and architecture follow the Node process. Rust uses its configured toolchain target; for a native
 bundle, use matching Node and Rust architectures.
 
 Both `bravebot-rpc` and `bravebot-ui-files` are copied into the app's Resources.
