@@ -26,6 +26,8 @@ import { type Fork, forkOf, forkedSessions } from '../shared/forks'
 import { type Bot } from '../shared/bots'
 import type { Doing } from './components/BotAvatar'
 import * as t from './transcript'
+import { receiveTurn, type Turns, type TurnDisclosure } from './turn-details'
+import { AuditInspector } from './components/AuditInspector'
 import { conversationKey } from '../shared/experience'
 import { useExperience, conversationPreferences, setConversation, experienceError } from './experience'
 import { ThemePicker } from './components/ThemePicker'
@@ -50,6 +52,7 @@ interface Live {
     directory: string
   }
   entries: t.Entry[]
+  turns: Turns
   todos: TodoRow[]
   quarantine: Shown[]
   phase: Phase | null
@@ -476,6 +479,7 @@ export function App(): React.JSX.Element {
           directory: opened.record.directory,
         },
         entries: t.fromSaid(opened.said),
+        turns: {},
         todos: Object.values(opened.todos).flat(),
         quarantine: [],
         phase: null,
@@ -529,6 +533,7 @@ export function App(): React.JSX.Element {
           directory: chosen,
         },
         entries: [],
+        turns: {},
         todos: [],
         quarantine: [],
         phase: null,
@@ -682,6 +687,26 @@ export function App(): React.JSX.Element {
   )
 
   const { widths, collapsed, dragging, folding, start, reset, nudge, toggle } = useColumns()
+  const [audit, setAudit] = useState<{ handle: string; turn: number | null; trigger: HTMLButtonElement; wasFolded: boolean } | null>(null)
+  useEffect(() => { setAudit(null) }, [live?.handle])
+  const selectedAudit = audit?.handle === live?.handle ? audit : null
+  const openAudit = (turn: number | null, trigger: HTMLButtonElement) => {
+    if (!live) return
+    setAudit({ handle: live.handle, turn, trigger, wasFolded: selectedAudit?.wasFolded ?? collapsed.right })
+    if (collapsed.right) toggle('right')
+  }
+  const closeAudit = () => {
+    if (selectedAudit?.wasFolded && !collapsed.right) toggle('right')
+    setAudit(null)
+    // The live trigger disappears at completion; return to that turn's new footer instead.
+    const trigger = selectedAudit?.trigger.isConnected ? selectedAudit.trigger :
+      selectedAudit && selectedAudit.turn !== null ? document.querySelector<HTMLButtonElement>(`.turn-footer [data-audit-turn="${selectedAudit.turn}"]`) : null
+    trigger?.focus({ preventScroll: true })
+  }
+  const discloseTurn = (turn: number, field: TurnDisclosure, open: boolean) => {
+    if (!live) return
+    updateSession(live.handle, (old) => old?.turns[turn] ? { ...old, turns: { ...old.turns, [turn]: { ...old.turns[turn]!, [field]: open } } } : old)
+  }
 
   /** Which sessions in the list came out of another one, for the mark beside their names. */
   const forked = useMemo(() => forkedSessions(forks), [forks])
@@ -1020,6 +1045,7 @@ export function App(): React.JSX.Element {
             directory: forked.directory,
           },
           entries: t.fromSaid(forked.said),
+          turns: {},
           todos: Object.values(forked.todos).flat(),
           quarantine: [],
           phase: null,
@@ -1171,6 +1197,8 @@ export function App(): React.JSX.Element {
         onNudge={nudge}
       />
       <Transcript
+        onAudit={openAudit}
+        onTurnDisclosure={discloseTurn}
         backendReady={backendReady}
         onCheckBackend={() => void checkBackend()}
         onDiagnostics={() => void doctor()}
@@ -1226,7 +1254,8 @@ export function App(): React.JSX.Element {
         onReset={reset}
         onNudge={nudge}
       />
-      <Context live={live} onClose={() => toggle('right')} />
+      <Context live={live} onClose={() => toggle('right')} audit={selectedAudit ?
+        <AuditInspector key={`${selectedAudit.handle}:${selectedAudit.turn}`} details={selectedAudit.turn === null ? undefined : live?.turns[selectedAudit.turn]} onClose={closeAudit} /> : null} />
       {[...openedLives.current.values()].some((item) => item.handle !== live?.handle && item.running) && (
         <div className="background-tasks" aria-label="Background tasks">
           {[...openedLives.current.values()].filter((item) => item.handle !== live?.handle && item.running).map((item) => (
@@ -1278,9 +1307,13 @@ function apply(
 
   setLive((old) => {
     if (!old) return old
+    old = { ...old, turns: receiveTurn(old.turns, message) }
     switch (message.event) {
       case 'turn.started':
-        return { ...old, running: true, phase: null, tokens: 0 }
+        return { ...old, running: true, phase: null, tokens: 0,
+          entries: t.beginTurn(old.entries, message.data.turn) }
+      case 'audit':
+        return old
       case 'phase':
         return { ...old, phase: message.data.phase }
       case 'tokens':
@@ -1323,7 +1356,7 @@ function apply(
           outcome: 'complete',
           running: message.data.consolidating === true,
           phase: null,
-          entries: [...old.entries, t.replied(message.data.reply)],
+          entries: [...old.entries, t.replied(message.data.reply, message.data.turn)],
           archived: message.data.archived,
           bot: old.bot && compacted ? { ...old.bot, grounded: false } : old.bot,
         }
@@ -1336,7 +1369,7 @@ function apply(
           summary: { ...old.summary, id: message.data.id ?? old.summary.id },
           running: false,
           phase: null,
-          entries: [...t.interruptPending(old.entries), t.errored(`${kind}: ${detail}`)],
+          entries: [...t.interruptPending(old.entries), { ...t.errored(`${kind}: ${detail}`), turn: message.data.turn }],
           queuePaused: true,
         }
       }

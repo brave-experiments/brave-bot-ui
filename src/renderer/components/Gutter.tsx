@@ -79,8 +79,10 @@ export function useColumns(): {
     let narrow = window.innerWidth <= 1120
     const onResize = (): void => {
       const nextNarrow = window.innerWidth <= 1120
+      // Capture the transition before React runs the updater; `narrow` changes below.
+      const enteringNarrow = nextNarrow && !narrow
       setLayout((old) => {
-        const collapsed = nextNarrow && !narrow ? { ...old.collapsed, right: true } : old.collapsed
+        const collapsed = enteringNarrow ? { ...old.collapsed, right: true } : old.collapsed
         return { ...old, collapsed, widths: fit(old.widths, window.innerWidth, collapsed) }
       })
       narrow = nextNarrow

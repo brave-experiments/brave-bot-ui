@@ -27,6 +27,7 @@ import type { ExportTurn } from '../shared/export'
 import { CONSOLIDATION_MARK } from '../shared/bots'
 
 export type Entry = (
+  | { kind: 'turn-start'; id: string; number: number }
   | { kind: 'user'; id: string; text: string }
   | { kind: 'assistant'; id: string; text: string }
   | { kind: 'narration'; id: string; text: string }
@@ -95,7 +96,7 @@ export type Entry = (
   | { kind: 'error'; id: string; text: string }
   /** A replayed tool line from a stored session: no outcome, because none was kept. */
   | { kind: 'replayed-tool'; id: string; text: string }
-) & { interrupted?: boolean }
+) & { interrupted?: boolean; turn?: number }
 
 let counter = 0
 const nextId = (): string => `e${++counter}`
@@ -195,7 +196,20 @@ export const askedQuestions = (request: AskRequest): Entry => ({
   request,
   answers: null,
 })
-export const replied = (text: string): Entry => ({ kind: 'assistant', id: nextId(), text })
+export const replied = (text: string, turn?: number): Entry => ({ kind: 'assistant', id: nextId(), text, turn })
+export const turnStarted = (number: number): Entry => ({ kind: 'turn-start', id: nextId(), number })
+
+/** Keep notices below the prompt even if a worker reports activity before turn.started. */
+export function beginTurn(entries: Entry[], number: number): Entry[] {
+  if (entries.some((entry) => entry.kind === 'turn-start' && entry.number === number)) return entries
+  let at = entries.length
+  for (let index = entries.length - 1; index >= 0; index--) {
+    const entry = entries[index]!
+    if (entry.kind === 'assistant' || entry.kind === 'turn-start') break
+    if (entry.kind === 'user' || entry.kind === 'consolidation') { at = index + 1; break }
+  }
+  return [...entries.slice(0, at), turnStarted(number), ...entries.slice(at)]
+}
 
 /**
  * Attach a finished call to the row it started in.
@@ -400,6 +414,7 @@ export function conversation(entries: Entry[], tools = false): ExportTurn[] {
 export function searchableText(entry: Entry): string {
   if ('text' in entry) return entry.text
   switch (entry.kind) {
+    case 'turn-start': return ''
     case 'attached': return entry.path
     case 'consolidation': return 'Updating persistent memory'
     case 'tool': return [entry.activity.verb, entry.activity.target, entry.activity.note, ...entry.activity.changes.map((change) => 'text' in change ? change.text : '')].join(' ')

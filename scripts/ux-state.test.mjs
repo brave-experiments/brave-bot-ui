@@ -14,6 +14,17 @@ function load(path, electron = {}) {
   return module.exports
 }
 
+test('turn notices precede early worker activity and markers do not duplicate', () => {
+  const t = load('src/renderer/transcript.ts')
+  const entries = [t.userSaid('Do the work'), t.narrated('Already thinking')]
+  const begun = t.beginTurn(entries, 2)
+  assert.deepEqual(begun.map(entry => entry.kind), ['user', 'turn-start', 'narration'])
+  assert.equal(t.beginTurn(begun, 2), begun)
+  const next = t.beginTurn([...begun, t.replied('Done', 2), t.consolidating()], 3)
+  assert.equal(next.at(-1).number, 3)
+  assert.deepEqual(t.conversation(next), [{ role: 'user', text: 'Do the work' }, { role: 'assistant', text: 'Done' }], 'metadata does not create exported messages')
+})
+
 test('drafts, archives and pins survive process reload and unrelated preference writes', () => {
   const directory = mkdtempSync(join(tmpdir(), 'bravebot-ux-state-'))
   const electron = { app: { getPath: () => directory } }
