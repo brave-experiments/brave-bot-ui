@@ -255,15 +255,17 @@ check((await widthOf('.sessions')) > 1, 'and it comes back')
 // --- the panels a menu item opens ------------------------------------------------------
 await click('app.about')
 await page.waitForTimeout(600)
-check(await page.locator('.notice').isVisible(), 'About opens a panel')
+const about = page.getByRole('dialog', { name: 'About Brave Bot' })
+check(await about.isVisible(), 'About opens a panel')
+await about.locator('summary').click()
 check(
-  /Agent/.test(await page.locator('.notice-body').textContent()),
+  /Agent/.test(await about.locator('dl').textContent()),
   'and it carries the agent build, which is the first thing worth knowing',
 )
 await page.screenshot({ path: '/tmp/bravebot-ui/11-menu-about.png' })
 await page.keyboard.press('Escape')
 await page.waitForTimeout(400)
-check(!(await page.locator('.notice').isVisible()), 'Escape closes it — nothing here traps anybody')
+check(!(await about.isVisible()), 'Escape closes it — nothing here traps anybody')
 
 // The recents list is this machine's, and a fresh checkout has none — which would leave the
 // keyboard walk below with a single disabled row and nothing to walk. So a known list is put
