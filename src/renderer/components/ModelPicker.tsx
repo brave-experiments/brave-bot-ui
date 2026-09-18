@@ -15,9 +15,10 @@ const CAPABILITIES: Record<string, [string, string]> = {
   'structured-output': ['Structured', 'Supports structured outputs'],
 }
 
-export function ModelPicker({ model, disabled, onChoose, scope = 'conversation' }: {
+export function ModelPicker({ model, disabled, onChoose, scope = 'conversation', session }: {
   model: string | null
   scope?: 'conversation' | 'bot'
+  session?: string
   disabled: boolean
   onChoose: (model: string) => void
 }): React.JSX.Element {
@@ -42,7 +43,7 @@ export function ModelPicker({ model, disabled, onChoose, scope = 'conversation' 
     setLoading(true)
     setProblem(null)
     search.current?.focus()
-    void window.bravebot.request<ModelCatalogue>('models.list').then((answer) => {
+    void window.bravebot.request<ModelCatalogue>('models.list', { session }).then((answer) => {
       if (gone) return
       if (answer.error) setProblem(answer.error.message)
       else setCatalogue(answer.ok ?? null)
@@ -50,7 +51,7 @@ export function ModelPicker({ model, disabled, onChoose, scope = 'conversation' 
       if (!gone) setProblem('Could not load models. Try again.')
     }).finally(() => { if (!gone) setLoading(false) })
     return () => { gone = true }
-  }, [open, revision])
+  }, [open, revision, session])
 
   useEffect(() => {
     if (!open) return

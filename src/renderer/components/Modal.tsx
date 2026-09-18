@@ -17,17 +17,20 @@ export function Modal({ title, onClose, children, className = '' }: {
     const controls = () => [...(root.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select, a[href], [tabindex="0"]') ?? [])].filter((node) => node.getClientRects().length)
     if (!root.current?.contains(document.activeElement)) (controls()[0] ?? root.current)?.focus()
     const key = (event: KeyboardEvent) => {
+      // A saving form may disable its focused button and move focus to body. Keep
+      // Escape and Tab within the topmost modal even through that transition.
+      if ([...document.querySelectorAll('[role="dialog"]')].at(-1) !== root.current) return
       if (event.key === 'Escape' && close.current) { event.preventDefault(); event.stopPropagation(); close.current() }
       if (event.key !== 'Tab') return
       const items = controls(), first = items[0], last = items.at(-1)
       if (!first) { event.preventDefault(); root.current?.focus(); return }
+      if (!root.current?.contains(document.activeElement)) { event.preventDefault(); first.focus(); return }
       if (event.shiftKey && (document.activeElement === first || document.activeElement === root.current)) { event.preventDefault(); last?.focus() }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
     }
-    root.current?.addEventListener('keydown', key)
-    const element = root.current
+    document.addEventListener('keydown', key, true)
     return () => {
-      element?.removeEventListener('keydown', key)
+      document.removeEventListener('keydown', key, true)
       if (app) app.inert = wasInert
       if (previous?.isConnected) previous.focus()
     }

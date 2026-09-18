@@ -46,6 +46,7 @@ interface Props {
   onSaveBot: (bot: { slug?: string; avatar?: string; model?: string | null; name: string; purpose: string; directory: string }) => Promise<boolean>
   onRetireBot: (slug: string, retired: boolean) => void
   onRemoveBot: (slug: string) => void
+  onSettings: () => void
   build: string | null
 }
 
@@ -64,6 +65,7 @@ export function Sidebar({
   onRetireBot,
   onRemoveBot,
   build,
+  onSettings,
 }: Props): React.JSX.Element {
   const [tab, setTab] = useState<Tab>('sessions')
   const [grouped, setGrouped] = useState(false)
@@ -144,6 +146,7 @@ export function Sidebar({
         />
       </div>
 
+      <button className="agent-settings-open" onClick={onSettings}>Agent settings</button>
       {build && (
         <footer className="build" title="The agent build these sessions are stamped with">
           {build}

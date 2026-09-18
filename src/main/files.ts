@@ -46,6 +46,7 @@ import {
  * one on disk would be a root nothing is running in.
  */
 const roots = new Map<string, string>()
+export const rootForSession = (handle: string): string | undefined => roots.get(handle)
 const attachments = new Map<string, Map<string, string>>()
 
 /**

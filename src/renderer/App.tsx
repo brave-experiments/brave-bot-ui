@@ -1,3 +1,4 @@
+import { AgentSettings } from './components/AgentSettings'
 import type { FileAttachment } from '../shared/files'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
@@ -58,6 +59,7 @@ interface Live {
   quarantine: Shown[]
   phase: Phase | null
   tokens: number
+  contextTokens?: number
   running: boolean
   /** Set when a fresh session needs the trust question answered before it can run. */
   askingTrust: string | null
@@ -134,7 +136,7 @@ function cameFrom(
 class Unconfigurable extends Error {}
 
 /** Which kinds of question a person can be put. */
-export type Asked = 'confirm' | 'run' | 'output' | 'vouch'
+export type Asked = 'confirm' | 'run' | 'output' | 'vouch' | 'vet'
 
 /**
  * Which method answers which question.
@@ -148,6 +150,7 @@ const METHOD: Record<Asked, string> = {
   run: 'run.reply',
   output: 'output.reply',
   vouch: 'vouch.reply',
+  vet: 'vet.reply',
 }
 
 async function call<T>(method: string, params?: Record<string, unknown>): Promise<T> {
@@ -184,6 +187,7 @@ async function callBot(request: {
 }
 
 export function App(): React.JSX.Element {
+  const [agentSettings, setAgentSettings] = useState(false)
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [live, renderLive] = useState<Live | null>(null)
   const liveRef = useRef<Live | null>(null)
@@ -224,10 +228,10 @@ export function App(): React.JSX.Element {
   const [backendReady, setBackendReady] = useState<boolean | null>(null)
   const checkBackend = useCallback(async () => {
     try {
-      const info = await call<{ configured?: boolean }>('agent.info')
+      const info = await call<{ configured?: boolean }>('agent.info', { session: live?.handle })
       setBackendReady(info.configured ?? null)
     } catch { setBackendReady(false) }
-  }, [])
+  }, [live?.handle])
   useEffect(() => { void checkBackend() }, [checkBackend])
   const [notice, setNotice] = useState<{ title: string; body: string } | null>(null)
   const [aboutInfo, setAboutInfo] = useState<AboutInfo | null>(null)
@@ -489,6 +493,7 @@ export function App(): React.JSX.Element {
         running: false,
         // A record with no stored map was written before maps were kept. Nothing
         // recorded is not the same as nothing trusted, so it is asked about again.
+        contextTokens: opened.contextTokens,
         askingTrust: opened.trust.known ? null : opened.record.directory,
         // Looked up rather than carried: this session may have been forked in another launch
         // entirely, and the file the main process keeps is where that is written down.
@@ -541,6 +546,7 @@ export function App(): React.JSX.Element {
         phase: null,
         tokens: 0,
         running: false,
+        contextTokens: 0,
         askingTrust: chosen,
         forkedFrom: null,
         focus: null,
@@ -1046,6 +1052,7 @@ export function App(): React.JSX.Element {
           phase: null,
           tokens: 0,
           running: false,
+          contextTokens: forked.contextTokens,
           askingTrust: forked.trust.known ? null : forked.directory,
           // A fork is a session and not a bot, even when it was cut out of a bot's. A bot is one
         // conversation resumed forever; a second one carrying its name would be a second bot
@@ -1181,6 +1188,7 @@ export function App(): React.JSX.Element {
         onRetireBot={retireBot}
         onRemoveBot={removeBot}
         build={build}
+        onSettings={() => setAgentSettings(true)}
       /></SessionInfo.Provider>
       <Gutter
         side="left"
@@ -1197,7 +1205,7 @@ export function App(): React.JSX.Element {
         backendReady={backendReady}
         onCheckBackend={() => void checkBackend()}
         onDiagnostics={() => void doctor()}
-        onSetup={() => setUnconfigured('Backend credentials are not available to this build.')}
+        onSetup={() => setAgentSettings(true)}
         storageKey={draftKey}
         attachments={live?.attachments ?? []}
         onAttach={() => {
@@ -1265,6 +1273,7 @@ export function App(): React.JSX.Element {
         <Notice title={notice.title} body={notice.body} onClose={() => setNotice(null)} />
       )}
       {unconfigured && <Unconfigured detail={unconfigured} onClose={() => setUnconfigured(null)} />}
+      {agentSettings && <AgentSettings session={live?.handle} onClose={() => setAgentSettings(false)} onChanged={() => { void checkBackend() }} />}
       {live?.askingTrust && (
         <TrustPrompt directory={live.askingTrust} onAnswer={answerTrust} />
       )}
@@ -1305,6 +1314,10 @@ function apply(
     if (!old) return old
     old = { ...old, turns: receiveTurn(old.turns, message) }
     switch (message.event) {
+      case 'watch.fired':
+        return { ...old, entries: [...old.entries, t.watchFired(message.data.number, message.data.path)] }
+      case 'watch.ended':
+        return { ...old, entries: [...old.entries, t.narrated(`Watch ${message.data.number} ended: ${message.data.reason}${message.data.message ? `. ${message.data.message}` : ''}`)] }
       case 'turn.started':
         return { ...old, running: true, phase: null, tokens: 0,
           entries: t.beginTurn(old.entries, message.data.turn) }
@@ -1336,6 +1349,8 @@ function apply(
         return { ...old, entries: [...old.entries, t.askedRun(message.data)] }
       case 'output.request':
         return { ...old, entries: [...old.entries, t.askedOutput(message.data)] }
+      case 'vet.request':
+        return { ...old, entries: [...old.entries, t.askedVet(message.data)] }
       case 'vouch.request':
         return { ...old, entries: [...old.entries, t.askedVouch(message.data)] }
       case 'ask.request':
@@ -1348,6 +1363,7 @@ function apply(
         const compacted = message.data.archived > old.archived
         return {
           ...old,
+          contextTokens: message.data.contextTokens,
           summary: { ...old.summary, id: message.data.id ?? old.summary.id },
           outcome: 'complete',
           running: message.data.consolidating === true,
@@ -1362,10 +1378,11 @@ function apply(
         const { kind, message: detail } = message.data
         return {
           ...old,
+          contextTokens: message.data.contextTokens,
           summary: { ...old.summary, id: message.data.id ?? old.summary.id },
           running: false,
           phase: null,
-          entries: [...t.interruptPending(old.entries), { ...t.errored(`${kind}: ${detail}`), turn: message.data.turn }],
+          entries: [...t.interruptPending(old.entries), { ...t.errored(`${kind}: ${detail}`), category: kind === 'cancelled' ? 'cancelled' : message.data.category, attempts: message.data.attempts, status: message.data.status, turn: message.data.turn }],
           queuePaused: true,
         }
       }

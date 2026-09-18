@@ -232,13 +232,13 @@ fn cancelling_an_idle_session_is_not_an_error() {
 }
 
 #[test]
-fn doctor_reports_rather_than_failing_when_bua_is_absent() {
+fn doctor_reports_the_bundled_agent_without_an_external_cli() {
     let (mut bridge, _) = harness();
     let report = call(&mut bridge, "doctor", json!({})).expect("doctor never errors");
     assert!(report["found"].is_boolean());
     assert_eq!(
-        report["structured"], json!(false),
-        "v1 shells out; the flag lets a client be written once"
+        report["structured"], json!(true),
+        "diagnostics come from the linked agent"
     );
     assert!(report["text"].is_string());
 }
@@ -387,4 +387,50 @@ fn permission_review_can_only_remove_existing_grants() {
     assert_eq!(call(&mut bridge, "permissions.revoke", json!({"session": session, "kind": "grant"})), Err(ErrorCode::BadRequest));
     let again = call(&mut bridge, "permissions.list", json!({"session": session})).unwrap();
     assert_eq!(again, after);
+}
+
+#[test]
+fn watches_require_trust_are_bounded_and_are_not_inherited_by_new_sessions() {
+    let project = std::env::temp_dir().join(format!("bravebot-ui-watch-test-{}", std::process::id()));
+    std::fs::create_dir_all(&project).unwrap();
+    let (mut bridge, _) = harness();
+    let session = call(&mut bridge, "session.new", json!({"directory": project})).unwrap()["session"].clone();
+    std::fs::write(project.join("one"), "original").unwrap();
+    assert_eq!(call(&mut bridge, "watches.add", json!({"session": session, "path": "one"})), Err(ErrorCode::BadRequest));
+    call(&mut bridge, "trust.reply", json!({"session": session, "trusted": false})).unwrap();
+    for i in 0..8 {
+        std::fs::write(project.join(format!("file-{i}")), "text").unwrap();
+        call(&mut bridge, "watches.add", json!({"session": session, "path": format!("file-{i}")})).unwrap();
+    }
+    assert_eq!(call(&mut bridge, "watches.add", json!({"session": session, "path": "one"})), Err(ErrorCode::BadRequest));
+    let rows = call(&mut bridge, "watches.list", json!({"session": session})).unwrap();
+    assert_eq!(rows["watches"].as_array().unwrap().len(), 8);
+    call(&mut bridge, "watches.stop", json!({"session": session, "all": true})).unwrap();
+    assert_eq!(call(&mut bridge, "watches.add", json!({"session": session, "path": "../escape"})), Err(ErrorCode::BadRequest));
+    assert_eq!(call(&mut bridge, "watches.add", json!({"session": session, "path": "line\nbreak"})), Err(ErrorCode::BadRequest));
+    let fresh = call(&mut bridge, "session.new", json!({"directory": project})).unwrap()["session"].clone();
+    assert_eq!(call(&mut bridge, "watches.list", json!({"session": fresh})).unwrap()["watches"], json!([]));
+    call(&mut bridge, "session.close", json!({"session": session})).unwrap();
+    assert_eq!(call(&mut bridge, "watches.list", json!({"session": session})), Err(ErrorCode::NoSuchSession));
+    std::fs::remove_dir_all(project).unwrap();
+}
+
+#[test]
+fn settings_override_is_validated_and_diagnostics_use_the_linked_agent() {
+    let project = std::env::temp_dir().join(format!("bravebot-ui-settings-test-{}", std::process::id()));
+    std::fs::create_dir_all(&project).unwrap();
+    let file = project.join("settings.json");
+    let (mut bridge, _) = harness();
+    std::fs::write(&file, "[]").unwrap();
+    assert_eq!(call(&mut bridge, "settings.select", json!({"path": file})), Err(ErrorCode::BadRequest));
+    std::fs::write(&file, r#"{"provider":{"local":{"options":{"baseURL":"http://localhost:11434/v1","apiKey":"NEVER-SHOW-THIS"},"models":{"test":{}}}},"model":"local/test"}"#).unwrap();
+    let selected = call(&mut bridge, "settings.select", json!({"path": file})).unwrap();
+    assert_eq!(selected["selected"], file.to_str().unwrap());
+    assert!(!selected.to_string().contains("NEVER-SHOW-THIS"));
+    let doctor = call(&mut bridge, "doctor", json!({})).unwrap();
+    assert_eq!(doctor["found"], true);
+    assert!(doctor["text"].as_str().unwrap().contains(bravebot_bridge::agent_build()));
+    let cleared = call(&mut bridge, "settings.select", json!({"path": null})).unwrap();
+    assert!(cleared["selected"].is_null());
+    std::fs::remove_dir_all(project).unwrap();
 }

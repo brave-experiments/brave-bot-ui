@@ -7,6 +7,7 @@
  * remote origins, and no navigation.
  */
 
+import { readHooks, saveHooks } from './agent-settings'
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { newAvatarSeed } from '../shared/avatar'
@@ -40,7 +41,7 @@ import {
 } from './bots'
 import { isBotModel, isSlug, slugFor, withoutBot, type Bot } from '../shared/bots'
 import { isSessionId, parseForkResult } from '../shared/forks'
-import { forgetRoot, list, noteRoot, open as openInApp, preview, search, chooseAttachments, attachmentPaths } from './files'
+import { rootForSession, forgetRoot, list, noteRoot, open as openInApp, preview, search, chooseAttachments, attachmentPaths } from './files'
 import { isSubpath } from '../shared/files'
 import {
   parseExportRequest,
@@ -92,20 +93,27 @@ interface BotFailure {
 let window: BrowserWindow | null = null
 let bridge: Bridge | null = null
 // Model discovery uses its own process so a slow listing never blocks live turn replies.
+let selectedSettings: string | null = null
+let watchClock: ReturnType<typeof setInterval> | null = null
+let pollingWatches = false
+let modelListingGeneration = 0
+let modelListingDirectory: string | undefined
 let modelListing: Promise<unknown> | null = null
-function listModels(): Promise<unknown> {
-  if (modelListing) return modelListing
-  const discovery = new Bridge(() => {})
+function listModels(directory?: string): Promise<unknown> {
+  if (modelListing && modelListingDirectory === directory) return modelListing
+  modelListingDirectory = directory
+  const generation = ++modelListingGeneration
+  const discovery = new Bridge(() => {}, selectedSettings)
   let timer: ReturnType<typeof setTimeout>
   modelListing = Promise.race([
-    discovery.request('models.list'),
+    discovery.request('models.list', { directory }),
     new Promise((_, reject) => {
       timer = setTimeout(() => reject(new Error('Model discovery timed out. Try again.')), 60000)
     }),
   ]).finally(() => {
     clearTimeout(timer)
     discovery.dispose()
-    modelListing = null
+    if (generation === modelListingGeneration) modelListing = null
   })
   return modelListing
 }
@@ -315,7 +323,15 @@ function createWindow(): void {
     // after, which reads as though the app interrupted rather than followed.
     window?.webContents.send('bravebot:event', message)
     after?.()
-  })
+  }, selectedSettings)
+
+  if (watchClock) clearInterval(watchClock)
+  watchClock = setInterval(() => {
+    if (!bridge || !window || pollingWatches) return
+    pollingWatches = true
+    void bridge.request('watches.poll').catch(() => {}).finally(() => { pollingWatches = false })
+  }, 1000)
+  window.on('closed', () => { if (watchClock) clearInterval(watchClock); watchClock = null })
 
   // Watching the palettes directory, so that editing one is an editing loop rather than a relaunch
   // each time. Torn down with the window rather than at quit: on macOS the last window can close
@@ -375,11 +391,16 @@ const ALLOWED = new Set([
   'run.reply',
   'output.reply',
   'vouch.reply',
+  'vet.reply',
   'ask.reply',
   'trust.reply',
   'permissions.list',
   'permissions.revoke',
   'doctor',
+  'settings.inspect',
+  'watches.list',
+  'watches.add',
+  'watches.stop',
 ])
 
 /** What the save sheet offers per format. */
@@ -455,7 +476,10 @@ app.whenReady().then(() => {
       return { error: { code: 'no_bridge', message: 'the agent is not running' } }
     }
     try {
-      const ok = method === 'models.list' ? await listModels() : await bridge.request(method, sanitised(method, params))
+      const session = (params as { session?: unknown } | null)?.session
+      const ok = method === 'models.list'
+        ? await listModels(rootForSession(typeof session === 'string' ? session : ''))
+        : await bridge.request(method, sanitised(method, params))
       // Opening a session is the other way a project becomes recent, and this handler is
       // already the choke point that sees it. Reading one field it is forwarding anyway is
       // a smaller thing than a channel that would let the renderer write the list itself.
@@ -752,6 +776,31 @@ app.whenReady().then(() => {
 
   // Choosing a project is a native affair: the renderer cannot see the filesystem and
   // should not be handed a path it invented.
+  ipcMain.handle('bravebot:settings:select', async (_event, clear: unknown) => {
+    if (!bridge || !window) throw new Error('The agent is unavailable.')
+    let path: string | null = null
+    if (clear !== true) {
+      const picked = await dialog.showOpenDialog(window, { title: 'Choose run settings', properties: ['openFile'], filters: [{ name: 'JSON settings', extensions: ['json'] }] })
+      if (picked.canceled) return null
+      path = picked.filePaths[0] ?? null
+      if (!path) return null
+    }
+    const report = await bridge.selectSettings(path)
+    selectedSettings = path
+    modelListing = null
+    return report
+  })
+  const agentHome = async () => {
+    const info = await bridge?.request<{ home: string | null }>('agent.info')
+    if (!info?.home) throw new Error('The agent state directory is unavailable.')
+    return info.home
+  }
+  ipcMain.handle('bravebot:hooks:read', async () => readHooks(await agentHome()))
+  ipcMain.handle('bravebot:hooks:save', async (_event, text: unknown, expected: unknown) => {
+    if (typeof text !== 'string' || (expected !== null && typeof expected !== 'string')) throw new Error('Invalid hooks document.')
+    return saveHooks(await agentHome(), text, expected)
+  })
+
   ipcMain.handle('bravebot:choose-directory', async () => {
     if (!window) return null
     const result = await dialog.showOpenDialog(window, {

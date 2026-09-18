@@ -15,8 +15,14 @@ use std::sync::{Arc, Mutex};
 
 fn main() {
     let mut args = std::env::args().skip(1);
+    let mut settings = None;
     if let Some(flag) = args.next() {
         match flag.as_str() {
+            "--settings" => {
+                let Some(path) = args.next() else { eprintln!("--settings requires a file path"); std::process::exit(2); };
+                if args.next().is_some() { eprintln!("unexpected arguments after settings file"); std::process::exit(2); }
+                settings = Some(std::path::PathBuf::from(path));
+            }
             "--version" | "-V" => {
                 println!("bravebot-rpc {} (agent {})", env!("CARGO_PKG_VERSION"), bravebot_bridge::agent_build());
                 return;
@@ -38,7 +44,7 @@ fn main() {
     let emitter = Arc::clone(&out);
     let mut bridge = Bridge::new(Box::new(move |event: Event| {
         write_line(&emitter, &event.to_value());
-    }));
+    })).with_settings(settings);
 
     bridge.ready();
 

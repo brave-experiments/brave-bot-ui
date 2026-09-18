@@ -1,4 +1,6 @@
-export function ErrorCard({ detail, onRetry, onModel }: {
+import { failureSummary } from '../failure'
+export function ErrorCard({ detail, onRetry, onModel, category, attempts, status }: {
+  category?: string | null; attempts?: number | null; status?: number | null
   detail: string; onRetry?: () => void; onModel?: () => void
 }): React.JSX.Element {
   const denied = /401|403|unauthoriz|credential/i.test(detail)
@@ -12,12 +14,13 @@ export function ErrorCard({ detail, onRetry, onModel }: {
     : limited ? 'Wait a moment before retrying, or choose another model.'
     : stopped ? 'Completed changes remain in the project. You can continue from here.'
     : 'Your conversation is preserved. Review the details, then continue from the current project state.'
+  const classified = category ? failureSummary(category) : { title, description }
   return <div className="error-card" role="alert">
-    <strong>{title}</strong><p>{description}</p>
+    <strong>{classified.title}</strong><p>{classified.description}</p>
     <div className="error-actions">
       {onRetry && <button onClick={onRetry}>Draft continuation</button>}
       {onModel && <button onClick={onModel}>Choose another model</button>}
     </div>
-    <details><summary>Technical details</summary><pre>{detail}</pre></details>
+    <details><summary>Technical details</summary><pre>{detail}{attempts != null ? `\nRequests attempted: ${attempts}` : ''}{status != null ? `\nHTTP status: ${status}` : ''}</pre></details>
   </div>
 }

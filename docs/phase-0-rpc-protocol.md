@@ -159,7 +159,7 @@ Honest limits. Two things could eventually want an upstream change, and neither 
 - **Structured `doctor` output.** The checks live in `crates/cli/src/main.rs`, a binary,
   so they cannot be called as a library. v1 shells out to `bravebot doctor` and shows its text
   (§7.3). A small upstream extraction would be nicer and is optional.
-- **New approval types.** Command approval is implemented. The v0.8.0 fetch-host,
+- **New approval types.** Command approval is implemented. The v0.9.0 fetch-host,
   language-server and manifest-plan requests are currently refused; adding UI support
   requires adapting the bridge, not editing upstream.
 
@@ -981,3 +981,34 @@ Still open:
   Streaming is nicer for the right-hand column but means the client holds a trail the
   disk does not have yet, and they will differ if the turn dies. Streaming plus a reload
   on `turn.done` is the suggestion; it is not free.
+
+
+## 0.9 desktop extensions
+
+- `vet.request` carries `request`, `origin`, `expects`, full `content`, `lines` and
+  `vetting: { verdict, reason, detail }`. `vet.reply` carries the session, request and
+  explicit decision. Its kind is distinct from output and path-vouch replies.
+- `output.request` and `vouch.request` include `vetting`. `confirm.request` includes an
+  optional `remark: { preview, lines, label }`. None is interpreted as an approval.
+- `watches.list/add/stop` operate on an open session. Add names a project-relative file;
+  stop names a number or `all: true`. Listings include remaining lifetime and state.
+  Main-process `watches.poll` advances the upstream watch clock and starts eligible turns.
+  `watch.fired` names the number/path; `watch.ended` names the number/reason. Both are
+  session-scoped. Watch prompts do not enter typed-prompt recall or title a conversation.
+- `settings.inspect` optionally takes a session and reports the linked agent's effective
+  service configuration, file layers, managed keys and network transport, without credentials.
+  `settings.select` is main-process-only and selects/clears a validated file for future turns.
+  The native `bravebot:settings:select` picker grants the path; renderer requests cannot set it.
+  Model discovery uses the same override and the session's registered project directory.
+  `bravebot-rpc --settings <path>` restores the override on process restart.
+- `doctor` no longer runs an external CLI. It returns `found: true`, `structured: true`
+  and the linked agent's configuration report as formatted `text` for existing consumers.
+- Open/fork responses and completion/error events include `contextTokens`, the last
+  request's measured size (zero means unmeasured), separately from accumulated usage.
+  The desktop category `model-unconfigured` identifies a selected Brave model without
+  Brave configuration when another gateway or Bedrock service is configured; select
+  a model from that service instead of replacing its credential.
+  Error events include stable `category`, optional `status` and `attempts`; raw backend
+  diagnostic text is not sent as a turn error.
+- `bravebot:hooks:read/save` are main-process IPC endpoints, not arbitrary RPC methods.
+  A save takes the edited JSON and the previously read text (null for an absent file).

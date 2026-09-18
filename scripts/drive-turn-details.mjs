@@ -1,16 +1,20 @@
 // Isolated Electron acceptance: deterministic events, no provider calls or user records.
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { _electron as electron } from 'playwright-core'
 
-const profile = mkdtempSync('/private/tmp/bravebot-turn-details-profile-')
-const directory = mkdtempSync('/private/tmp/bravebot-turn-details-project-')
-const output = '/private/tmp/bravebot-turn-details'
+const profile = mkdtempSync(join(tmpdir(), 'bravebot-turn-details-profile-'))
+const directory = mkdtempSync(join(tmpdir(), 'bravebot-turn-details-project-'))
+const output = join(tmpdir(), 'bravebot-turn-details')
 mkdirSync(output, { recursive: true })
-const app = await electron.launch({ args: ['.', `--user-data-dir=${profile}`], cwd: process.cwd(), timeout: 40000 })
+// XWayland keeps animation frames flowing during Playwright's stability checks.
+const app = await electron.launch({ args: ['.', ...(process.platform === 'linux' ? ['--ozone-platform=x11'] : []), '--disable-renderer-backgrounding', '--disable-background-timer-throttling', `--user-data-dir=${profile}`], cwd: process.cwd(), timeout: 40000 })
 try {
   const page = await app.firstWindow()
+  // Tiling compositors may ignore BrowserWindow.setSize; fix the renderer viewport too.
+  await page.setViewportSize({ width: 1350, height: 900 })
   await page.emulateMedia({ reducedMotion: 'reduce' })
   page.setDefaultTimeout(8000)
   const errors = []

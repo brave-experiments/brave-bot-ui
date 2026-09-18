@@ -2,22 +2,23 @@
 // No provider requests or changes to the user's projects. Screenshots accompany assertions.
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { _electron as electron } from 'playwright-core'
-const output = process.env.UX_OUTPUT || '/private/tmp/bravebot-ux-final'
+const output = process.env.UX_OUTPUT || join(tmpdir(), 'bravebot-ux-final')
 mkdirSync(output, { recursive: true })
-const profile = mkdtempSync('/private/tmp/bravebot-ux-profile-')
-const directory = mkdtempSync('/private/tmp/bravebot-ux-project-')
+const profile = mkdtempSync(join(tmpdir(), 'bravebot-ux-profile-'))
+const directory = mkdtempSync(join(tmpdir(), 'bravebot-ux-project-'))
 mkdirSync(directory+'-copy')
 const idA = '11111111-1111-4111-8111-111111111111', idB = '22222222-2222-4222-8222-222222222222'
 writeFileSync(join(profile, 'bravebot-ui.json'), JSON.stringify({ bots: [{slug:'review-bot', name:'Review Bot', purpose:'Review a disposable project and remember preferences.', avatar:'review-bot', model:null, directory, session:idA, conversations:[idA,idB], archived:0, remembered:0, quiet:0, retired:0, created:1}], recents:[directory] }))
 mkdirSync(join(directory,'.bravebot-ui/bots'), {recursive:true})
 writeFileSync(join(directory,'.bravebot-ui/bots/review-bot.md'), '# Preferences\n\n- Keep reviews concise.\n')
-const app = await electron.launch({args:['.',`--user-data-dir=${profile}`],cwd:process.cwd(),timeout:40000})
+const app = await electron.launch({args:['.', '--disable-renderer-backgrounding', '--disable-background-timer-throttling',`--user-data-dir=${profile}`],cwd:process.cwd(),timeout:40000})
 let page
 const originalClipboard = await app.evaluate(({clipboard})=>clipboard.readText())
 try {
-  page = await app.firstWindow(); page.setDefaultTimeout(7000)
+  page = await app.firstWindow(); await page.setViewportSize({ width: 1350, height: 900 }); page.setDefaultTimeout(7000)
   const errors=[]; page.on('pageerror',e=>{errors.push(e.message);console.error('RENDERER',e.message)})
   await app.evaluate(({ipcMain,BrowserWindow}, {directory,idA,idB})=>{
     const rows=[{id:idA,title:'Review the sample project'},{id:idB,title:'Plan the next iteration'}].map(r=>({...r,directory,project:'sample-project',branch:'main',updated:Date.now(),bytes:20}))
@@ -28,6 +29,7 @@ try {
     replace('bravebot:request',async(_,method,p={})=>{
       const ux=globalThis.ux
       if(method==='agent.info') return {ok:{configured:ux.configured,build:'acceptance fixture',version:'1'}}
+      if(method==='settings.inspect') return {ok:{build:'acceptance fixture',configured:ux.configured,problem:ux.configured?null:'No model service configured.',model:null,brave:false,bedrock:false,providers:[],selected:null,layers:[],overrides:[],managed:{path:null,keys:[]},network:{roots:[],problem:null,trustsNothing:false,proxy:null,authenticated:false,unusableProxy:null,noProxy:null}}}
       if(method==='doctor') return {ok:{found:true,text:'Backend not configured. Install a configured build or rebuild with the approved environment.'}}
       if(method==='session.list') return {ok:{sessions:rows}}
       if(method==='models.list') return {ok:{defaultModel:'sample/fast',warnings:[],models:[{id:'sample/fast',name:'Fast model',provider:'Sample',premium:false,contextWindow:200000,capabilities:['text','tools','vision']},{id:'sample/deep',name:'Deep model',provider:'Sample',premium:false,contextWindow:100000,capabilities:['text','tools']}]}}
@@ -119,9 +121,9 @@ try {
   await page.getByRole('button',{name:'Edit memory',exact:true}).click();await page.getByRole('textbox',{name:'Edit persistent memory'}).fill('# Saved preference\n\n- Use a blue accent.');await page.getByRole('button',{name:'Save memory'}).click();await page.locator('.memory-readable').getByText('Saved preference',{exact:true}).waitFor();await snap('21-memory-read')
   await page.getByRole('button',{name:'Raw',exact:true}).click();await snap('22-memory-raw');await page.getByRole('button',{name:'Reset memory…',exact:true}).click();await snap('23-memory-reset');await page.getByRole('button',{name:'Reset saved memory'}).click()
   await page.getByRole('button',{name:'History',exact:true}).click();await page.locator('.memory-history details').filter({hasText:'Saved preference'}).locator('summary').first().click();await snap('24-memory-history');await page.locator('.memory-history details').filter({hasText:'Saved preference'}).getByRole('button',{name:'Review for restore'}).first().click();await page.getByRole('button',{name:'Save memory'}).click();await page.getByRole('button',{name:'Read',exact:true}).click();await page.locator('.memory-readable').getByText('Saved preference',{exact:true}).waitFor();await snap('25-memory-restored');await page.keyboard.press('Escape')
-  await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(950,780));await page.getByRole('button',{name:'Context panel',exact:true}).click();await snap('26-narrow-drawer');await page.getByRole('button',{name:'Close context panel'}).click()
+  await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(950,780));await page.setViewportSize({width:950,height:780});await page.getByRole('button',{name:'Context panel',exact:true}).click();await snap('26-narrow-drawer');await page.getByRole('button',{name:'Close context panel'}).click()
   await page.emulateMedia({colorScheme:'dark',reducedMotion:'reduce'});await page.waitForFunction(()=>matchMedia('(prefers-color-scheme: dark)').matches);await snap('27-dark');await page.emulateMedia({colorScheme:'light',reducedMotion:'reduce'})
-  await app.evaluate(({BrowserWindow,nativeTheme})=>{BrowserWindow.getAllWindows()[0].setSize(1280,820);nativeTheme.themeSource='light';globalThis.ux.configured=false})
+  await app.evaluate(({BrowserWindow,nativeTheme})=>{BrowserWindow.getAllWindows()[0].setSize(1280,820);nativeTheme.themeSource='light';globalThis.ux.configured=false});await page.setViewportSize({width:1280,height:820})
   await page.reload();await page.getByRole('button',{name:'Sessions',exact:true}).click();await page.locator('.session').filter({hasText:'Plan the next iteration'}).click();await page.getByText('Backend setup needed',{exact:true}).waitFor();assert.equal(await composer.inputValue(),'Independent draft.');await snap('35-backend-not-ready');await page.getByRole('button',{name:'Diagnostics',exact:true}).click();await snap('38-diagnostics');await page.keyboard.press('Escape')
   await page.getByRole('button',{name:'Setup help'}).click();await snap('36-setup-help');await page.keyboard.press('Escape')
   await app.evaluate(()=>globalThis.ux.configured=true);await page.getByRole('button',{name:'Check again'}).click();await page.getByText('Backend setup needed',{exact:true}).waitFor({state:'hidden'})

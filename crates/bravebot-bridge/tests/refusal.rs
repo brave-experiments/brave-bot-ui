@@ -35,6 +35,7 @@ fn a_write() -> WriteRequest {
         existing: Some("old\n".into()),
         intent: Intent::Edit,
         untrusted: false,
+        remark: None,
     }
 }
 
@@ -101,7 +102,8 @@ fn an_answered_write_gets_the_answer_that_was_sent() {
 
         let answerer = std::thread::spawn(move || {
             // Wait for the question to be registered, then answer it.
-            for _ in 0..1000 {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            while std::time::Instant::now() < deadline {
                 let waiting = *running.pending.lock().expect("not poisoned");
                 if let Some(question) = waiting {
                     assert!(
@@ -110,7 +112,7 @@ fn an_answered_write_gets_the_answer_that_was_sent() {
                     );
                     return;
                 }
-                std::thread::yield_now();
+                std::thread::sleep(std::time::Duration::from_millis(1));
             }
             panic!("the write was never registered as pending");
         });
@@ -166,12 +168,13 @@ fn refusing_the_pending_write_sends_a_rejection() {
     let running = harness.running;
 
     let closer = std::thread::spawn(move || {
-        for _ in 0..1000 {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while std::time::Instant::now() < deadline {
             if running.pending.lock().expect("not poisoned").is_some() {
                 running.refuse_pending();
                 return;
             }
-            std::thread::yield_now();
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
         panic!("the write was never registered as pending");
     });
@@ -203,12 +206,13 @@ fn refusing_nothing_queues_nothing() {
     // so we answer it explicitly and check the answer is ours.
     let pending = Arc::clone(&running.pending);
     let answerer = std::thread::spawn(move || {
-        for _ in 0..1000 {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while std::time::Instant::now() < deadline {
             let waiting = *pending.lock().expect("not poisoned");
             if let Some(question) = waiting {
                 return (running, question.id);
             }
-            std::thread::yield_now();
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
         panic!("never pending");
     });
@@ -232,13 +236,14 @@ fn the_question_is_emitted_with_the_diff_and_not_the_body() {
     let pending = Arc::clone(&running.pending);
 
     let answerer = std::thread::spawn(move || {
-        for _ in 0..1000 {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while std::time::Instant::now() < deadline {
             let waiting = *pending.lock().expect("not poisoned");
             if let Some(question) = waiting {
                 running.answer(question.id, Reply::Write(Decision::Reject));
                 return;
             }
-            std::thread::yield_now();
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
         panic!("never pending");
     });
@@ -296,6 +301,8 @@ fn an_unanswerable_output_read_refuses() {
             command: "git status".into(),
             output: "on branch main".into(),
             reference: "$1".into(),
+            verdict: bravebot_core::vetting::Verdict::Inconclusive("not checked"),
+            reason: None,
         }),
         Decision::Reject,
         "approving output nobody could see is the one thing this cannot mean"
@@ -312,6 +319,8 @@ fn an_unanswerable_vouch_refuses() {
             path: "notes.md".into(),
             preview: "first line".into(),
             truncated: true,
+            verdict: bravebot_core::vetting::Verdict::Inconclusive("not checked"),
+            reason: None,
         }),
         Decision::Reject
     );
@@ -354,12 +363,13 @@ fn refusing_a_pending_run_reaches_the_turn_as_a_run() {
     let pending = Arc::clone(&running.pending);
 
     let answerer = std::thread::spawn(move || {
-        for _ in 0..1000 {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while std::time::Instant::now() < deadline {
             if pending.lock().expect("not poisoned").is_some() {
                 running.refuse_pending();
                 return;
             }
-            std::thread::yield_now();
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
         panic!("the run was never registered as pending");
     });
@@ -440,4 +450,31 @@ fn unsupported_approvals_refuse_without_consuming_other_answers() {
     }), Decision::Reject);
     assert!(h.events.lock().unwrap().is_empty());
     assert_eq!(h.confirmer.confirm_write(&a_write()), Decision::Approve);
+}
+
+#[test]
+fn vetted_content_never_approves_itself_or_consumes_another_kind_of_reply() {
+    use bravebot_agent::confirm::VetRequest;
+    use bravebot_core::vetting::Verdict;
+    for verdict in [Verdict::Safe, Verdict::Unsafe, Verdict::Inconclusive("offline")] {
+        let mut h = harness();
+        h.running.answers.send(Reply::Write(Decision::Approve)).unwrap();
+        assert_eq!(h.confirmer.confirm_vetted_read(&VetRequest {
+            origin: "untrusted.txt".into(), expects: "data".into(),
+            content: "untrusted content".into(), verdict, reason: None,
+        }), Decision::Reject);
+        assert!(h.running.pending.lock().unwrap().is_none());
+    }
+}
+
+#[test]
+fn vetted_content_requires_its_own_explicit_approval() {
+    use bravebot_agent::confirm::VetRequest;
+    let mut h = harness();
+    h.running.answers.send(Reply::Vet(Decision::Approve)).unwrap();
+    assert_eq!(h.confirmer.confirm_vetted_read(&VetRequest {
+        origin: "notes.md".into(), expects: "notes".into(), content: "text".into(),
+        verdict: bravebot_core::vetting::Verdict::Unsafe, reason: Some("instructions".into()),
+    }), Decision::Approve);
+    assert_eq!(h.events.lock().unwrap()[0].name, "vet.request");
 }

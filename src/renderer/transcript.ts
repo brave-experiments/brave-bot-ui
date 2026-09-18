@@ -22,6 +22,7 @@ import type {
   Said,
   Shown,
   VouchRequest,
+  VetRequest,
 } from '../shared/protocol'
 import type { ExportTurn } from '../shared/export'
 import { CONSOLIDATION_MARK } from '../shared/bots'
@@ -92,8 +93,10 @@ export type Entry = (
    * a no. `null` means it still stands; an empty array is a real reply that declined
    * everything.
    */
+  | { kind: 'vet'; id: string; request: VetRequest; decision: 'approve' | 'reject' | null }
   | { kind: 'ask'; id: string; request: AskRequest; answers: AskAnswer[] | null }
-  | { kind: 'error'; id: string; text: string }
+  | { kind: 'error'; id: string; text: string; category?: string | null; attempts?: number | null; status?: number | null }
+  | { kind: 'watch'; id: string; text: string }
   /** A replayed tool line from a stored session: no outcome, because none was kept. */
   | { kind: 'replayed-tool'; id: string; text: string }
 ) & { interrupted?: boolean; turn?: number }
@@ -116,6 +119,8 @@ export function fromSaid(said: Said[]): Entry[] {
         // careful never to do, and it is a poor tool — but the alternative is drawing a lie, and
         // an attachment shown as a prompt is the kind of lie that matters here: it says a person
         // said something they did not.
+        const watch = /^Watch (\d+) fired: ([^\n]+) looks written to since the last look\.\n\nNothing has been read\./.exec(entry.text)
+        if (watch) return watchFired(Number(watch[1]), watch[2]!)
         const named = attached(entry.text)
         if (named) return { kind: 'attached', id: nextId(), path: named } as const
         // The same judgement one line up, for the same reason, on a string with none of that
@@ -157,6 +162,7 @@ function attached(text: string): string | null {
 export const userSaid = (text: string): Entry => ({ kind: 'user', id: nextId(), text })
 export const consolidating = (): Entry => ({ kind: 'consolidation', id: nextId() })
 export const narrated = (text: string): Entry => ({ kind: 'narration', id: nextId(), text })
+export const watchFired = (number: number, path: string): Entry => ({ kind: 'watch', id: nextId(), text: `File watch ${number}: ${path}` })
 export const errored = (text: string): Entry => ({ kind: 'error', id: nextId(), text })
 export const quarantined = (shown: Shown): Entry => ({ kind: 'quarantined', id: nextId(), shown })
 export const started = (activity: Activity): Entry => ({
@@ -184,6 +190,7 @@ export const askedOutput = (request: OutputRequest): Entry => ({
   request,
   decision: null,
 })
+export const askedVet = (request: VetRequest): Entry => ({ kind: 'vet', id: nextId(), request, decision: null })
 export const askedVouch = (request: VouchRequest): Entry => ({
   kind: 'vouch',
   id: nextId(),
@@ -206,7 +213,7 @@ export function beginTurn(entries: Entry[], number: number): Entry[] {
   for (let index = entries.length - 1; index >= 0; index--) {
     const entry = entries[index]!
     if (entry.kind === 'assistant' || entry.kind === 'turn-start') break
-    if (entry.kind === 'user' || entry.kind === 'consolidation') { at = index + 1; break }
+    if (entry.kind === 'user' || entry.kind === 'consolidation' || entry.kind === 'watch') { at = index + 1; break }
   }
   return [...entries.slice(0, at), turnStarted(number), ...entries.slice(at)]
 }
@@ -248,21 +255,22 @@ export function land(entries: Entry[], landing: Landing): Entry[] {
 /** Every entry kind that puts something to the person. */
 export type Asking = Extract<
   Entry,
-  { kind: 'confirm' | 'run' | 'output' | 'vouch' | 'ask' }
+  { kind: 'confirm' | 'run' | 'output' | 'vouch' | 'vet' | 'ask' }
 >
 
-/** Whether an entry is one of the five questions. */
+/** Whether an entry awaits a decision or an answer. */
 const isAsking = (entry: Entry): entry is Asking =>
   entry.kind === 'confirm' ||
   entry.kind === 'run' ||
   entry.kind === 'output' ||
   entry.kind === 'vouch' ||
+  entry.kind === 'vet' ||
   entry.kind === 'ask'
 
 /**
  * Whether it is still waiting.
  *
- * Four of the five carry a decision and the fifth carries answers, so "unanswered" is not
+ * Approval requests carry a decision and a user question carries answers, so "unanswered" is not
  * one field. Note the asymmetry that matters: `answers: []` is *answered* — somebody
  * declined every question — where `null` means nobody has replied at all.
  */
@@ -356,6 +364,7 @@ export function plainText(entry: Entry): string | null {
     case 'user':
     case 'assistant':
     case 'narration':
+    case 'watch':
     case 'error':
     case 'replayed-tool':
       return entry.text
@@ -422,6 +431,7 @@ export function searchableText(entry: Entry): string {
     case 'confirm': return [entry.request.path, entry.request.intent, ...entry.request.changes.map((change) => 'text' in change ? change.text : '')].join(' ')
     case 'run': return [entry.request.summary, entry.request.directory, ...entry.request.stages.map((stage) => stage.display)].join(' ')
     case 'output': return [entry.request.command, entry.request.summary, entry.request.output].join(' ')
+    case 'vet': return [entry.request.origin, entry.request.expects, entry.request.content].join(' ')
     case 'vouch': return [entry.request.path, entry.request.preview].join(' ')
     case 'ask': return entry.request.prompts.map((prompt) => [prompt.header, prompt.question, ...prompt.rows.map((row) => `${row.label} ${row.detail ?? ''}`)].join(' ')).join(' ')
   }

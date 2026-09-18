@@ -2,7 +2,7 @@
 
 use bravebot_aichat::models::{self, Model};
 use bravebot_config::Config;
-use bravebot_config::provider::Provider;
+use bravebot_config::provider::{Credential, Provider};
 use bravebot_core::capability::{Capability, CapabilitySet};
 use bravebot_core::policy::{Policy, ReleasePlan, Routing};
 use bravebot_core::{event::Sink, label::Label};
@@ -39,13 +39,14 @@ pub fn list(config: &Config) -> Value {
             }));
             continue;
         }
-        let Some(token) = provider.token(|name| std::env::var(name).ok()) else {
+        let credential = provider.credential(|name| std::env::var(name).ok());
+        if credential == Credential::Absent {
             warnings.push(format!(
                 "No credential configured for {}.",
                 provider.display_name()
             ));
             continue;
-        };
+        }
         let mut routing = Routing::new();
         routing.insert_trusted("models", provider.models_url());
         routing.insert_trusted("account-models", provider.account_models_url());
@@ -57,7 +58,7 @@ pub fn list(config: &Config) -> Value {
             &mut sink,
         )
         .ok()
-        .and_then(|mut policy| gateway_models(&mut policy, provider, &token));
+        .and_then(|mut policy| gateway_models(&mut policy, provider, &credential));
         match result {
             Some(listed) => {
                 for (model, badges) in listed {
@@ -126,15 +127,13 @@ struct Architecture {
 fn gateway_models<S: Sink>(
     policy: &mut Policy<'_, S>,
     provider: &Provider,
-    token: &str,
+    credential: &Credential,
 ) -> Option<Vec<(Model, Vec<&'static str>)>> {
     let fetch = |policy: &mut Policy<'_, S>, url: String| -> Option<GatewayListing> {
         let response = Egress::new()
             .fetch(
                 policy,
-                Request::get(&url)
-                    .header("accept", "application/json")
-                    .header("authorization", format!("Bearer {token}")),
+                model_request(&url, credential)?,
                 Label::untrusted_public(),
             )
             .ok()?;
@@ -145,6 +144,15 @@ fn gateway_models<S: Sink>(
     let listed = fetch(policy, provider.account_models_url())
         .or_else(|| fetch(policy, provider.models_url()))?;
     Some(gateway_rows(provider, listed.data))
+}
+
+fn model_request(url: &str, credential: &Credential) -> Option<Request> {
+    let request = Request::get(url).header("accept", "application/json");
+    match credential {
+        Credential::Token(token) => Some(request.header("authorization", format!("Bearer {token}"))),
+        Credential::NotNeeded => Some(request),
+        Credential::Absent => None,
+    }
 }
 
 fn gateway_rows(provider: &Provider, listed: Vec<GatewayModel>) -> Vec<(Model, Vec<&'static str>)> {
@@ -265,6 +273,16 @@ pub fn selection(value: Option<&Value>) -> Result<Option<String>, crate::protoco
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn model_discovery_respects_all_three_credential_states() {
+        let url = "https://gateway.example/v1/models";
+        assert!(model_request(url, &Credential::Absent).is_none());
+        let public = model_request(url, &Credential::NotNeeded).unwrap();
+        assert_eq!(public.headers, vec![("accept".into(), "application/json".into())]);
+        let authenticated = model_request(url, &Credential::Token("test-token".into())).unwrap();
+        assert!(authenticated.headers.contains(&("authorization".into(), "Bearer test-token".into())));
+    }
 
     #[test]
     fn capabilities_distinguish_input_from_output() {

@@ -2,12 +2,13 @@
 // No provider requests or changes to the user's projects. Screenshots accompany assertions.
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { _electron as electron } from 'playwright-core'
-const output = process.env.UX_OUTPUT || '/private/tmp/bravebot-bot-history'
+const output = process.env.UX_OUTPUT || join(tmpdir(), 'bravebot-bot-history')
 mkdirSync(output, { recursive: true })
-const profile = mkdtempSync('/private/tmp/bravebot-ux-profile-')
-const directory = mkdtempSync('/private/tmp/bravebot-ux-project-')
+const profile = mkdtempSync(join(tmpdir(), 'bravebot-ux-profile-'))
+const directory = mkdtempSync(join(tmpdir(), 'bravebot-ux-project-'))
 const idA = '11111111-1111-4111-8111-111111111111', idB = '22222222-2222-4222-8222-222222222222'
 writeFileSync(join(profile, 'bravebot-ui.json'), JSON.stringify({ bots: [{slug:'review-bot', name:'Review Bot', purpose:'Review a disposable project and remember preferences.', avatar:'review-bot', model:null, directory, session:idA, conversations:[idA,'44444444-4444-4444-8444-444444444444'], archived:0, remembered:0, quiet:0, retired:0, created:1}], recents:[directory] }))
 mkdirSync(join(directory,'.bravebot-ui/bots'), {recursive:true})
@@ -77,6 +78,9 @@ try {
   await overview();await page.locator('.bot-conversations button').filter({hasText:'Review the sample project'}).click();
   await page.getByText('Review the project and show a code example.',{exact:true}).waitFor();
   await snap('03-open-archived-conversation');
+  if (!(await page.getByRole('tab',{name:'Files',exact:true}).isVisible())) {
+    await page.getByRole('button',{name:'Context panel',exact:true}).click();
+  }
   await page.getByRole('tab',{name:'Files',exact:true}).click();
   assert.equal(await page.locator('#panel-files .panel-head').count(),0);
   assert.equal(await page.getByRole('searchbox',{name:'Search project files by name'}).count(),0);
