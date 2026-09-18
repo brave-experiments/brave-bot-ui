@@ -19,6 +19,7 @@ import { shown } from './columns'
 import { TrustPrompt } from './components/TrustPrompt'
 import { Unconfigured } from './components/Unconfigured'
 import { Notice } from './components/Notice'
+import { About, type AboutInfo } from './components/About'
 import { conversationModel, rememberModel } from './models'
 import type { ExportFormat } from '../shared/export'
 import { useCommandRouter, usePublishedState } from './commands'
@@ -229,6 +230,7 @@ export function App(): React.JSX.Element {
   }, [])
   useEffect(() => { void checkBackend() }, [checkBackend])
   const [notice, setNotice] = useState<{ title: string; body: string } | null>(null)
+  const [aboutInfo, setAboutInfo] = useState<AboutInfo | null>(null)
   // The composer's text lives here rather than in `Transcript` because the Send menu item
   // has to be grey when there is nothing to send, and only this component talks to the menu.
   const draftKey = live ? conversationKey(live.summary.directory, live.summary.id ?? live.draftId ?? live.handle) : ''
@@ -869,15 +871,8 @@ export function App(): React.JSX.Element {
 
   const about = useCallback(async () => {
     try {
-      const info = await call<{ build: string; version: string; home: string | null }>('agent.info')
-      setNotice({
-        title: 'Brave Bot',
-        body: [
-          `Interface  ${info.version}`,
-          `Agent      ${info.build}`,
-          `Sessions   ${info.home ?? 'nowhere the bridge could find'}`,
-        ].join('\n'),
-      })
+      const info = await call<AboutInfo>('agent.info')
+      setAboutInfo(info)
     } catch (error) {
       setProblem(String(error))
     }
@@ -1265,6 +1260,7 @@ export function App(): React.JSX.Element {
           ))}
         </div>
       )}
+      {aboutInfo && <About info={aboutInfo} onClose={() => setAboutInfo(null)} />}
       {notice && (
         <Notice title={notice.title} body={notice.body} onClose={() => setNotice(null)} />
       )}

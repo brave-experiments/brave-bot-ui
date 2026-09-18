@@ -62,6 +62,8 @@ const TURN = 24
  *
  * On returning from `working` to `open`, the head meets the reader, pauses, then nods once.
  */
+export type Expression = 'neutral' | 'curious' | 'wink'
+
 export type Doing = 'idle' | 'waiting' | 'open' | 'working' | 'failed'
 
 /** One avatar waiting to be drawn. */
@@ -81,6 +83,7 @@ interface Registered {
   /** The head's built-in tilt, which every pose is relative to. */
   restPitch: number
   doing: Doing
+  expression: Expression
   /** What it was doing before, and when it changed, so the two can be blended and the change played. */
   was: Doing
   since: number
@@ -290,10 +293,17 @@ function pose(entry: Registered, seconds: number, dt: number): void {
   figure.head.rotation.x = entry.restPitch + pitch
 
   const open = stillness ? 1 : blink(t, entry.seed)
-  figure.eyes.scale.y = open
+  const expression = entry.expression === 'curious' ? 1.3 : 1
+  figure.eyes.scale.y = open * expression
+  figure.glints.scale.y = expression
   // The catchlight is a reflection, and a reflection is not squashed by a closing lid — it is
   // covered. Hide it as the lid starts closing so it cannot float above the compressed eye.
   figure.glints.visible = open > 0.95
+  // Close one eye for the mascot's click response, leaving the other eye and frame alone.
+  const eye = figure.eyes.children[0]!
+  eye.userData.restScaleY ??= eye.scale.y
+  eye.scale.y = eye.userData.restScaleY * (entry.expression === 'wink' ? 0.08 : 1)
+  figure.glints.children[0]!.visible = entry.expression !== 'wink'
 
   // The crown, a frame behind. A spring pulled toward leaning against the head's motion — turn the
   // head and the bobble swings the other way and wobbles back — which is follow-through, the
@@ -409,6 +419,7 @@ export function show(canvas: HTMLCanvasElement, seed: string, doing: Doing = 'id
     aside: hashPhase(`${seed}/aside`) < 0.5 ? -1 : 1,
     restPitch: figure.head.rotation.x,
     doing,
+    expression: 'neutral',
     was: doing,
     // Well in the past, so the first pose is taken up without a blend from nothing.
     since: performance.now() / 1000 - 60,
@@ -420,6 +431,14 @@ export function show(canvas: HTMLCanvasElement, seed: string, doing: Doing = 'id
     registered.delete(canvas)
     figure.dispose()
   }
+}
+
+/** Change the mascot's eyes without moving its frame or changing its task posture. */
+export function express(canvas: HTMLCanvasElement, expression: Expression): void {
+  const entry = registered.get(canvas)
+  if (!entry || entry.expression === expression) return
+  entry.expression = expression
+  schedule()
 }
 
 /**

@@ -30,7 +30,7 @@
  */
 
 import { useEffect, useId, useRef } from 'react'
-import { available, show, tell, type Doing } from '../avatar/stage'
+import { available, show, tell, express, type Expression, type Doing } from '../avatar/stage'
 import { paintsOf, signature, traitsOf, headWidth, eyeDimensions, torsoDimensions, type Traits } from '../avatar/figure'
 
 export type { Doing }
@@ -45,9 +45,11 @@ interface Props {
    * to looking idly about, which is right for a row in a list that is not the one on screen.
    */
   doing?: Doing
+  /** An interactive expression for the About mascot; independent of task status. */
+  expression?: Expression
 }
 
-export function BotAvatar({ seed, size = 38, doing = 'idle' }: Props): React.JSX.Element {
+export function BotAvatar({ seed, size = 38, doing = 'idle', expression = 'neutral' }: Props): React.JSX.Element {
   const canvas = useRef<HTMLCanvasElement>(null)
   // The state at mount goes in with the figure, so a bot that is already working when its row
   // appears takes up the posture rather than blending into it from idle. Changes after that are
@@ -65,6 +67,10 @@ export function BotAvatar({ seed, size = 38, doing = 'idle' }: Props): React.JSX
   useEffect(() => {
     if (canvas.current) tell(canvas.current, doing)
   }, [doing])
+
+  useEffect(() => {
+    if (canvas.current) express(canvas.current, expression)
+  }, [expression, seed, size])
 
   const hasStatus = doing === 'working' || doing === 'failed'
   return (
@@ -86,7 +92,7 @@ export function BotAvatar({ seed, size = 38, doing = 'idle' }: Props): React.JSX
           data-avatar={signature(seed)}
           aria-hidden="true"
         />
-      ) : <FlatAvatar seed={seed} size={size} doing={doing} />}
+      ) : <FlatAvatar seed={seed} size={size} doing={doing} expression={expression} />}
       {hasStatus && (
         <span
           className={`bot-avatar-status bot-avatar-status-${doing}`}
@@ -121,7 +127,7 @@ const HEADS: Record<Traits['head'], { rx: number; ry: number }> = {
  * is recognisably the bot the figure would have been — the same head shape, the same thing on top,
  * the same set of the eyes — rather than a different mark in the same colour.
  */
-function FlatAvatar({ seed, size, doing }: { seed: string; size: number; doing: Doing }): React.JSX.Element {
+function FlatAvatar({ seed, size, doing, expression }: { seed: string; size: number; doing: Doing; expression: Expression }): React.JSX.Element {
   const gradient = useId()
   const traits = traitsOf(seed)
   const paints = paintsOf(seed)
@@ -207,16 +213,18 @@ function FlatAvatar({ seed, size, doing }: { seed: string; size: number; doing: 
       {traits.faceShape === 'oval' && <ellipse cx={cx} cy={cy + 5} rx={24} ry={13} fill={paints.face} />}
       {traits.faceShape === 'panel' && <rect x={cx - 24} y={cy - 8} width={48} height={26} rx={7} fill={paints.face} />}
       {/* The eyes and their catchlights, up and to the outside on both as on the figure. */}
+      <g transform={expression === 'curious' ? `translate(0 ${cy + 5}) scale(1 1.3) translate(0 ${-(cy + 5)})` : undefined}>
       {[-1, 1].map((side) => (
-        <g key={side} transform={doing === 'working' ? 'translate(3 6)' : undefined}>
+        <g key={side} transform={expression === 'wink' && side === -1 ? `translate(0 ${cy + 5}) scale(1 .08) translate(0 ${-(cy + 5)})` : doing === 'working' ? 'translate(3 6)' : undefined}>
           {traits.eyeShape === 'square' ? (
             <rect x={cx + side * spread - eye} y={cy + 5 - eye} width={eye * 2} height={eye * 2} rx={eye * 0.4} fill="#20222b" />
           ) : (
             <ellipse cx={cx + side * spread} cy={cy + 5} rx={eye * dimensions.x} ry={eye * dimensions.y} fill="#20222b" />
           )}
-          <circle cx={cx + side * spread + eye * (traits.version === 1 ? 0.34 : dimensions.x * 0.28)} cy={cy + 5 - eye * (traits.version === 1 ? 0.36 : dimensions.y * 0.28)} r={eye * 0.42} fill="#ffffff" />
+          <circle visibility={expression === 'wink' && side === -1 ? 'hidden' : undefined} cx={cx + side * spread + eye * (traits.version === 1 ? 0.34 : dimensions.x * 0.28)} cy={cy + 5 - eye * (traits.version === 1 ? 0.36 : dimensions.y * 0.28)} r={eye * 0.42} fill="#ffffff" />
         </g>
       ))}
+      </g>
     </svg>
   )
 }
