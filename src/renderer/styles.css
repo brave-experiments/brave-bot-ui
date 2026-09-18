@@ -2347,3 +2347,35 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus
 .memory-readable h1, .memory-readable h2, .memory-readable h3 { font-size: 16px; line-height: 1.4; margin: 0 0 12px; }
 .memory-readable ul, .memory-readable ol { padding-left: 22px; }
 .bot-editor .bot-actions { position: sticky; bottom: -28px; background: var(--bg); padding-block: 12px; z-index: 2; }
+
+/* About: a small stage for the app's own mascot. */
+.modal.about { position: relative; width: min(440px, calc(100vw - 32px)); padding: 30px 28px 22px; animation: about-arrive 220ms ease-out; }
+.about .about-close { position: absolute; z-index: 1; top: 12px; right: 12px; display: grid; place-items: center; width: 32px; padding: 0; border-color: transparent; background: transparent; color: var(--ink-dim); }
+.about .about-close:hover { background: var(--code-bg); color: var(--ink); }
+.about-hero { text-align: center; }
+.about-stage { position: relative; display: grid; justify-items: center; padding: 10px 0 22px; }
+.about-stage::before { content: ''; position: absolute; width: 220px; height: 180px; top: -4px; pointer-events: none; background: radial-gradient(ellipse, color-mix(in srgb, var(--accent) 19%, transparent), transparent 70%); }
+.about .about-mascot { position: relative; display: grid; place-items: center; padding: 0; width: 156px; height: 156px; border: 0; border-radius: 50%; background: transparent; cursor: pointer; }
+.about-figure { display: block; }
+.about .about-hero h2 { margin: 14px 0 8px; font-size: 32px; font-weight: 650; letter-spacing: -1.1px; line-height: 1.15; }
+.about-version { display: inline-block; margin-top: 18px; padding: 5px 11px; border: 1px solid var(--line); border-radius: 20px; background: var(--code-bg); color: var(--ink-dim); font-size: 12px; overflow-wrap: anywhere; max-width: 100%; }
+.about-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 24px; margin: 24px 0 28px; font-size: 13px; }
+.about a { color: var(--accent-text); text-decoration: none; text-underline-offset: 3px; }
+.about a:hover { text-decoration: underline; }
+.about a:focus-visible, .about summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 3px; }
+.about-links a span { margin-left: 2px; opacity: .65; }
+.about-details { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); font-size: 12px; }
+.about-details summary { padding: 15px 0; color: var(--ink-dim); cursor: pointer; }
+.about-details summary:hover { color: var(--ink); }
+.about-details dl { margin: 0 0 16px; }
+.about-details dl > div { display: grid; grid-template-columns: 65px minmax(0, 1fr); gap: 12px; margin: 10px 0; }
+.about-details dt { color: var(--ink-dim); }
+.about-details dd { margin: 0; font-family: var(--mono); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; user-select: text; }
+.about-copy { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-bottom: 16px; }
+.about-copy [role='status'] { color: var(--ink-dim); font-size: 11px; }
+.about-footer { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 20px; color: var(--ink-dim); font-size: 11px; }
+.about-footer a { color: inherit; }
+@keyframes about-arrive { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .modal.about { animation: none; }
+}
