@@ -96,14 +96,14 @@ fn replace_at(
     expected: Option<&str>,
 ) -> io::Result<Option<String>> {
     let previous = match read_at(parent, leaf, 65536) {
-        Ok((_, true)) => return Err(invalid("Memory exceeds 64 KB")),
+        Ok((_, true)) => return Err(invalid("File exceeds 64 KB")),
         Ok((text, false)) => Some(text),
         Err(error) if error.kind() == io::ErrorKind::NotFound => None,
         Err(error) => return Err(error),
     };
     if previous.as_deref() != expected {
         return Err(invalid(
-            "Memory changed since this editor opened. Reopen it to review the latest version.",
+            "File changed since this editor opened. Reopen it to review the latest version.",
         ));
     }
     // O_EXCL prevents a pre-existing file or link from becoming our temporary file.
@@ -138,6 +138,22 @@ fn handle(request: Request) -> io::Result<Value> {
             let (parent, leaf) = parent_directory(&request.root, &request.path, false)?;
             let (text, truncated) = read_at(&parent, &leaf, limit)?;
             Ok(json!({"text": text, "truncated": truncated}))
+        }
+        "hooks.read" | "hooks.replace" => {
+            if request.path != "hooks.json" { return Err(invalid("Only the hooks file is allowed")); }
+            let (parent, leaf) = parent_directory(&request.root, "hooks.json", false)?;
+            if request.operation == "hooks.read" {
+                return match read_at(&parent, &leaf, 65536) {
+                    Ok((_, true)) => Err(invalid("Hooks exceed 64 KB")),
+                    Ok((text, false)) => Ok(json!({"text": text})),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(json!({"text": null})),
+                    Err(error) => Err(error),
+                };
+            }
+            let text = request.text.ok_or_else(|| invalid("Missing hooks"))?;
+            if text.len() > 65536 || text.contains('\0') { return Err(invalid("Hooks must be text under 64 KB")); }
+            let previous = replace_at(&parent, &leaf, &text, request.expected.as_deref())?;
+            Ok(json!({"previous": previous}))
         }
         "replace" => {
             // This channel writes only bot memory, never an arbitrary project file.
@@ -321,5 +337,33 @@ mod tests {
             fs::read_to_string(f.path.join("existing")).unwrap(),
             "sentinel"
         );
+    }
+}
+
+#[cfg(test)]
+mod hooks_tests {
+    use super::*;
+    use std::fs;
+    #[test]
+    fn hooks_channel_only_replaces_its_fixed_file_and_preserves_concurrent_edits() {
+        let mut builder = tempfile::Builder::new();
+        builder.prefix("bravebot-hook-helper-");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            builder.permissions(std::fs::Permissions::from_mode(0o700));
+        }
+        let directory = builder.tempdir().unwrap();
+        // Normalize the system temp alias before the helper's no-follow traversal.
+        let root = fs::canonicalize(directory.path()).unwrap();
+        let call = |operation: &str, path: &str, text: Option<&str>, expected: Option<&str>| handle(Request {
+            root: root.display().to_string(), path: path.into(), operation: operation.into(),
+            limit: None, text: text.map(str::to_string), expected: expected.map(str::to_string),
+        });
+        assert!(call("hooks.read", "hooks.json", None, None).unwrap()["text"].is_null());
+        assert!(call("hooks.replace", "other.json", Some("{}"), None).is_err());
+        assert!(call("hooks.replace", "hooks.json", Some("first"), None).is_ok());
+        assert!(call("hooks.replace", "hooks.json", Some("overwrite"), None).is_err());
+        assert_eq!(fs::read_to_string(root.join("hooks.json")).unwrap(), "first");
     }
 }

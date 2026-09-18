@@ -42,9 +42,29 @@ shutdown also refuse outstanding questions. There is no timeout that grants appr
 These properties depend on both bridge refusal handling and Electron lifetime handling;
 they are covered by the Rust refusal suites and Electron tests in [testing](testing.md).
 
-The v0.8.0 agent also has fetch-host, language-server and manifest-plan approvals.
+The v0.9.0 agent also has fetch-host, language-server and manifest-plan approvals.
 The UI does not present those requests yet; the bridge refuses them without taking
 an answer intended for another pending question.
+
+Vetted-content approval releases only the displayed bytes once; it does not create a trust
+rule for future reads. Checker verdicts are advisory. Checking already sends the content
+to the backend before the approval; approving admits it to the planner. Processor remarks
+are labelled untrusted and displayed beside the write diff. Neither kind of advice grants
+authority. Cancellation invalidates pending vetted approvals as it does other requests.
+
+Watch prompts contain only the watch number and the path chosen when it was armed, never
+file contents. Watches reuse upstream's eight-file limit, seven-day expiry and cooldown,
+and automatic turns retain the normal trust and approval gates. Closing a session drops
+its watches; cancelling an automatic turn stops the watch that started it.
+
+Hooks are the user's own commands in the agent home, shared with the CLI. They are edited
+through a dedicated IPC API and saved with the descriptor-relative secure file helper,
+which accepts only `hooks.json` for this operation. Saves check the previously read text,
+refuse symlinks, and atomically replace the file. Hook commands use argument arrays;
+no shell is added. Configuration diagnostics return credential presence, never tokens.
+Settings overrides can only be selected through the native picker, and administrator
+pins retain upstream precedence. Overrides configure model services; they do not enable
+settings-file permission grants in this UI.
 
 Command-output content is released for display so the person deciding can read it.
 Only the agent's approved path admits it to the planner. Confined material is labelled

@@ -80,6 +80,7 @@ export interface SessionRecord {
 }
 
 export interface OpenedSession {
+  contextTokens?: number
   session: string
   model: string | null
   record: SessionRecord
@@ -124,6 +125,7 @@ export interface ModelCatalogue {
  * point of forking is to ask it differently.
  */
 export interface ForkedSession {
+  contextTokens?: number
   session: string
   /** The child's durable id. Real from here, though its record waits for the first turn. */
   id: string
@@ -145,7 +147,11 @@ export interface ForkedSession {
   }
 }
 
+export interface Vetting { verdict: string; reason?: string | null; detail?: string | null }
+export interface VetRequest { request: number; origin: string; expects: string; content: string; lines: number; vetting: Vetting }
+
 export interface ConfirmRequest {
+  remark?: { preview: string[]; lines: number; label: string } | null
   request: number
   path: string
   intent: Intent
@@ -158,6 +164,7 @@ export interface ConfirmRequest {
 }
 
 export interface TurnDone {
+  contextTokens?: number
   /** Added by the desktop main process while memory maintenance reserves this session. */
   consolidating?: boolean
   turn: number
@@ -183,6 +190,10 @@ export interface TurnDone {
 }
 
 export interface TurnError {
+  category?: string | null
+  attempts?: number | null
+  status?: number | null
+  contextTokens?: number
   /** A failed turn may still have saved a recoverable conversation. */
   id?: string | null
   turn: number
@@ -237,6 +248,7 @@ export interface RunRequest {
  * that path runs through the agent, never through here.
  */
 export interface OutputRequest {
+  vetting?: Vetting
   request: number
   command: string
   reference: string
@@ -247,6 +259,7 @@ export interface OutputRequest {
 
 /** A quarantined file the planner would like to read. */
 export interface VouchRequest {
+  vetting?: Vetting
   request: number
   path: string
   preview: string
@@ -303,6 +316,8 @@ export interface EventMap {
   'agent.ready': { build: string; version: string; home: string | null }
   'trust.request': { directory: string }
   'turn.started': { turn: number }
+  'watch.fired': { number: number; path: string }
+  'watch.ended': { number: number; reason: string; message?: string }
   phase: { phase: Phase }
   narration: { text: string }
   'tool.started': Activity
@@ -316,6 +331,7 @@ export interface EventMap {
   'run.request': RunRequest
   'output.request': OutputRequest
   'vouch.request': VouchRequest
+  'vet.request': VetRequest
   'ask.request': AskRequest
   'turn.done': TurnDone
   'turn.error': TurnError

@@ -33,9 +33,8 @@ jobs:
           cache: npm
 
       # The Electron *package* is needed — `src/main` and `src/preload` are typed against
-      # it. The 100MB Electron *binary* is not: nothing here launches a window. The
-      # `drive:*` scripts do, and they want a macOS runner and a display, so they are not
-      # part of this workflow.
+      # it. The Electron *binary* is not needed in this job.
+      # The real Electron walkthrough runs with Xvfb in the bridge job below.
       - name: Install
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
@@ -86,6 +85,30 @@ jobs:
       - name: Test
         working-directory: brave-bot-ui
         run: cargo test --all
+
+      # Reuse the compiled bridge for a credential-free, real Electron walkthrough.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: brave-bot-ui/package-lock.json
+
+      - name: Install desktop test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2t64
+
+      - name: Build desktop and run Node tests
+        working-directory: brave-bot-ui
+        run: |
+          npm ci
+          npm run build
+          node --test scripts/*.test.mjs
+
+      - name: Manual walkthrough regression
+        working-directory: brave-bot-ui
+        timeout-minutes: 5
+        run: xvfb-run -a node scripts/drive-manual-walkthrough.mjs
 
       # Deliberately no `cargo fmt --all -- --check`, which the agent's own CI does run. The
       # bridge crate is not rustfmt-clean: rustfmt would rewrite around 490 lines, mostly

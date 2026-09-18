@@ -2113,7 +2113,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus
 .app .bubble pre { font-size: 12px; }
 .app.compact .entries { gap: 10px; padding: 16px 22px; }
 .app.compact .bubble { font-size: 13px; line-height: 1.5; }
-.conversation-toolbar { display: flex; gap: 6px; padding: 5px 20px 10px; align-items: center; }
+.conversation-toolbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 5px 20px 10px; align-items: center; }
 .conversation-toolbar > button, .conversation-toolbar .export-open { min-height: 30px; padding: 4px 10px; background: transparent; border: 1px solid var(--line); border-radius: 7px; font-size: 12px; }
 .conversation-toolbar .export-menu { margin-left: auto; }
 .conversation-search { display: flex; align-items: center; gap: 6px; padding: 8px 20px; border-top: 1px solid var(--line); }
@@ -2379,3 +2379,41 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus
 @media (prefers-reduced-motion: reduce) {
   .modal.about { animation: none; }
 }
+
+/* Agent 0.9 controls share the existing modal and evidence hierarchy. */
+.agent-settings, .watch-settings { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow: auto; }
+.settings-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.settings-heading h2 { margin-bottom: 8px; }
+.settings-heading p { margin-top: 0; color: var(--ink-dim); }
+.settings-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); padding-bottom: 10px; margin: 12px 0; }
+.settings-tabs button[aria-selected="true"] { color: var(--accent); border-color: var(--accent); }
+.settings-body section { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.settings-body h3 { margin: 8px 0; }
+.settings-body p, .watch-settings p { line-height: 1.5; }
+.settings-body dl { display: grid; grid-template-columns: 140px 1fr; gap: 8px 16px; }
+.settings-body dt { color: var(--ink-dim); }
+.settings-body dd { margin: 0; overflow-wrap: anywhere; }
+.settings-body pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; padding: 10px; background: var(--bg); border-radius: 6px; }
+.settings-path { overflow-wrap: anywhere; font-family: var(--mono); font-size: 12px; }
+.settings-error { border-left: 3px solid var(--accent); padding-left: 12px; }
+.settings-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 4px; }
+.hook-editor { border: 1px solid var(--line); border-radius: 10px; margin: 16px 0; padding: 16px; }
+.hook-editor label, .watch-settings label { display: grid; gap: 6px; margin: 10px 0; }
+.hook-editor input, .hook-editor select, .watch-settings input { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; color: inherit; background: var(--bg); }
+.hook-argument { display: flex; align-items: center; gap: 8px; }
+.hook-argument label { flex: 1; }
+.watch-list { list-style: none; padding: 0; }
+.watch-list li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.watch-list strong { overflow-wrap: anywhere; }
+.watch-list p { margin: 6px 0; }
+.watch-list small { color: var(--ink-dim); }
+/* Keep the open width during folding, with room for both horizontal margins. */
+.sessions > .agent-settings-open { min-width: calc(var(--col-left-open) - 32px); margin: 10px 16px; flex-shrink: 0; }
+.vetting-notice, .processor-remark { padding: 12px 16px; margin: 12px; border: 1px solid var(--line); border-radius: 8px; }
+.vetting-notice.caution { border-left: 3px solid var(--accent); }
+.vetting-notice p, .processor-remark pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; }
+.vetting-notice small, .processor-remark small { color: var(--ink-dim); line-height: 1.5; }
+.context-status { font-size: 11px; color: var(--ink-dim); padding: 6px 20px; flex-shrink: 0; }
+.watch-turn { display: grid; gap: 6px; padding: 12px 16px; border-left: 2px solid var(--accent); }
+.watch-turn span { font-size: 12px; color: var(--ink-dim); }
+@media (max-width: 640px) { .settings-body dl { grid-template-columns: 1fr; gap: 5px; } .settings-body dd { margin-bottom: 10px; } .settings-tabs { flex-wrap: wrap; } }

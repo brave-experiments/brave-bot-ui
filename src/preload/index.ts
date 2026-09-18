@@ -298,6 +298,12 @@ const api = {
     return ipcRenderer.invoke('bravebot:files:open', session, path) as Promise<OpenOutcome>
   },
 
+  /** A native picker grants this app run access to a configuration override. */
+  selectSettings(clear = false): Promise<import('../shared/agent-settings').AgentSettings | null> {
+    return ipcRenderer.invoke('bravebot:settings:select', clear)
+  },
+  readHooks(): Promise<import('../shared/agent-settings').HooksDocument> { return ipcRenderer.invoke('bravebot:hooks:read') },
+  saveHooks(text: string, expected: string | null): Promise<import('../shared/agent-settings').HooksDocument> { return ipcRenderer.invoke('bravebot:hooks:save', text, expected) },
   /** Ask the user for a project directory, natively. */
   chooseDirectory(): Promise<string | null> {
     return ipcRenderer.invoke('bravebot:choose-directory') as Promise<string | null>

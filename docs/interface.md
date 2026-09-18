@@ -561,3 +561,36 @@ a palette written for one is recognisable in the other and `nord` means the same
 is a port and not a link: nothing here reads anything the agent owns. The agent is a subprocess
 this window drives, not something it is installed alongside, and a window that could not paint
 itself until the terminal had been run once would be depending on something it was never promised.
+
+
+## Agent 0.9 controls
+
+**Agent settings** in the sidebar opens Connection, Hooks and Run settings. Connection
+shows the bundled agent build, model services, certificate/proxy details and administrator
+pins, with setup instructions for gateways, AWS Bedrock and Brave. Secrets are not shown.
+Run settings selects a JSON model/connection override for this app run, lists loaded files
+in precedence order, and provides Clear override. Existing turns retain their configuration;
+future turns and model discovery use the selected override. Terminal-only preferences and
+settings-file permission grants do not replace the desktop's approval controls.
+
+Hooks are shared with the terminal client. Add a lifecycle event, a program and separate
+arguments, optionally limiting a tool-completion hook to a tool name. Save applies changes
+to future turns. Reload resolves external-edit conflicts; malformed or unsupported existing
+files are reported rather than silently rewritten. Hook failures appear in turn notices.
+
+**Watches** in the conversation toolbar lists up to eight live file watches, with their
+remaining lifetime and Stop controls. Add a project file or ask the agent to watch one.
+A change can start a model turn, so the dialog states that it may spend credits. Automatic
+turns have their own transcript marker and retain the ordinary approval rules. Watches run
+only while the conversation remains open, expire after seven days, and stop when the
+conversation or app closes. Stopping an automatic turn also stops its originating watch.
+
+Approval cards now show checker advice for quarantined content. A one-time read approval
+shows the complete content and grants no standing trust. The checker has already received
+the content at the backend; its verdict is advice, never permission. Write approvals show
+processor remarks directly above the diff, labelled untrusted, with any omitted-line count.
+
+The context line reports an unmeasured, measured or unavailable last-request size and
+whether earlier messages were summarised. This is distinct from total billed usage.
+Turn errors use stable categories with specific recovery guidance. Cancellation remains a
+separate outcome, and request-attempt counts and HTTP status appear only when known.

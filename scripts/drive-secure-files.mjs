@@ -1,10 +1,11 @@
 // Real main-process IPC and file helper; isolated profile, no model calls.
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron as electron } from 'playwright-core'
 
-const area = mkdtempSync('/private/tmp/bravebot-secure-files-')
+const area = mkdtempSync(join(tmpdir(), 'bravebot-secure-files-'))
 const profile = join(area, 'profile'), project = join(area, 'project')
 mkdirSync(profile); mkdirSync(project)
 writeFileSync(join(project, 'notes.txt'), 'Project-only fixture')

@@ -114,7 +114,7 @@ npm ci
 ```
 
 `vendor/bravebot` points to [brave/bravebot](https://github.com/brave/bravebot),
-currently at v0.8.0 (`3259f8b`). A URL update alone does not change that revision.
+currently at v0.9.0 (`c23b2ed`). A URL update alone does not change that revision.
 `npm run bridge` warns if the checked-out submodule differs from the pin.
 
 ### Intentionally updating the pin

@@ -16,7 +16,7 @@ use crate::emit::Emitter;
 use crate::protocol::Event;
 use crate::wire;
 use bravebot_agent::confirm::{
-    Confirmer, Decision, FetchRequest, ManifestRequest, ServerRequest, OutputRequest, RunDecision, RunRequest, VouchRequest, WriteRequest,
+    Confirmer, Decision, FetchRequest, ManifestRequest, ServerRequest, OutputRequest, RunDecision, RunRequest, VetRequest, VouchRequest, WriteRequest,
 };
 use bravebot_core::ask::{Answer, Asking};
 use bravebot_agent::report::{Activity, Landing, Phase, Reporter, Shown};
@@ -26,7 +26,7 @@ use serde_json::{Value, json};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 
-/// Which of the four questions this is.
+/// Which kind of approval or question this is.
 ///
 /// Recorded alongside the id so an answer has to be an answer to the question that was
 /// actually asked. Without it, a front-end that replied to a write while a run was
@@ -38,6 +38,7 @@ pub enum Kind {
     Run,
     Output,
     Vouch,
+    Vet,
     Ask,
 }
 
@@ -57,7 +58,7 @@ pub type Pending = Arc<Mutex<Option<Question>>>;
 
 /// What a front-end answered.
 ///
-/// One variant per question rather than a bare [`Decision`] for all four, so a reply
+/// One variant per question rather than a bare [`Decision`] for every kind, so a reply
 /// carries which question it is answering and the kernel's own types come back intact —
 /// [`RunDecision`] in particular, whose `remember` is a second answer that a `Decision`
 /// has nowhere to put.
@@ -69,6 +70,7 @@ pub enum Reply {
     Run(RunDecision),
     Output(Decision),
     Vouch(Decision),
+    Vet(Decision),
     /// One answer per question, in the order they were asked. Empty means nobody could be
     /// asked — see [`Confirmer::ask_user`].
     Ask(Vec<Answer>),
@@ -81,6 +83,7 @@ impl Reply {
             Reply::Run(_) => Kind::Run,
             Reply::Output(_) => Kind::Output,
             Reply::Vouch(_) => Kind::Vouch,
+            Reply::Vet(_) => Kind::Vet,
             Reply::Ask(_) => Kind::Ask,
         }
     }
@@ -247,8 +250,8 @@ impl BridgeConfirmer {
 
     /// Put one question to whoever is watching, and block until it is answered.
     ///
-    /// The whole of the asking is here, once, because every one of the four questions has
-    /// the same failure modes and each of them must resolve to refusal. Writing that four
+    /// The whole of the asking is here, once, because every question has
+    /// the same failure modes and each of them must resolve to refusal. Writing that several
     /// times would be four chances to get it wrong in a way no test distinguishes.
     ///
     /// `None` means nobody answered — a poisoned lock, a departed front-end, a closed
@@ -311,6 +314,13 @@ impl Confirmer for BridgeConfirmer {
 
     fn confirm_manifest(&mut self, _request: &ManifestRequest) -> Decision {
         Decision::Reject
+    }
+
+    fn confirm_vetted_read(&mut self, request: &VetRequest) -> Decision {
+        match self.ask(Kind::Vet, "vet.request", |id| wire::vet_request(id, request)) {
+            Some(Reply::Vet(decision)) => decision,
+            _ => Decision::Reject,
+        }
     }
 
     // The UI queues messages for the next turn; the protocol has no mid-turn input.

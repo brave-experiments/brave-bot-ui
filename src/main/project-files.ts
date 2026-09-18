@@ -33,3 +33,13 @@ export function replaceProjectMemory(root: string, path: string, text: string, e
   if (value.previous !== null && typeof value.previous !== 'string') throw new Error('Invalid memory response')
   return value.previous
 }
+
+/** Only the main process supplies the agent home; these operations accept one fixed filename. */
+export function readAgentHooks(home: string): string | null {
+  const value = request(home, 'hooks.json', { operation: 'hooks.read' })
+  if (value.text !== null && typeof value.text !== 'string') throw new Error('Invalid hooks response')
+  return value.text
+}
+export function replaceAgentHooks(home: string, text: string, expected: string | null): void {
+  request(home, 'hooks.json', { operation: 'hooks.replace', text, expected })
+}

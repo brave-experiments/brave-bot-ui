@@ -1,3 +1,4 @@
+import { Watches } from './Watches'
 import type { FileAttachment } from '../../shared/files'
 import { Permissions } from './Permissions'
 import { useLayoutEffect, useEffect, useMemo, useRef, useState } from 'react'
@@ -30,6 +31,8 @@ interface Live {
   todos: TodoRow[]
   quarantine: Shown[]
   phase: Phase | null
+  contextTokens?: number
+  archived?: number
   tokens: number
   running: boolean
   askingTrust: string | null
@@ -188,6 +191,7 @@ export function Transcript({
   const following = useRef(true)
   const lastScroll = useRef(0)
   const scrollSave = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [watches, setWatches] = useState(false)
   const [permissions, setPermissions] = useState(false)
   const [previewPath, setPreviewPath] = useState<string | null>(null)
   useEffect(() => {
@@ -352,6 +356,7 @@ export function Transcript({
       {live && <div className="conversation-toolbar">
         <button onClick={() => setSearching((value) => !value)} aria-expanded={searching}>Find</button>
         <button onClick={() => setPermissions(true)}>Permissions</button>
+        <button onClick={() => setWatches(true)}>Watches</button>
         <button onClick={() => {
           if (focusedLayout) {
             for (const side of ['left', 'right'] as const) if (collapsed[side] !== focusedLayout[side]) onToggle(side)
@@ -367,6 +372,10 @@ export function Transcript({
         <ExportMenu canExport={canExport} includeTools={includeTools} onToggleTools={onToggleTools} onExport={onExport} />
       </div>}
       {backendReady === false && <div className="backend-status" role="status"><strong>Backend setup needed</strong><span>You can browse conversations and prepare drafts.</span><div><button onClick={onSetup}>Setup help</button><button onClick={onCheckBackend}>Check again</button><button onClick={onDiagnostics}>Diagnostics</button></div></div>}
+      {live && <div className="context-status" title="The model’s last request size, not accumulated token usage. New messages may change the next request.">
+        {live.phase === 'compacting' ? 'Summarising context…' : live.contextTokens === undefined ? 'Context measurement unavailable' : live.contextTokens === 0 ? 'Context not yet measured' : `${live.contextTokens.toLocaleString()} context tokens at last request`}
+        {!!live.archived && <span> · Earlier context summarised</span>}
+      </div>}
       {problem && <ErrorCard detail={problem} />}
       {searching && <div className="conversation-search">
         <input autoFocus type="search" aria-label="Find in conversation" placeholder="Find in conversation…" value={query}
@@ -497,7 +506,7 @@ export function Transcript({
             }
           }} />
         <div className="composer-toolbar">
-          <ModelPicker scope={bot ? 'bot' : 'conversation'} key={live.handle} model={live.model} disabled={live.running} onChoose={onModel} />
+          <ModelPicker session={live.handle} scope={bot ? 'bot' : 'conversation'} key={live.handle} model={live.model} disabled={live.running} onChoose={onModel} />
           <button className="attach-files" onClick={onAttach} disabled={attachments.length >= 5} title="Choose project files to share as trusted context">Attach files</button>
           <span className="composer-hint">Enter to send · Shift+Enter for newline</span>
           {live.running && <button className="stop" onClick={onCancel}>Stop</button>}
@@ -506,6 +515,7 @@ export function Transcript({
           </button>
         </div>
       </footer>
+      {watches && <Watches session={live.handle} onClose={() => setWatches(false)} />}
       {permissions && <Permissions session={live.handle} onClose={() => setPermissions(false)} />}
       {previewPath && <FilePreview session={live.handle} path={previewPath} onClose={() => setPreviewPath(null)} />}
     </main>
@@ -941,8 +951,10 @@ function Row({
       // otherwise. See `CONSOLIDATION_MARK`.
       return <div className="attached consolidation">Asked to bring its memory up to date</div>
 
+    case 'watch':
+      return <div className="watch-turn"><strong>{entry.text}</strong><span>Automatic turn · file contents still follow normal read permissions</span></div>
     case 'error':
-      return <ErrorCard detail={entry.text} onRetry={onRecover} onModel={onChooseModel} />
+      return <ErrorCard category={entry.category} attempts={entry.attempts} status={entry.status} detail={entry.text} onRetry={onRecover} onModel={onChooseModel} />
 
     case 'replayed-tool':
       // No outcome, because the record does not keep one. Drawn quietly for the same
@@ -1020,6 +1032,10 @@ function Row({
           )}
 
 <p className="permission-scope">{request.existing ? 'Update an existing project file.' : 'Create a new project file.'} This decision applies to the change shown below.</p>
+          {request.remark && <div className="processor-remark"><strong>Processor’s remark · untrusted</strong>
+            <pre>{request.remark.preview.join('\n')}</pre>
+            <small>{request.remark.label}{request.remark.lines > request.remark.preview.length ? ` · ${request.remark.lines - request.remark.preview.length} more lines not shown` : ''}. Review the diff before approving.</small>
+          </div>}
           <Diff changes={request.changes} />
 
           {decision === null ? (
@@ -1127,6 +1143,7 @@ function Row({
 
           {/* In full, never truncated. The answer to this question rests on the bytes, so
               a preview would be asking for an approval of what nobody saw. */}
+          <VettingNotice vetting={request.vetting} />
           <pre className="preview">{request.output}</pre>
 
           {decision === null ? (
@@ -1155,6 +1172,20 @@ function Row({
       )
     }
 
+    case 'vet': {
+      const { request, decision } = entry
+      return <div className="confirm vetted-read">
+        <div className="confirm-head"><span className="intent">read once</span><code className="path">{request.origin}</code><span>{request.lines} lines</span></div>
+        <p className="permission-scope">Expected contents: {request.expects}</p>
+        <VettingNotice vetting={request.vetting} />
+        <p className="warn">Approval lets the planner read only this content. It does not trust this file for future reads.</p>
+        <pre className="preview">{request.content}</pre>
+        {decision === null ? <div className="confirm-actions">
+          <button className="reject" onClick={() => onDecide('vet', request.request, false)}>Keep it out</button>
+          <button className="approve" onClick={() => onDecide('vet', request.request, true)}>Let the planner read once</button>
+        </div> : <div className={`decided ${decision}`}>{decision === 'approve' ? 'You allowed this content once' : 'You kept this content out'}</div>}
+      </div>
+    }
     case 'ask':
       return <Questions request={entry} answers={entry.answers} onAnswer={onAnswer} />
 
@@ -1172,6 +1203,7 @@ function Row({
             well as this one. Only do it for content you know the origin of.
           </p>
 
+          <VettingNotice vetting={request.vetting} />
           <pre className="preview">{request.preview}</pre>
           {request.truncated && (
             <div className="quarantine-foot">
@@ -1222,6 +1254,8 @@ function waitingOn(kind: t.Asking['kind']): string {
       return 'Answer the command'
     case 'output':
       return 'Answer the output'
+    case 'vet':
+      return 'Review the checked content'
     case 'vouch':
       return 'Answer the vouch'
     case 'ask':
@@ -1233,4 +1267,15 @@ function landingHint(landing: string): string {
   return landing === 'quarantined'
     ? 'not in the planner’s context; only an isolated processor can be sent to read it'
     : 'read by nothing: only its name is known'
+}
+
+function VettingNotice({ vetting }: { vetting?: import('../../shared/protocol').Vetting }): React.JSX.Element {
+  const verdict = vetting?.verdict
+  const label = verdict === 'safe' ? 'No instructions detected' : verdict === 'unsafe' ? 'Possible instructions detected' : 'Check inconclusive'
+  return <div className={`vetting-notice ${verdict === 'safe' ? 'safe' : 'caution'}`}>
+    <strong>{label}</strong>
+    {vetting?.reason && <p>{vetting.reason}</p>}
+    {vetting?.detail && <p>{vetting.detail}</p>}
+    <small>{!vetting ? 'No checker assessment was recorded. Review the content before deciding.' : verdict === 'safe' || verdict === 'unsafe' ? 'The checker received this content at the backend before this question. Its assessment can be wrong; you decide whether the planner may read it.' : 'The check did not complete. Content may already have reached the backend. You still decide whether the planner may read it.'}</small>
+  </div>
 }

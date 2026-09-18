@@ -2,22 +2,23 @@
 // No provider requests or changes to the user's projects. Screenshots accompany assertions.
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { _electron as electron } from 'playwright-core'
-const output = process.env.UX_OUTPUT || '/private/tmp/bravebot-conversation-regression'
+const output = process.env.UX_OUTPUT || join(tmpdir(), 'bravebot-conversation-regression')
 mkdirSync(output, { recursive: true })
-const profile = mkdtempSync('/private/tmp/bravebot-ux-profile-')
-const directory = mkdtempSync('/private/tmp/bravebot-ux-project-')
+const profile = mkdtempSync(join(tmpdir(), 'bravebot-ux-profile-'))
+const directory = mkdtempSync(join(tmpdir(), 'bravebot-ux-project-'))
 mkdirSync(directory+'-copy')
 const idA = '11111111-1111-4111-8111-111111111111', idB = '22222222-2222-4222-8222-222222222222'
 writeFileSync(join(profile, 'bravebot-ui.json'), JSON.stringify({ bots: [{slug:'review-bot', name:'Review Bot', purpose:'Review a disposable project and remember preferences.', avatar:'review-bot', model:null, directory, session:idA, conversations:[idA,idB], archived:0, remembered:0, quiet:0, retired:0, created:1}], recents:[directory] }))
 mkdirSync(join(directory,'.bravebot-ui/bots'), {recursive:true})
 writeFileSync(join(directory,'.bravebot-ui/bots/review-bot.md'), '# Preferences\n\n- Keep reviews concise.\n')
-const app = await electron.launch({args:['.',`--user-data-dir=${profile}`],cwd:process.cwd(),timeout:40000})
+const app = await electron.launch({args:['.', '--disable-renderer-backgrounding', '--disable-background-timer-throttling',`--user-data-dir=${profile}`],cwd:process.cwd(),timeout:40000})
 let page
 const originalClipboard = await app.evaluate(({clipboard})=>clipboard.readText())
 try {
-  page = await app.firstWindow(); page.setDefaultTimeout(7000)
+  page = await app.firstWindow(); await page.setViewportSize({ width: 1350, height: 900 }); page.setDefaultTimeout(7000)
   const errors=[]; page.on('pageerror',e=>{errors.push(e.message);console.error('RENDERER',e.message)})
   await app.evaluate(({ipcMain,BrowserWindow}, {directory,idA,idB})=>{
     const rows=[{id:idA,title:'Review the sample project'},{id:idB,title:'Plan the next iteration'}].map(r=>({...r,directory,project:'sample-project',branch:'main',updated:Date.now(),bytes:20}))

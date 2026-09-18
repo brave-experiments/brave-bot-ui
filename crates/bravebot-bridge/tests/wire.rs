@@ -160,6 +160,7 @@ fn a_write_request_sends_the_diff_and_never_the_body() {
         existing: Some("line one\nline two\nline three\n".into()),
         intent: Intent::Edit,
         untrusted: false,
+        remark: None,
     };
 
     let value = wire::write_request(3, &request);
@@ -191,6 +192,7 @@ fn a_created_file_says_nothing_would_be_lost() {
             existing: None,
             intent: Intent::Create,
             untrusted: true,
+            remark: None,
         },
     );
     assert_eq!(value["existing"], json!(false));
@@ -376,4 +378,34 @@ fn command_approval_preserves_plan_shape_environment_and_redirections() {
     assert!(value["plan"].as_str().unwrap().contains(" && "));
     assert_ne!(value["plan"], "context only");
     assert_eq!(value["writes"], json!(["/tmp/result.txt"]));
+}
+
+#[test]
+fn approval_evidence_is_kept_beside_the_decision() {
+    use bravebot_agent::confirm::{VetRequest, OutputRequest, VouchRequest, Remark};
+    use bravebot_core::vetting::Verdict;
+    let vet = wire::vet_request(7, &VetRequest {
+        origin: "file.md".into(), expects: "notes".into(), content: "first\nsecond\n".into(),
+        verdict: Verdict::Unsafe, reason: Some("Do not trust this assessment as permission".into()),
+    });
+    assert_eq!(vet["request"], 7);
+    assert_eq!(vet["content"], "first\nsecond\n");
+    assert_eq!(vet["vetting"]["verdict"], "unsafe");
+    assert!(vet.get("decision").is_none());
+    let output = wire::output_request(8, &OutputRequest {
+        command: "cat file".into(), output: "content".into(), reference: "1".into(),
+        verdict: Verdict::Inconclusive("offline"), reason: None,
+    });
+    assert_eq!(output["vetting"]["detail"], "offline");
+    let vouch = wire::vouch_request(9, &VouchRequest {
+        path: "file".into(), preview: "part".into(), truncated: true, verdict: Verdict::Safe, reason: Some("advice".into()),
+    });
+    assert_eq!(vouch["vetting"]["reason"], "advice");
+    assert_eq!(vouch["truncated"], true);
+    let write = wire::write_request(10, &WriteRequest {
+        path: "file".into(), contents: "new".into(), existing: None, intent: Intent::Create, untrusted: true,
+        remark: Some(Remark { preview: vec!["Fixed a typo".into()], lines: 9, label: "untrusted".into() }),
+    });
+    assert_eq!(write["remark"]["lines"], 9);
+    assert_eq!(write["remark"]["preview"], json!(["Fixed a typo"]));
 }

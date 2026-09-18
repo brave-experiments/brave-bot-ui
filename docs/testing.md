@@ -2,17 +2,28 @@
 
 The gates a change has to pass, and the drivers that prove the window works. Setup is in the [README](../README.md).
 
-## Backend v0.8.0 compatibility
+## Backend v0.9.0 compatibility
 
-The submodule pins `3259f8b`, the upstream `v0.8.0` release.
+The submodule pins `c23b2ed`, the upstream `v0.9.0` release.
 The bridge uses policy-audited model-list decoding and Bedrock's per-model names and
 context windows. Trust maps are rooted in the session project. Resuming a terminal
 session preserves its saved side conversations and rewind checkpoints.
 The UI does not yet present fetch-host, language-server, or manifest-plan approvals;
 those new requests are refused without consuming another pending approval.
 
+Vetted reads now have one-time approval cards, existing output/path approvals include checker
+advice, and write approvals show the processor's remark beside the diff.
+
 ## Current regression checks
 
+- `npm run drive:manual-walkthrough`: the manual 0.9 verification through the real app
+  and backend, with a local model fixture. Runs in CI; detailed coverage is below.
+- After building, `node scripts/drive-agent-settings.mjs`: 0.9 settings, hook forms and
+  conflicts, watch controls, approval evidence, background cancellation, context/failure
+  states, focus restoration and narrow layouts. Uses deterministic IPC fixtures.
+- After building, `node scripts/drive-agent-rpc.mjs`: an actual automatic watch turn against
+  a local fake gateway, real lifecycle hook subprocesses, context measurements and stop/close.
+  Uses an isolated agent home; no paid inference or real credentials.
 - `npm run build`: bridge and secure-file helper builds, TypeScript, and Electron bundles.
 - After building, `node --test scripts/*.test.mjs`: renderer state, models, file access,
   memory retention, avatar motion and traits. File tests use the actual secure-file helper.
@@ -100,6 +111,46 @@ the file: the other keys are somebody's arrangement of this window.
 palettes into `themes/` beside it, so it removes the ones it wrote on the way out however it exits,
 and removes the directory too if it was the one that made it.
 
+## Automated 0.9 manual walkthrough
+
+Run `npm run drive:manual-walkthrough` to build and exercise the manual verification
+steps through the real Electron app, preload, main process, Rust bridge, file helper,
+watch poller, and hook subprocesses. It uses a disposable HOME, app profile and project;
+it neither reads your credentials nor changes your hooks. A local HTTP model fixture
+returns scripted planner tool calls, checker verdicts, and processor output. No paid
+model requests are made.
+
+The driver asserts:
+
+1. Actual agent diagnostics and refresh; valid/invalid run overrides and clearing;
+   arrow/Home/End tab navigation, Tab/Shift+Tab containment, Escape and restored focus.
+2. A fake API key loaded from `provider.local.options.apiKey`, wrong-backend diagnosis
+   when the Brave default is selected, recovery through the model picker, measured
+   context, and cancellation of an in-flight model request. The gateway asserts the
+   expected Authorization header; no real credentials are used.
+3. A hook saved through the UI executes; removing it through the UI prevents later execution.
+4. Missing-file errors, an actual file change triggering an automatic turn without
+   leaking file bytes, individual watch stop, stop-all, and no turn after a stopped watch changes.
+5. Standing-trust refusal followed by vetted-read rejection/approval, content isolation
+   at the planner boundary, no standing grant in fresh sessions, background-session
+   routing and cancellation of a pending approval.
+6. Real isolated processor output and remarks, a rejected write leaving the file
+   unchanged, and an approved write producing exactly the expected file contents.
+7. Narrow settings/watch/approval layouts with reachable decision controls and cleanup.
+   The Agent settings button stays within both sidebar tabs at the default, minimum
+   and maximum panel widths (250, 200 and 400 pixels).
+
+The native file-picker **result** is supplied by the test; the actual selection handler,
+JSON validation and configuration loading run normally. OS dialog appearance, real
+provider credentials/availability and live-model tool selection remain manual checks.
+The existing `drive:agent-settings` driver separately covers fixture-only error and
+checker states such as unsafe/inconclusive verdicts and summarised context.
+
+On failure, the walkthrough prints the current UI and fixture errors and writes
+`/tmp/bravebot-walkthrough-failure.png`. It closes the app/server and removes its
+isolated files on exit. On Linux it needs a display; use
+`xvfb-run -a node scripts/drive-manual-walkthrough.mjs` after building for a headless run.
+
 ## What CI runs
 
 `.github/workflows/ci.yml` is the gate on a pull request, and it is not the same set as the
@@ -110,15 +161,16 @@ table above. Two jobs:
   `npm run typecheck`.
 - **Lint and test the bridge** — one checkout with submodules, so it compiles the same agent
   revision the gitlink pins, then `cargo clippy --all-targets --all-features -- -D warnings`
-  and `cargo test --all`.
+  and `cargo test --all`, followed by the desktop build, Node regression tests, and
+  the real manual walkthrough under Xvfb with a local model fixture.
 
-The workflow does not run the Node regression tests, Electron drivers, packaged-app
-checks, or the upstream agent's full test suite. Run the applicable local checks above.
+The workflow does not run the other Electron drivers, packaged-app checks, or the
+upstream agent's full test suite. Run the applicable local checks above.
 
 So Clippy *is* a lint step, on the Rust side; there is none on the TypeScript side, where `tsc`
 is the whole gate. `cargo fmt --all -- --check` is deliberately absent because the bridge is not
 rustfmt-clean; introducing that gate requires a separate formatting change. The reasoning for each of these lives in
 comments in the workflow itself.
 
-No `drive:*` driver runs in CI: they want a macOS runner and a display, and eight of the live checks spend
-tokens.
+The manual walkthrough runs in CI without credentials. Drivers that require a live
+provider or a packaged app remain local checks.

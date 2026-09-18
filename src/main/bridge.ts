@@ -36,7 +36,7 @@ export class Bridge {
   /** Diagnostics from the agent, kept for a bug report rather than parsed. */
   private diagnostics: string[] = []
 
-  constructor(private readonly onEvent: (event: BridgeEvent) => void) {}
+  constructor(private readonly onEvent: (event: BridgeEvent) => void, private settingsPath: string | null = null) {}
 
   /**
    * Where the binary is.
@@ -63,7 +63,7 @@ export class Bridge {
       )
     }
 
-    const child = spawn(path, [], { stdio: ['pipe', 'pipe', 'pipe'] })
+    const child = spawn(path, this.settingsPath ? ['--settings', this.settingsPath] : [], { stdio: ['pipe', 'pipe', 'pipe'] })
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
 
@@ -155,6 +155,12 @@ export class Bridge {
         }
       })
     })
+  }
+
+  async selectSettings<T>(path: string | null): Promise<T> {
+    const report = await this.request<T>('settings.select', { path })
+    this.settingsPath = path
+    return report
   }
 
   /** The agent's own diagnostics, for a bug report. */
