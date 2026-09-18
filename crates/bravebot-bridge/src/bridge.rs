@@ -1203,8 +1203,15 @@ mod watch_tests {
 
     #[test]
     fn a_failed_automatic_turn_stops_its_watch_and_never_reads_file_content_into_the_prompt() {
-        let root = std::env::temp_dir().join(format!("bravebot-watch-poll-{}", std::process::id()));
-        std::fs::create_dir_all(&root).unwrap();
+        let mut builder = tempfile::Builder::new();
+        builder.prefix("bravebot-watch-poll-");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            builder.permissions(std::fs::Permissions::from_mode(0o700));
+        }
+        let directory = builder.tempdir().unwrap();
+        let root = directory.path().to_path_buf();
         std::fs::write(root.join("watched"), "old").unwrap();
         let events = Arc::new(Mutex::new(Vec::new()));
         let held = Arc::clone(&events);
@@ -1228,12 +1235,19 @@ mod watch_tests {
         assert_eq!(events.last().unwrap().name, "watch.ended");
         assert!(events.iter().all(|e| e.session.as_deref() == Some(&handle)));
         assert!(!events.iter().any(|e| e.data.to_string().contains("PRIVATE FILE")));
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn cancelling_an_automatic_turn_stops_only_its_originating_watch() {
-        let project = std::env::temp_dir();
+        let mut builder = tempfile::Builder::new();
+        builder.prefix("bravebot-watch-cancel-");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            builder.permissions(std::fs::Permissions::from_mode(0o700));
+        }
+        let directory = builder.tempdir().unwrap();
+        let project = directory.path().to_path_buf();
         let now = Instant::now();
         let mut watches = bravebot_tui::watches::Watches::new();
         let first = watches.arm("first".into(), 1, bravebot_agent::watch::Looked::Saw("a".into()), now).unwrap();
@@ -1258,8 +1272,15 @@ mod watch_tests {
 
     #[test]
     fn polling_expires_watches_without_starting_a_turn() {
-        let root = std::env::temp_dir().join(format!("bravebot-watch-expiry-{}", std::process::id()));
-        std::fs::create_dir_all(&root).unwrap();
+        let mut builder = tempfile::Builder::new();
+        builder.prefix("bravebot-watch-expiry-");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            builder.permissions(std::fs::Permissions::from_mode(0o700));
+        }
+        let directory = builder.tempdir().unwrap();
+        let root = directory.path().to_path_buf();
         std::fs::write(root.join("file"), "original").unwrap();
         let now = Instant::now();
         let mut watches = bravebot_tui::watches::Watches::new();
@@ -1273,6 +1294,5 @@ mod watch_tests {
         bridge.poll_watches_at(now + Duration::from_secs(7 * 24 * 60 * 60));
         assert!(watches.lock().unwrap().is_empty());
         assert_eq!(events.lock().unwrap()[0].data["reason"], "expired");
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

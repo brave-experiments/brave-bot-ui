@@ -151,6 +151,7 @@ dependencies = [
  "bravebot-tui",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

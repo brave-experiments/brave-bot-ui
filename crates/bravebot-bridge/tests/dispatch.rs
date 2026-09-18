@@ -391,8 +391,15 @@ fn permission_review_can_only_remove_existing_grants() {
 
 #[test]
 fn watches_require_trust_are_bounded_and_are_not_inherited_by_new_sessions() {
-    let project = std::env::temp_dir().join(format!("bravebot-ui-watch-test-{}", std::process::id()));
-    std::fs::create_dir_all(&project).unwrap();
+    let mut builder = tempfile::Builder::new();
+    builder.prefix("bravebot-ui-watch-test-");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    let directory = builder.tempdir().unwrap();
+    let project = directory.path().to_path_buf();
     let (mut bridge, _) = harness();
     let session = call(&mut bridge, "session.new", json!({"directory": project})).unwrap()["session"].clone();
     std::fs::write(project.join("one"), "original").unwrap();
@@ -412,13 +419,19 @@ fn watches_require_trust_are_bounded_and_are_not_inherited_by_new_sessions() {
     assert_eq!(call(&mut bridge, "watches.list", json!({"session": fresh})).unwrap()["watches"], json!([]));
     call(&mut bridge, "session.close", json!({"session": session})).unwrap();
     assert_eq!(call(&mut bridge, "watches.list", json!({"session": session})), Err(ErrorCode::NoSuchSession));
-    std::fs::remove_dir_all(project).unwrap();
 }
 
 #[test]
 fn settings_override_is_validated_and_diagnostics_use_the_linked_agent() {
-    let project = std::env::temp_dir().join(format!("bravebot-ui-settings-test-{}", std::process::id()));
-    std::fs::create_dir_all(&project).unwrap();
+    let mut builder = tempfile::Builder::new();
+    builder.prefix("bravebot-ui-settings-test-");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    let directory = builder.tempdir().unwrap();
+    let project = directory.path().to_path_buf();
     let file = project.join("settings.json");
     let (mut bridge, _) = harness();
     std::fs::write(&file, "[]").unwrap();
@@ -432,5 +445,4 @@ fn settings_override_is_validated_and_diagnostics_use_the_linked_agent() {
     assert!(doctor["text"].as_str().unwrap().contains(bravebot_bridge::agent_build()));
     let cleared = call(&mut bridge, "settings.select", json!({"path": null})).unwrap();
     assert!(cleared["selected"].is_null());
-    std::fs::remove_dir_all(project).unwrap();
 }

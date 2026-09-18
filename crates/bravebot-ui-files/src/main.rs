@@ -346,8 +346,16 @@ mod hooks_tests {
     use std::fs;
     #[test]
     fn hooks_channel_only_replaces_its_fixed_file_and_preserves_concurrent_edits() {
-        let root = std::env::temp_dir().join(format!("bravebot-hook-helper-{}", std::process::id()));
-        fs::create_dir_all(&root).unwrap();
+        let mut builder = tempfile::Builder::new();
+        builder.prefix("bravebot-hook-helper-");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            builder.permissions(std::fs::Permissions::from_mode(0o700));
+        }
+        let directory = builder.tempdir().unwrap();
+        // Normalize the system temp alias before the helper's no-follow traversal.
+        let root = fs::canonicalize(directory.path()).unwrap();
         let call = |operation: &str, path: &str, text: Option<&str>, expected: Option<&str>| handle(Request {
             root: root.display().to_string(), path: path.into(), operation: operation.into(),
             limit: None, text: text.map(str::to_string), expected: expected.map(str::to_string),
@@ -357,6 +365,5 @@ mod hooks_tests {
         assert!(call("hooks.replace", "hooks.json", Some("first"), None).is_ok());
         assert!(call("hooks.replace", "hooks.json", Some("overwrite"), None).is_err());
         assert_eq!(fs::read_to_string(root.join("hooks.json")).unwrap(), "first");
-        fs::remove_dir_all(root).unwrap();
     }
 }

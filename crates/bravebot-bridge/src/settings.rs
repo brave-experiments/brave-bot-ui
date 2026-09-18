@@ -59,8 +59,15 @@ mod tests {
     use super::*;
     #[test]
     fn selected_files_cannot_exceed_the_agents_read_limit() {
-        let root = std::env::temp_dir().join(format!("bravebot-settings-size-{}", std::process::id()));
-        std::fs::create_dir_all(&root).unwrap();
+        let mut builder = tempfile::Builder::new();
+        builder.prefix("bravebot-settings-size-");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            builder.permissions(std::fs::Permissions::from_mode(0o700));
+        }
+        let directory = builder.tempdir().unwrap();
+        let root = directory.path().to_path_buf();
         let file = root.join("override.json");
         let mut text = r#"{"model":"selected/model"}"#.to_string();
         text.push_str(&" ".repeat(64 * 1024 - text.len()));
@@ -70,12 +77,19 @@ mod tests {
         text.push(' ');
         std::fs::write(&file, text).unwrap();
         assert!(validate(&file).is_err(), "do not accept a file the agent silently ignores");
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn a_selected_override_merges_after_project_files_without_editing_them() {
-        let root = std::env::temp_dir().join(format!("bravebot-settings-layers-{}", std::process::id()));
+        let mut builder = tempfile::Builder::new();
+        builder.prefix("bravebot-settings-layers-");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            builder.permissions(std::fs::Permissions::from_mode(0o700));
+        }
+        let directory = builder.tempdir().unwrap();
+        let root = directory.path().to_path_buf();
         let home = root.join("home");
         let project = root.join("project");
         std::fs::create_dir_all(&home).unwrap();
@@ -90,6 +104,5 @@ mod tests {
         assert_eq!(settings.model(), Some("selected/model"));
         assert_eq!(settings.layers().count(), 4);
         assert_eq!(Settings::layered(Some(home), Some(&project), None).model(), Some("local/model"));
-        std::fs::remove_dir_all(root).unwrap();
     }
 }
