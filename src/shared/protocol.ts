@@ -223,6 +223,7 @@ export interface RunRequest {
   /** Resolved execution plan, including conditional joins and redirections. */
   plan?: string
   writes?: string[]
+  stdin?: string | null
   stages: Stage[]
   directory: string
   /**

@@ -182,7 +182,7 @@ pub struct BridgeSink {
     emitter: Emitter,
     session: String,
     turn: usize,
-    trail: bravebot_tui::audit::Trail,
+    trail: bravebot_session::audit::Trail,
 }
 
 impl BridgeSink {
@@ -191,12 +191,12 @@ impl BridgeSink {
             emitter,
             session: session.into(),
             turn,
-            trail: bravebot_tui::audit::Trail::new(),
+            trail: bravebot_session::audit::Trail::new(),
         }
     }
 
     /// The trail as the agent writes it down.
-    pub fn trail(&self) -> &bravebot_tui::audit::Trail {
+    pub fn trail(&self) -> &bravebot_session::audit::Trail {
         &self.trail
     }
 }
@@ -207,7 +207,7 @@ impl Sink for BridgeSink {
         // two renderings of one trail would drift the moment either changed.
         let data = json!({
             "turn": self.turn,
-            "event": bravebot_tui::audit::as_json(&event, None),
+            "event": bravebot_session::audit::as_json(&event, None),
         });
         self.emitter.send(Event::new("audit", &self.session, data));
         self.trail.emit(event);

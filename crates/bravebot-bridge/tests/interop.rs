@@ -11,7 +11,7 @@ use bravebot_aichat::protocol::Message;
 use bravebot_core::todo::{Row, Status};
 use bravebot_core::programs::TrustedPrograms;
 use bravebot_core::trust::TrustStore;
-use bravebot_tui::sessions::{self, Handle, Standing};
+use bravebot_session::sessions::{self, Handle, Standing};
 use std::collections::BTreeMap;
 
 /// A directory nothing else is using, inside the real session store.
@@ -48,10 +48,11 @@ fn a_record_written_here_is_read_back_by_the_agents_own_reader() {
         vec![Row { content: "read the parser".into(), marker: "[x]", status: Status::Done }],
     );
 
-    let mut handle = Handle::begin(&project);
+    let mut handle = Handle::begin(&project, bravebot_bridge::agent_build());
     handle.save(
         "what does this do?",
         Standing {
+            history: None,
             rewind: &[],
             asides: &[],
             conversation: &conversation.snapshot(),
@@ -105,10 +106,11 @@ fn a_stored_conversation_recounts_to_what_a_person_said() {
     conversation.push(Message::user("second question"));
     conversation.push(Message::assistant("second answer"));
 
-    let mut handle = Handle::begin(&project);
+    let mut handle = Handle::begin(&project, bravebot_bridge::agent_build());
     handle.save(
         "first question",
         Standing {
+            history: None,
             rewind: &[],
             asides: &[],
             conversation: &conversation.snapshot(),
@@ -173,12 +175,13 @@ fn resuming_a_session_writes_back_to_it_rather_than_forking() {
         wall_ms: 120, inference_ms: 80, tools_ms: 20, stalled_ms: 10,
     })]);
 
-    let mut handle = Handle::begin(&project);
+    let mut handle = Handle::begin(&project, bravebot_bridge::agent_build());
     handle.save(
         "remember the word haddock",
         Standing {
-            rewind: &[bravebot_tui::state::RewindPoint {
-                snapshot: bravebot_tui::state::TurnSnapshot {
+            history: None,
+            rewind: &[bravebot_session::sessions::RewindPoint {
+                snapshot: bravebot_session::sessions::TurnSnapshot {
                     conversation: bravebot_agent::Conversation::new().snapshot(),
                     turns: 0, tokens: 0, spend: BTreeMap::new(), timing: BTreeMap::new(),
                     cached: None, trust: TrustStore::new(&project),
@@ -187,7 +190,7 @@ fn resuming_a_session_writes_back_to_it_rather_than_forking() {
                 },
                 backups: Vec::new(), prompt: "remember the word haddock".into(),
             }],
-            asides: &[bravebot_tui::state::Aside {
+            asides: &[bravebot_session::sessions::Aside {
                 question: "what is haddock?".into(),
                 answer: Some("a fish".into()), kept: true,
             }],
@@ -217,6 +220,7 @@ fn resuming_a_session_writes_back_to_it_rather_than_forking() {
     saved.save(
         &state.first_prompt.clone().unwrap_or_default(),
         Standing {
+            history: None,
             rewind: &state.rewind,
             asides: &state.asides,
             conversation: &state.conversation.snapshot(),
@@ -289,12 +293,13 @@ fn two_prompt_session(project: &std::path::Path, trust: Option<&TrustStore>) -> 
     conversation.push(Message::assistant("forgotten"));
 
     let empty = TrustStore::new(project);
-    let mut handle = Handle::begin(project);
+    let mut handle = Handle::begin(project, bravebot_bridge::agent_build());
     handle.save(
         "remember the word haddock",
         Standing {
+            history: None,
             rewind: &[],
-            asides: &[bravebot_tui::state::Aside {
+            asides: &[bravebot_session::sessions::Aside {
                 question: "what is haddock?".into(),
                 answer: Some("a fish".into()), kept: true,
             }],
@@ -535,7 +540,7 @@ fn a_fork_gets_an_id_of_its_own_rather_than_the_one_it_came_from() {
     let mut cut = record.conversation.clone();
     cut.messages.truncate(2);
     let mut state = bravebot_bridge::running::State::forked(
-        Handle::begin(&project),
+        Handle::begin(&project, bravebot_bridge::agent_build()),
         cut,
         TrustStore::new(&project),
         TrustedPrograms::new(),
@@ -551,6 +556,7 @@ fn a_fork_gets_an_id_of_its_own_rather_than_the_one_it_came_from() {
     saved.save(
         &state.first_prompt.clone().unwrap_or_default(),
         Standing {
+            history: None,
             rewind: &state.rewind,
             asides: &state.asides,
             conversation: &state.conversation.snapshot(),

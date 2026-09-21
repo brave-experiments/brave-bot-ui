@@ -16,7 +16,7 @@ use bravebot_core::cancel::Cancel;
 use bravebot_core::programs::TrustedPrograms;
 use bravebot_core::todo::Row;
 use bravebot_core::trust::TrustStore;
-use bravebot_tui::sessions::Handle;
+use bravebot_session::sessions::Handle;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -74,9 +74,9 @@ pub struct State {
     pub model: Option<String>,
     pub todos: BTreeMap<usize, Vec<Row>>,
     /// Preserve terminal side conversations when continuing a session in the UI.
-    pub asides: Vec<bravebot_tui::state::Aside>,
+    pub asides: Vec<bravebot_session::sessions::Aside>,
     /// Keep terminal rewind checkpoints intact when the UI saves a resumed session.
-    pub rewind: Vec<bravebot_tui::state::RewindPoint>,
+    pub rewind: Vec<bravebot_session::sessions::RewindPoint>,
     /// The first thing the user asked, which is what a list calls the session.
     pub first_prompt: Option<String>,
 }
@@ -110,20 +110,20 @@ impl State {
     /// is what makes a turn taken here land in the session it was taken in — and what
     /// `bravebot --resume` needs in order to pick the same session back up. The terminal does
     /// the same at `crates/tui/src/app.rs`.
-    pub fn resumed(project: &Path, record: &bravebot_tui::sessions::Record, trust: TrustStore) -> Self {
+    pub fn resumed(project: &Path, record: &bravebot_session::sessions::Record, trust: TrustStore) -> Self {
         Self {
             conversation: Conversation::restored(record.conversation.clone()),
             trust,
-            programs: record.trusted_programs(),
+            programs: record.trusted_programs(project),
             directories: record.directories.iter().map(PathBuf::from).collect(),
-            handle: Some(Handle::resuming(project, record)),
+            handle: Some(Handle::resuming(project, record, crate::agent_build())),
             turns: record.turns,
             tokens: record.tokens,
             spend: record.spend.clone(),
             timing: record.timing.clone(),
             model: record.model.clone(),
             todos: record.todo_rows(),
-            asides: bravebot_tui::sessions::recall(project, record).asides,
+            asides: bravebot_session::sessions::recall(project, record).asides,
             rewind: record.rewind_points(project),
             first_prompt: Some(record.title.clone()),
         }

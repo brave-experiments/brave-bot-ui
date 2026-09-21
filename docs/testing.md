@@ -4,7 +4,10 @@ The gates a change has to pass, and the drivers that prove the window works. Set
 
 ## Backend v0.9.0 compatibility
 
-The submodule pins `c23b2ed`, the upstream `v0.9.0` release.
+The submodule pins `5d56df1d`, upstream `main` after the `v0.9.0` release.
+Session storage and audit types come from `bravebot-session`; watches come from
+`bravebot-agent`. Command approvals show any reference routed to standard input,
+and network diagnostics include every certificate trust problem reported upstream.
 The bridge uses policy-audited model-list decoding and Bedrock's per-model names and
 context windows. Trust maps are rooted in the session project. Resuming a terminal
 session preserves its saved side conversations and rewind checkpoints.

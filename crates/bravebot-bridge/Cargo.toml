@@ -22,10 +22,9 @@ bravebot-aichat = { path = "../../vendor/bravebot/crates/aichat" }
 bravebot-config = { path = "../../vendor/bravebot/crates/config" }
 bravebot-net = { path = "../../vendor/bravebot/crates/net" }
 bravebot-core = { path = "../../vendor/bravebot/crates/core" }
-# For `sessions` (the on-disk record), `store` (~/.bravebot), and `audit::as_json`. All three
-# are `pub`. This drags ratatui in for a binary that draws nothing, which costs a few
-# seconds of compile time and some dead code the linker discards. The alternative was
-# extracting them upstream, which is a refactor of a repository we do not own.
+# Session records, state storage, and audit trails are shared with the terminal UI.
+bravebot-session = { path = "../../vendor/bravebot/crates/session" }
+# Retained for the upstream build stamp.
 bravebot-tui = { path = "../../vendor/bravebot/crates/tui" }
 serde = { workspace = true }
 serde_json = { workspace = true }
