@@ -47,7 +47,7 @@ pub fn report(project: Option<&Path>, selected: Option<&Path>) -> Value {
         "overrides": settings.overridden().map(|(name, path)| json!({"name": name, "path": path})).collect::<Vec<_>>(),
         "managed": { "path": managed.path(), "keys": managed.pinned().collect::<Vec<_>>() },
         "network": { "roots": transport.roots().paths(),
-            "problem": transport.trust_problem().map(ToString::to_string),
+            "problem": (!transport.trust_problems().is_empty()).then(|| transport.trust_problems().iter().map(ToString::to_string).collect::<Vec<_>>().join("\n")),
             "trustsNothing": transport.trusts_nothing(), "proxy": transport.proxy_summary(),
             "authenticated": transport.proxy_is_authenticated(), "unusableProxy": transport.unusable_proxy(),
             "noProxy": transport.no_proxy() }

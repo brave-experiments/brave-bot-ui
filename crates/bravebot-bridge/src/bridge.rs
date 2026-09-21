@@ -23,7 +23,7 @@ use bravebot_config::Config;
 use bravebot_core::cancel::Cancel;
 use bravebot_core::trust::TrustStore;
 use bravebot_net::Egress;
-use bravebot_tui::sessions::{Handle, Record, Standing};
+use bravebot_session::sessions::{Handle, Record, Standing};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -46,7 +46,7 @@ struct Open {
     /// The turn in flight, if there is one.
     running: Option<Running>,
     model: Option<String>,
-    watches: Arc<Mutex<bravebot_tui::watches::Watches>>,
+    watches: Arc<Mutex<bravebot_agent::watch::Watches>>,
 }
 
 /// Drives the agent for a front-end.
@@ -146,7 +146,7 @@ impl Bridge {
             "version": env!("CARGO_PKG_VERSION"),
             "defaultModel": crate::settings::config(None, self.settings.as_deref()).ok().map(|config| config.default_model),
             "configured": crate::settings::config(None, self.settings.as_deref()).is_ok(),
-            "home": bravebot_tui::store::directory().map(|d| d.display().to_string()),
+            "home": bravebot_session::store::directory().map(|d| d.display().to_string()),
         })
     }
 
@@ -200,7 +200,7 @@ impl Bridge {
             state: Arc::new(Mutex::new(state)),
             answered_trust,
             running: None,
-            watches: Arc::new(Mutex::new(bravebot_tui::watches::Watches::new())),
+            watches: Arc::new(Mutex::new(bravebot_agent::watch::Watches::new())),
             model: None,
         });
 
@@ -257,11 +257,11 @@ impl Bridge {
                     })).collect::<Vec<_>>()
                 }),
             },
-            "branchNote": bravebot_tui::sessions::branch_note(
+            "branchNote": bravebot_session::sessions::branch_note(
                 record.branch.as_deref(),
-                bravebot_tui::sessions::branch_of(directory).as_deref(),
+                bravebot_session::sessions::branch_of(directory).as_deref(),
             ),
-            "buildNote": bravebot_tui::sessions::build_note(
+            "buildNote": bravebot_session::sessions::build_note(
                 record.build.as_deref(),
                 crate::agent_build(),
             ),
@@ -277,11 +277,11 @@ impl Bridge {
                 format!("{} is not a directory", directory.display()),
             ));
         }
-        if bravebot_tui::store::directory().is_none() {
+        if bravebot_session::store::directory().is_none() {
             return Err(Failure::new(ErrorCode::NoHome, "no home directory to store sessions in"));
         }
 
-        let branch = bravebot_tui::sessions::branch_of(&directory);
+        let branch = bravebot_session::sessions::branch_of(&directory);
         let handle = self.mint(Open {
             project: directory.clone(),
             // An empty map until the user answers. Nothing runs before then, so this is
@@ -289,7 +289,7 @@ impl Bridge {
             state: Arc::new(Mutex::new(State::fresh(TrustStore::new(&directory)))),
             answered_trust: false,
             running: None,
-            watches: Arc::new(Mutex::new(bravebot_tui::watches::Watches::new())),
+            watches: Arc::new(Mutex::new(bravebot_agent::watch::Watches::new())),
             model: None,
         });
 
@@ -418,7 +418,7 @@ impl Bridge {
             // the same window, so asking again would be asking somebody to answer twice.
             answered_trust,
             running: None,
-            watches: Arc::new(Mutex::new(bravebot_tui::watches::Watches::new())),
+            watches: Arc::new(Mutex::new(bravebot_agent::watch::Watches::new())),
             model: None,
         });
 
@@ -440,7 +440,7 @@ impl Bridge {
             "session": child,
             "id": id,
             "directory": project.display().to_string(),
-            "branch": bravebot_tui::sessions::branch_of(&project),
+            "branch": bravebot_session::sessions::branch_of(&project),
             "said": recounted,
             "prefill": cut.prompt,
             "context": snapshot.context,
@@ -758,7 +758,7 @@ impl Bridge {
             }
             if state.handle.is_some() {
                 let turn = state.turns;
-                save(&open.project, &mut state, turn, &bravebot_tui::audit::Trail::default());
+                save(&open.project, &mut state, turn, &bravebot_session::audit::Trail::default());
             }
         }
         Ok(json!({
@@ -816,7 +816,7 @@ impl Bridge {
                 let ended = watches.look(now, |path| workspace.look(path));
                 for (number, reason) in ended {
                     self.emitter.send(Event::new("watch.ended", &handle, json!({"number": number, "reason": match reason {
-                        bravebot_tui::watches::Reaped::Aged => "expired", bravebot_tui::watches::Reaped::OutOfReach => "out-of-reach",
+                        bravebot_agent::watch::Reaped::Aged => "expired", bravebot_agent::watch::Reaped::OutOfReach => "out-of-reach",
                     }})));
                 }
                 watches.due(now).map(|w| (w.number(), w.path().to_string()))
@@ -868,7 +868,7 @@ impl Bridge {
             if attempt > 0 {
                 thread::sleep(std::time::Duration::from_millis(250));
             }
-            let handle = Handle::begin(project);
+            let handle = Handle::begin(project, crate::agent_build());
             if !self.id_taken(project, handle.id()) {
                 return Ok(handle);
             }
@@ -912,7 +912,7 @@ struct Work {
     project: PathBuf,
     state: Arc<Mutex<State>>,
     config: Config,
-    watches: Arc<Mutex<bravebot_tui::watches::Watches>>,
+    watches: Arc<Mutex<bravebot_agent::watch::Watches>>,
     model: Option<String>,
     workspace: Workspace,
     prompt: String,
@@ -960,7 +960,7 @@ fn work(work: Work) {
         return;
     };
 
-    let history = bravebot_tui::history::Entry::sent(
+    let history = bravebot_session::store::Entry::sent(
         &prompt,
         Some(project.display().to_string()),
     );
@@ -972,7 +972,7 @@ fn work(work: Work) {
         task = task.with_dropped_text(path);
     }
 
-    let free = watches.lock().map(|w| bravebot_tui::watches::MAX_LIVE.saturating_sub(w.live().len())).unwrap_or(0);
+    let free = watches.lock().map(|w| bravebot_agent::watch::MAX_LIVE.saturating_sub(w.live().len())).unwrap_or(0);
     task = task.arming(if free == 0 { bravebot_agent::watch::Arming::Full } else { bravebot_agent::watch::Arming::Allowed { free } });
     let mut reporter = BridgeReporter::new(emitter.clone(), &session);
     let mut confirmer = BridgeConfirmer::new(emitter.clone(), &session, pending, answers, cancel.clone());
@@ -1005,7 +1005,7 @@ fn work(work: Work) {
     // parsed: the same flag holds back the session's name, because a conversation called after
     // some house-keeping would be a conversation named for the one thing nobody in it asked.
     if recall {
-        bravebot_tui::store::append_history(&history);
+        bravebot_session::store::append_history(&history);
     }
 
     state.turns = turn;
@@ -1132,11 +1132,11 @@ fn save(
     project: &std::path::Path,
     state: &mut State,
     turn: usize,
-    trail: &bravebot_tui::audit::Trail,
+    trail: &bravebot_session::audit::Trail,
 ) -> usize {
     let handle = state
         .handle
-        .get_or_insert_with(|| Handle::begin(project));
+        .get_or_insert_with(|| Handle::begin(project, crate::agent_build()));
 
     let first = state.first_prompt.clone().unwrap_or_default();
     // Taken once and lent to both readers below. A snapshot copies the whole conversation, and
@@ -1147,6 +1147,8 @@ fn save(
     handle.save(
         &first,
         Standing {
+            // The UI derives its transcript from the conversation, including newly run turns.
+            history: None,
             conversation: &snapshot,
             turns: state.turns,
             tokens: state.tokens,
@@ -1219,7 +1221,7 @@ mod watch_tests {
         // A removed override must fail before making any model request.
         bridge.settings = Some(root.join("missing.json"));
         let now = Instant::now();
-        let mut watches = bravebot_tui::watches::Watches::new();
+        let mut watches = bravebot_agent::watch::Watches::new();
         let workspace = Workspace::new(root.clone()).unwrap();
         watches.arm("watched".into(), 1, workspace.look("watched"), now).unwrap();
         let watches = Arc::new(Mutex::new(watches));
@@ -1249,7 +1251,7 @@ mod watch_tests {
         let directory = builder.tempdir().unwrap();
         let project = directory.path().to_path_buf();
         let now = Instant::now();
-        let mut watches = bravebot_tui::watches::Watches::new();
+        let mut watches = bravebot_agent::watch::Watches::new();
         let first = watches.arm("first".into(), 1, bravebot_agent::watch::Looked::Saw("a".into()), now).unwrap();
         let second = watches.arm("second".into(), 1, bravebot_agent::watch::Looked::Saw("b".into()), now).unwrap();
         watches.dispatched(first);
@@ -1283,7 +1285,7 @@ mod watch_tests {
         let root = directory.path().to_path_buf();
         std::fs::write(root.join("file"), "original").unwrap();
         let now = Instant::now();
-        let mut watches = bravebot_tui::watches::Watches::new();
+        let mut watches = bravebot_agent::watch::Watches::new();
         watches.arm("file".into(), 1, Workspace::new(root.clone()).unwrap().look("file"), now).unwrap();
         let watches = Arc::new(Mutex::new(watches));
         let events = Arc::new(Mutex::new(Vec::new()));

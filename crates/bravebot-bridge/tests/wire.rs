@@ -361,7 +361,7 @@ fn command_approval_preserves_plan_shape_environment_and_redirections() {
         environment: vec![("MODE".into(), "preview".into())],
         routes: vec![Route::Stdout { path: "/tmp/result.txt".into(), append: false }],
     };
-    let request = RunRequest { record: None, pattern: None, plan: Plan {
+    let request = RunRequest { record: None, pattern: None, stdin: Some("ref:3".into()), plan: Plan {
         line: "context only".into(), directory: "/tmp".into(),
         steps: Steps::Join {
             left: Box::new(Steps::Pipeline(vec![step.clone()])), joiner: Joiner::And,
@@ -378,6 +378,7 @@ fn command_approval_preserves_plan_shape_environment_and_redirections() {
     assert!(value["plan"].as_str().unwrap().contains(" && "));
     assert_ne!(value["plan"], "context only");
     assert_eq!(value["writes"], json!(["/tmp/result.txt"]));
+    assert_eq!(value["stdin"], "ref:3");
 }
 
 #[test]

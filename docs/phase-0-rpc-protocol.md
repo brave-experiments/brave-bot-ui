@@ -105,6 +105,7 @@ sources are and the committed gitlink says which revision they are:
 ```toml
 [dependencies]
 bravebot-agent = { path = "../../vendor/bravebot/crates/agent" }
+bravebot-session = { path = "../../vendor/bravebot/crates/session" }
 bravebot-tui   = { path = "../../vendor/bravebot/crates/tui" }
 bravebot-core  = { path = "../../vendor/bravebot/crates/core" }
 bravebot-config = { path = "../../vendor/bravebot/crates/config" }
@@ -112,31 +113,21 @@ bravebot-config = { path = "../../vendor/bravebot/crates/config" }
 
 This works today, unmodified, and it was checked rather than assumed:
 
-- All four are ordinary packages with workspace-inherited metadata and no `publish = false`.
-- **Every module the bridge needs is already `pub`**: `bravebot_tui::{sessions, store, audit}`,
+- These are ordinary packages with workspace-inherited metadata and no `publish = false`.
+- **Every module the bridge needs is already `pub`**: `bravebot_session::{sessions, store, audit}`,
   every module of `bravebot_agent`, and `bravebot_core::{event, label, todo, trust}`.
 - `crates/tui/build.rs` shells out to git to stamp `BRAVEBOT_BUILD` and degrades to
   a version string without a git revision when there is none, so it compiles as a git or vendored dependency.
 
-### 2.1 Depend on `bravebot-tui`, and do not extract from it
+### 2.1 Reuse the upstream session crate
 
-The bridge needs `bravebot_tui::sessions` (the on-disk `Record`), `bravebot_tui::store` (the
-`~/.bravebot` location and prompt history), and `bravebot_tui::audit::as_json`. All three are `pub`.
+Upstream now provides `bravebot-session` for the on-disk record, state directory,
+prompt history, and audit projection. The bridge uses these public types directly
+and reuses `audit::as_json` rather than deriving its own event projection. Standing
+watches live in `bravebot_agent::watch`.
 
-An earlier draft of this document proposed lifting them into a new `crates/session` in
-the agent workspace, on the grounds that depending on `bravebot-tui` drags `ratatui` into a
-binary that draws nothing. **Do not do this.** The cost of the extra dependency is a few
-seconds of compile time and some dead code the linker discards; `ratatui` is pure Rust
-with no C dependencies. The cost of the extraction is a refactor of a repository we do
-not own, touching the crate that holds the session format. That trade is not close.
-
-The one real wart is that `bravebot_tui::audit` mixes structured JSON (`as_json`, which the
-bridge wants) with terminal wording (`TrailLine`, `as_line`, which it does not). Ignore
-the latter. Reuse `as_json` **verbatim** rather than re-deriving the event projection —
-two spellings of one trail is exactly the drift the agent's own comments warn about.
-
-`BUILD` comes from `bravebot_tui::BUILD`, so both front-ends stamp records with the same
-string with no coordination needed.
+`BUILD` still comes from `bravebot_tui::BUILD`, so both front-ends stamp records with
+the same string. Session handles receive this stamp explicitly.
 
 ### 2.2 Keeping the linkage replaceable
 
@@ -928,7 +919,7 @@ Two things the live run changed, neither of them visible from the design:
 2. `bravebot-rpc` skeleton: envelope, dispatch loop, `agent.info`, `agent.ready`, error codes.
    No turns yet. Drive it by hand with `echo … | bravebot-rpc`.
 3. `session.list` / `session.open` / `session.new` / `session.close`, read-only. Only the
-   cross-project listing is new code; the rest wraps `bravebot_tui::sessions`. **The Electron
+   cross-project listing is new code; the rest wraps `bravebot_session::sessions`. **The Electron
    left column can be built against this alone.**
 4. `BridgeReporter` + the `Sink`, then `send_turn` with a `Confirmer` hardwired to
    `RefuseWrites`. **The centre column works, read-only, at this point** — real turns,

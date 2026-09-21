@@ -245,6 +245,7 @@ pub fn run_request(id: u64, request: &RunRequest) -> Value {
         "directory": request.directory(),
         "plan": request.plan.steps.display(),
         "writes": request.plan.writes,
+        "stdin": request.stdin,
         "releasesPrivate": request.releases_private(),
         // What approving-and-remembering would cover, which is the thing the second
         // answer needs to be about. A pipeline vouches for all of its stages: one that

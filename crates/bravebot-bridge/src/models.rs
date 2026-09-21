@@ -50,7 +50,7 @@ pub fn list(config: &Config) -> Value {
         let mut routing = Routing::new();
         routing.insert_trusted("models", provider.models_url());
         routing.insert_trusted("account-models", provider.account_models_url());
-        let mut sink = bravebot_tui::audit::Trail::new();
+        let mut sink = bravebot_session::audit::Trail::new();
         let result = Policy::begin(
             routing,
             ReleasePlan::new(),
@@ -75,7 +75,7 @@ pub fn list(config: &Config) -> Value {
     if config.serves_aichat() {
         let mut routing = Routing::new();
         routing.insert_trusted("models", config.models_url());
-        let mut sink = bravebot_tui::audit::Trail::new();
+        let mut sink = bravebot_session::audit::Trail::new();
         let result = Policy::begin(
             routing,
             ReleasePlan::new(),

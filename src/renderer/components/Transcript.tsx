@@ -1070,6 +1070,7 @@ function Row({
               `grep` means, and a person vouching for a program should be looking at the
               binary rather than the word. */}
           {request.plan && <p className="permission-scope"><strong>Execution plan:</strong> <code>{request.plan}</code></p>}
+          {request.stdin && <p className="permission-scope"><strong>Standard input:</strong> <code>{request.stdin}</code></p>}
           {!!request.writes?.length && <div className="permission-scope"><strong>Files created or modified:</strong><ul>{request.writes.map(path => <li key={path}><code>{path}</code></li>)}</ul></div>}
           <ol className="stages">
             {request.stages.map((stage, index) => (
