@@ -76,7 +76,7 @@ The agent's configuration build script bakes available Brave backend values into
 file outside Git lets multiple checkouts use it and keeps it through re-clones.
 The file is not automatically discovered: the `.envrc` above is what loads it.
 
-Alternatively, `scripts/build-bridge.sh` loads an allowed `.envrc` from
+Alternatively, `scripts/build-bridge.mjs` loads an allowed `.envrc` from
 `vendor/bravebot` via direnv. `BRAVEBOT_DIR` (or the legacy `BUA_AGENT_DIR`) can point
 to a different credential checkout. These variables affect credential loading only;
 Cargo still compiles `vendor/bravebot`. The script canonicalises the directory for

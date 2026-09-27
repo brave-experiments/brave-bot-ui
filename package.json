@@ -8,7 +8,7 @@
   "scripts": {
     "postinstall": "npm run setup:electron",
     "name-dev-app": "node scripts/name-dev-app.mjs",
-    "bridge": "./scripts/build-bridge.sh",
+    "bridge": "node scripts/build-bridge.mjs",
     "dev": "npm run setup:electron && npm run bridge && electron-vite dev",
     "build": "npm run bridge && tsc --noEmit && electron-vite build",
     "typecheck": "tsc --noEmit",
