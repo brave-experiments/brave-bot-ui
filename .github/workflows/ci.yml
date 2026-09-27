@@ -115,3 +115,31 @@ jobs:
       # breaking method chains and `assert!` calls that are on one line on purpose. Adding
       # the check means reformatting the crate first, which is a change to make on its own
       # and not as a side effect of turning CI on.
+
+  # The Windows file helper and its tests only compile on Windows, so the Linux job never builds
+  # them. The tests make symlinks to check that the helper refuses them, which needs an
+  # administrator account, and the runner's account is one.
+  windows:
+    name: Lint and test on Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: brave-bot-ui
+          submodules: true
+
+      - name: Set up Rust
+        run: rustup component add clippy
+
+      - name: Cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: brave-bot-ui
+
+      - name: Clippy
+        working-directory: brave-bot-ui
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Test
+        working-directory: brave-bot-ui
+        run: cargo test --all
