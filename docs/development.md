@@ -12,7 +12,7 @@ Start with [setup](setup.md), then use these commands from the repository root.
 | `npm run typecheck` | Run `tsc --noEmit` |
 | `npm run build` | Build both Rust executables, typecheck, bundle into `out/` |
 | `npm start` | Set up Electron and preview the existing bundle; does not rebuild it |
-| `npm run package` | Build both Rust executables, bundle, package for macOS or Linux; does not typecheck |
+| `npm run package` | Build both Rust executables, bundle, package for macOS, Linux or Windows; does not typecheck |
 | `cargo test --all` | Test the Rust workspace |
 | `cargo clippy --all-targets --all-features -- -D warnings` | Lint the Rust workspace |
 | `npm run drive` / `npm run drive:<name>` | Run a named Electron driver; see [testing](testing.md) |
@@ -31,8 +31,9 @@ npm start
 
 With a desktop display available, `npm run drive:smoke` checks that the window and
 main UI are visible and the Rust bridge responds, then saves a screenshot under
-`/tmp/bravebot-ui/`. To check a Linux package, run
-`npm run drive:smoke -- "./dist/Brave Bot-linux-x64/Brave Bot"`.
+`/tmp/bravebot-ui/` (`C:\tmp\bravebot-ui\` on Windows). To check a Linux package, run
+`npm run drive:smoke -- "./dist/Brave Bot-linux-x64/Brave Bot"`, and for a Windows package
+`npm run drive:smoke -- "dist\Brave Bot-win32-x64\Brave Bot.exe"`.
 
 `scripts/build-bridge.mjs` builds the Rust bridge and secure-file helper. TypeScript
 then checks the code and electron-vite bundles the main process, preload and React
@@ -51,16 +52,17 @@ npm run package
 
 `npm run package` does not typecheck. It builds the Rust executables and Electron
 bundles, then `scripts/package.mjs` uses `@electron/packager` to create
-`dist/Brave Bot-darwin-<arch>/Brave Bot.app` on macOS or
-`dist/Brave Bot-linux-<arch>/` on Linux. Launch the Linux package with
-`"./dist/Brave Bot-linux-x64/Brave Bot"` (replace `x64` for other architectures).
+`dist/Brave Bot-darwin-<arch>/Brave Bot.app` on macOS,
+`dist/Brave Bot-linux-<arch>/` on Linux, or `dist\Brave Bot-win32-<arch>\` on Windows.
+Launch the Linux package with `"./dist/Brave Bot-linux-x64/Brave Bot"` and the Windows one
+with `"dist\Brave Bot-win32-x64\Brave Bot.exe"` (replace `x64` for other architectures).
 The platform and architecture follow the Node process. Rust uses its configured toolchain target; for a native
 bundle, use matching Node and Rust architectures.
 
-Both `bravebot-rpc` and `bravebot-ui-files` are copied into the app's Resources.
-Packaged builds use those copies; development builds use `target/debug/`.
-The script currently packages debug Rust executables, and performs no app signing
-or notarisation. The resulting bundle is for local testing, not a completed
+Both `bravebot-rpc` and `bravebot-ui-files` (with `.exe` on Windows) are copied into
+the app's Resources. Packaged builds use those copies; development builds use `target/debug/`.
+The script currently packages debug Rust executables, and performs no app signing,
+notarisation or Windows installer. The resulting bundle is for local testing, not a completed
 release-distribution pipeline. Git commit signatures are separate from macOS app signing.
 
 A development checkout can produce a configured or unconfigured binary depending

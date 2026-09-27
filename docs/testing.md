@@ -51,6 +51,23 @@ advice, and write approvals show the processor's remark beside the diff.
   (install the target with `rustup target add aarch64-apple-darwin`). The upstream confinement tests
   need native subprocesses: translated binaries can fail with `Failed to open libRosettaRuntime`.
 
+On Windows, the file helper's tests create the symlinks it must refuse, which needs
+Developer Mode or an elevated shell; without either they fail rather than skip. The
+network-share test goes through `\\localhost\C$`, the loopback administrative share, which
+an account may need to be an administrator to use, so it runs only when asked:
+`cargo test -p bravebot-ui-files -- --ignored`.
+
+Windows [installer detection](https://learn.microsoft.com/en-us/windows/security/application-security/application-control/user-account-control/architecture#installer-detection-technology)
+refuses to start a program without a manifest when its name looks like an installer's.
+Microsoft names `install`, `setup` and `update`; the compatibility database it reads matches
+`instal`, `uninst`, `setup`, `update` and `patch` anywhere in the name
+([extracted rules](https://gist.github.com/whitequark/a63c75da90ac2f8a40f2a51dec092683)), so
+`dispatch-<hash>.exe` is refused too. The list varies between Windows builds, and despite
+Microsoft's docs it [applies to 64-bit programs](https://sourceware.org/pipermail/gdb-patches/2026-July/228579.html).
+As [Microsoft recommends](https://learn.microsoft.com/en-us/windows/win32/secbp/running-with-administrator-privileges),
+each crate's `build.rs` embeds an `asInvoker` manifest for the MSVC toolchain, binaries and
+tests alike. Other toolchains get no manifest, so keep those words out of binary and test names.
+
 The session-store and confinement tests need filesystem and subprocess access outside the
 Codex sandbox. A missing temporary session record under that sandbox is not a passing test;
 rerun with the required access.
@@ -157,7 +174,7 @@ isolated files on exit. On Linux it needs a display; use
 ## What CI runs
 
 `.github/workflows/ci.yml` is the gate on a pull request, and it is not the same set as the
-table above. Two jobs:
+table above. Three jobs:
 
 - **Typecheck** — `npm ci` with `ELECTRON_SKIP_BINARY_DOWNLOAD=1` (the Electron *package* is
   needed for types; the 100 MB binary is not, since nothing here launches a window) and then
@@ -166,6 +183,8 @@ table above. Two jobs:
   revision the gitlink pins, then `cargo clippy --all-targets --all-features -- -D warnings`
   and `cargo test --all`, followed by the desktop build, Node regression tests, and
   the real manual walkthrough under Xvfb with a local model fixture.
+- **Lint and test on Windows** — the same Clippy and `cargo test --all` on a Windows
+  runner, the only place the Windows file helper and its tests compile.
 
 The workflow does not run the other Electron drivers, packaged-app checks, or the
 upstream agent's full test suite. Run the applicable local checks above.
