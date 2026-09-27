@@ -79,7 +79,7 @@ export async function chooseAttachments(window: BrowserWindow, handle: string): 
   if (selected.canceled) return []
   if (selected.filePaths.length > 5) throw new Error('Attach up to five files at a time.')
   const chosen = selected.filePaths.map((file) => {
-    const path = relative(realpathSync(root), realpathSync(file))
+    const path = relative(realpathSync(root), realpathSync(file)).split(sep).join('/')
     const target = isSubpath(path) && path ? inside(handle, path) : null
     if (!target || !validAttachment(root, path)) throw new Error('Choose text files inside this project, each under 256 KB.')
     return { id: randomUUID(), path }
@@ -108,6 +108,15 @@ function validAttachment(root: string, path: string): boolean {
 }
 
 /**
+ * `isSubpath`, but on Windows it also refuses `\` and `:`. Windows reads `\` as a folder
+ * separator and `:` as the start of a stream name, and relative paths from the renderer only
+ * ever use `/`.
+ */
+function isLocalSubpath(value: unknown): value is string {
+  return isSubpath(value) && !(process.platform === 'win32' && /[\\:]/.test(value))
+}
+
+/**
  * Where a session-and-subpath actually points, or `null` if it points nowhere this may look.
  *
  * `null` covers every refusal — an unknown session, a path that does not exist, a link that leads
@@ -116,7 +125,7 @@ function validAttachment(root: string, path: string): boolean {
  * a path it may not read exists.
  */
 function inside(handle: string, subpath: string): string | null {
-  if (!isSubpath(subpath)) return null
+  if (!isLocalSubpath(subpath)) return null
   const root = roots.get(handle)
   if (root === undefined) return null
   try {
@@ -133,7 +142,7 @@ function inside(handle: string, subpath: string): string | null {
 /** Human-only raw preview. Reading here never releases content to the agent. */
 export function preview(handle: string, subpath: string): FilePreview | null {
   const root = roots.get(handle)
-  if (!root || !isSubpath(subpath) || !subpath) return null
+  if (!root || !isLocalSubpath(subpath) || !subpath) return null
   const file = readProjectText(root, subpath)
   return file ? { path: subpath, ...file } : null
 }
