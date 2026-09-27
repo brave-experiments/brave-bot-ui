@@ -1,7 +1,8 @@
 import { app } from 'electron'
-import { readFileSync, writeFileSync, renameSync } from 'node:fs'
+import { readFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseConversation, parseExperience, type Experience } from '../shared/experience'
+import { writePrivate } from './project-files'
 
 const file = () => join(app.getPath('userData'), 'experience.json')
 export function readExperience(): Experience {
@@ -16,7 +17,7 @@ export function writeExperience(key: unknown, value: unknown): Experience {
     state.conversations[key] = parseConversation(value)
   } else throw new Error('Invalid preference')
   // Drafts are work, not disposable preferences. Report write failures and replace atomically.
-  writeFileSync(`${file()}.tmp`, JSON.stringify(state), { encoding: 'utf8', mode: 0o600 })
+  writePrivate(`${file()}.tmp`, JSON.stringify(state))
   renameSync(`${file()}.tmp`, file())
   return state
 }

@@ -26,6 +26,10 @@ struct Request {
     expected: Option<String>,
 }
 
+/// Memory history keeps at most 30 revisions, each at most 64 KB, so about 2 MB in all. The
+/// limit is twice that, to leave room for JSON escaping.
+const PRIVATE_LIMIT: usize = 4 * 1024 * 1024;
+
 fn invalid(message: &str) -> io::Error {
     io::Error::other(message)
 }
@@ -90,6 +94,12 @@ fn replace_at(
             "File changed since this editor opened. Reopen it to review the latest version.",
         ));
     }
+    write_private(parent, leaf, text)?;
+    Ok(previous)
+}
+/// Replaces `leaf` with a new private file. The text goes into a temporary file first, so `leaf`
+/// is never left half-written.
+fn write_private(parent: &File, leaf: &str, text: &str) -> io::Result<()> {
     let temporary = format!(
         ".memory-{}-{}.tmp",
         std::process::id(),
@@ -102,8 +112,7 @@ fn replace_at(
     let result = (|| {
         file.write_all(text.as_bytes())?;
         file.sync_all()?;
-        sys::rename(parent, &temporary, leaf)?;
-        Ok(previous)
+        sys::rename(parent, &temporary, leaf)
     })();
     if result.is_err() {
         drop(file);
@@ -159,6 +168,19 @@ fn handle(request: Request) -> io::Result<Value> {
             let previous = replace_at(&parent, &leaf, &text, request.expected.as_deref())?;
             Ok(json!({"previous": previous}))
         }
+        "private.write" => {
+            // The app's own files, such as drafts. Node ignores the file mode on Windows, so the
+            // app writes them through here. The request names one file, in a folder the app chose.
+            let [name] = components(Path::new(&request.path))?[..] else {
+                return Err(invalid("Only a single file name is allowed"));
+            };
+            let text = request.text.ok_or_else(|| invalid("Missing text"))?;
+            if text.len() > PRIVATE_LIMIT || text.contains('\0') {
+                return Err(invalid("Private files must be text under 4 MB"));
+            }
+            write_private(&root_directory(&request.root)?, name, &text)?;
+            Ok(json!({}))
+        }
         _ => Err(invalid("Unknown file operation")),
     }
 }
@@ -166,7 +188,7 @@ fn main() {
     let result = (|| {
         let mut input = String::new();
         io::stdin()
-            .take(2 * 1024 * 1024)
+            .take(2 * PRIVATE_LIMIT as u64)
             .read_to_string(&mut input)?;
         let request = serde_json::from_str(&input).map_err(|_| invalid("Invalid request"))?;
         handle(request)
@@ -327,6 +349,39 @@ mod tests {
         replace_at(&parent, "b", "second", Some("first")).unwrap();
         assert_eq!(fs::read_to_string(f.path.join("b")).unwrap(), "second");
         assert_eq!(fs::read_dir(&f.path).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn private_writes_replace_one_named_file_and_nothing_else() {
+        let f = Fixture::new();
+        fs::create_dir(f.path.join("state")).unwrap();
+        let write = |path: &str, text: &str| {
+            handle(Request {
+                root: f.root().into(),
+                path: path.into(),
+                operation: "private.write".into(),
+                limit: None,
+                text: Some(text.into()),
+                expected: None,
+            })
+        };
+        write("drafts.json", "first").unwrap();
+        write("drafts.json", "second").unwrap();
+        assert_eq!(
+            fs::read_to_string(f.path.join("drafts.json")).unwrap(),
+            "second"
+        );
+        assert_private(&f.path.join("drafts.json"));
+        for path in ["state/drafts.json", "../drafts.json", "", "bad\0name"] {
+            assert!(write(path, "text").is_err(), "{path:?}");
+        }
+        assert!(write("big.json", &"x".repeat(PRIVATE_LIMIT + 1)).is_err());
+        let names: Vec<_> = fs::read_dir(&f.path)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(names.len(), 2, "{names:?}");
+        assert!(fs::read_dir(f.path.join("state")).unwrap().next().is_none());
     }
 
     #[cfg(windows)]

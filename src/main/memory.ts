@@ -1,8 +1,8 @@
 import { app } from 'electron'
-import { mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { bot, memory, memoryPath } from './bots'
-import { replaceProjectMemory } from './project-files'
+import { replaceProjectMemory, writePrivate } from './project-files'
 
 export interface MemoryRevision { at: number; text: string; source: 'agent' | 'user' }
 const historyFile = (slug: string) => join(app.getPath('userData'), 'bots', slug, 'memory-history.json')
@@ -29,7 +29,7 @@ function recordMemory(slug: string, text: string, source: MemoryRevision['source
   if (history.at(-1)?.text === text) return
   history.push({ at: Date.now(), text, source })
   mkdirSync(join(app.getPath('userData'), 'bots', slug), { recursive: true })
-  writeFileSync(historyFile(slug), JSON.stringify(history.slice(-30)), { mode: 0o600 })
+  writePrivate(historyFile(slug), JSON.stringify(history.slice(-30)))
 }
 
 /** Delete only app-owned copies; never remove the project's memory file or session store. */
