@@ -461,13 +461,11 @@ pub mod testing {
         format!(r"\\localhost\{drive}$\{rest}")
     }
 
+    /// Compares rendered SDDL on both sides, because Windows renders some SIDs as aliases: the
+    /// built-in Administrator (RID 500, which CI runs as) comes back as `LA`, not its SID.
     pub fn assert_private(path: &Path) {
-        assert_eq!(
-            access_list(path),
-            private_file(&account().unwrap()),
-            "{}",
-            path.display()
-        );
+        let expected = descriptor(&private_file(&account().unwrap())).unwrap();
+        assert_eq!(access_list(path), sddl(&expected), "{}", path.display());
     }
 
     /// The access list of `path`, as SDDL.
@@ -491,7 +489,10 @@ pub mod testing {
             )
         };
         assert_eq!(status, 0, "{}", path.display());
-        let security = Local(security);
+        sddl(&Local(security))
+    }
+
+    fn sddl(security: &Local) -> String {
         let mut text = null_mut();
         let ok = unsafe {
             ConvertSecurityDescriptorToStringSecurityDescriptorW(
