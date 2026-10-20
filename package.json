@@ -1,14 +1,14 @@
 {
   "name": "bravebot-ui",
   "version": "0.1.0",
-  "description": "A macOS and Linux desktop interface to bravebot",
+  "description": "A macOS, Linux and Windows desktop interface to bravebot",
   "license": "MPL-2.0",
   "private": true,
   "main": "./out/main/index.js",
   "scripts": {
     "postinstall": "npm run setup:electron",
     "name-dev-app": "node scripts/name-dev-app.mjs",
-    "bridge": "./scripts/build-bridge.sh",
+    "bridge": "node scripts/build-bridge.mjs",
     "dev": "npm run setup:electron && npm run bridge && electron-vite dev",
     "build": "npm run bridge && tsc --noEmit && electron-vite build",
     "typecheck": "tsc --noEmit",

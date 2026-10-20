@@ -24,6 +24,7 @@ import type { SessionSummary } from '../../shared/protocol'
 
 import { useCallback, useMemo, useState } from 'react'
 import { activeBots, retiredBots, type Bot } from '../../shared/bots'
+import { projectName } from '../../shared/recents'
 import { newAvatarSeed } from '../../shared/avatar'
 import { BotAvatar, type Doing } from './BotAvatar'
 import { Fold } from './Fold'
@@ -217,7 +218,7 @@ function BotRow({
   onOpen: (bot: Bot) => void
   onEdit: () => void
 }): React.JSX.Element {
-  const where = bot.directory.split('/').pop() ?? bot.directory
+  const where = projectName(bot.directory)
   return (
     <div className={`bot${open ? ' bot-open' : ''}`}>
       <button className="bot-open-button" onClick={() => onOpen(bot)}>
@@ -286,7 +287,7 @@ function ArchivedRow({
   onRestore: () => void
   onDelete: () => void
 }): React.JSX.Element {
-  const where = bot.directory.split('/').pop() ?? bot.directory
+  const where = projectName(bot.directory)
   return (
     <div className={`bot-archived${asking ? ' bot-asking' : ''}`}>
       <span className="bot-said">

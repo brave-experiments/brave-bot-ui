@@ -14,6 +14,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import type { BridgeEvent, BridgeFailure } from '../shared/protocol'
+import { executable } from './executable'
 
 /** A request waiting for its answer. */
 interface Waiting {
@@ -47,9 +48,10 @@ export class Bridge {
    * cannot reach the backend.
    */
   private binaryPath(): string {
-    const packaged = join(process.resourcesPath ?? '', 'bravebot-rpc')
+    const name = executable('bravebot-rpc')
+    const packaged = join(process.resourcesPath ?? '', name)
     if (app.isPackaged && existsSync(packaged)) return packaged
-    return join(app.getAppPath(), 'target', 'debug', 'bravebot-rpc')
+    return join(app.getAppPath(), 'target', 'debug', name)
   }
 
   private ensure(): ChildProcessWithoutNullStreams {

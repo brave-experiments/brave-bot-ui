@@ -1,6 +1,6 @@
 # bravebot-ui
 
-A macOS and Linux desktop interface to [bravebot](https://github.com/brave/bravebot), the
+A macOS, Linux and Windows desktop interface to [bravebot](https://github.com/brave/bravebot), the
 prompt-injection-resistant coding agent. Built with Electron, React and a Rust bridge,
 it uses the agent as a pinned dependency without modifying its sources.
 
@@ -27,7 +27,7 @@ terminal installation are not automatically copied into a fresh checkout.
 ## Documentation
 
 - [Setup](docs/setup.md): prerequisites, credentials, submodule updates and troubleshooting.
-- [Development and packaging](docs/development.md): commands, builds and macOS bundles.
+- [Development and packaging](docs/development.md): commands, builds and local app bundles.
 - [The interface](docs/interface.md): conversations, approvals, bots, memory, keys and themes.
 - [Testing](docs/testing.md): regression checks, Electron drivers and CI coverage.
 - [Security](docs/security.md): process boundaries, approvals and renderer restrictions.

@@ -1,4 +1,4 @@
-// Build a native macOS app or Linux application directory.
+// Build a native macOS app, or a Linux or Windows application directory.
 //
 // Everything the app needs at run time is already in `out/` — the main process, the preload
 // and the renderer, all bundled — so packaging is mostly a matter of saying what to leave
@@ -19,15 +19,11 @@
 // credentials present. See the README.
 import { packager } from '@electron/packager'
 import { existsSync, readFileSync } from 'node:fs'
+import { resources } from './package-resources.mjs'
 
 const { version } = JSON.parse(readFileSync('package.json', 'utf8'))
 
-if (!['darwin', 'linux'].includes(process.platform)) {
-  throw new Error(`Packaging is not supported on ${process.platform}`)
-}
-
-const AGENT = 'target/debug/bravebot-rpc'
-const FILES = 'target/debug/bravebot-ui-files'
+const { agent: AGENT, files: FILES } = resources(process.platform)
 if (!existsSync(FILES)) throw new Error('Secure file helper missing — run npm run bridge first')
 if (!existsSync(AGENT)) {
   console.error(`no agent binary at ${AGENT} — run \`npm run bridge\` first`)

@@ -2,11 +2,17 @@
 
 ## Prerequisites
 
-- **macOS or Linux**. macOS needs Xcode Command Line Tools (`xcode-select --install`).
+- **macOS, Linux or Windows**. macOS needs Xcode Command Line Tools (`xcode-select --install`).
   Linux needs a C/C++ compiler and linker (for example, `base-devel` on Arch or
   `build-essential` on Debian/Ubuntu), plus a graphical desktop and Electron's
-  GTK 3, NSS, and ALSA runtime libraries. The window uses native Linux decorations;
-  inset traffic lights and sidebar vibrancy are enabled only on macOS.
+  GTK 3, NSS, and ALSA runtime libraries. Windows 10 or 11 needs the Visual Studio C++
+  build tools that rustup's MSVC toolchain asks for. Linux and Windows use native window
+  decorations; inset traffic lights and sidebar vibrancy are enabled only on macOS.
+- **Windows projects on a local drive, preferably.** A project on a network share opens,
+  by a mapped drive (`Z:\`) or a share path (`\\server\share`), but the agent resolves
+  either to `\\?\UNC\…`, and `cmd.exe` refuses a UNC working directory: `cmd` and a batch
+  file the agent runs, such as `npm.cmd`, start in `C:\Windows` instead of the project.
+  On any platform, a share also weakens the [file helper's guarantees](file-access-security.md).
 - **Current stable Rust**, preferably installed with rustup. `rust-toolchain.toml`
   selects stable and Clippy; `rustup update stable` updates an existing installation.
   The workspace declares Rust 1.88 as its minimum.
@@ -76,11 +82,15 @@ The agent's configuration build script bakes available Brave backend values into
 file outside Git lets multiple checkouts use it and keeps it through re-clones.
 The file is not automatically discovered: the `.envrc` above is what loads it.
 
-Alternatively, `scripts/build-bridge.sh` loads an allowed `.envrc` from
+Alternatively, `scripts/build-bridge.mjs` loads an allowed `.envrc` from
 `vendor/bravebot` via direnv. `BRAVEBOT_DIR` (or the legacy `BUA_AGENT_DIR`) can point
 to a different credential checkout. These variables affect credential loading only;
 Cargo still compiles `vendor/bravebot`. The script canonicalises the directory for
 direnv's allow list. It first uses an already-exported `SERVICES_KEY_AICHAT` when present.
+
+Without direnv, which is usual on Windows, set the same variables in the shell that runs
+the build. In PowerShell, for example, `$env:SERVICES_KEY_AICHAT = '...'` for each
+variable in the table above, then `npm run build`.
 
 ### Builds without credentials
 

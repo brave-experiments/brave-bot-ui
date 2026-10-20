@@ -16,15 +16,37 @@ export interface StoredRecents {
 /** Enough to be useful in a submenu, few enough that the submenu is still scannable. */
 export const RECENTS_MAX = 8
 
+/** A Windows path that starts at a drive, such as `C:\`. */
+const DRIVE_ROOT = /^[A-Za-z]:[\\/]/
+/** A Windows path that starts at a network share, such as `\\server\share`. */
+const SHARE_ROOT = /^\\\\([^\\/]+)\\([^\\/]+)(?:[\\/]|$)/
+
+/**
+ * Whether a path starts at a Windows drive or network share. A server or share name made only of
+ * dots or question marks does not count: `\\?\` and `\\.\` are special device paths, and `\\..\`
+ * means "up one folder".
+ */
+function isWindowsRoot(value: string): boolean {
+  const share = SHARE_ROOT.exec(value)
+  return DRIVE_ROOT.test(value) || (share !== null && share.slice(1).every((name) => !/^[.?]+$/.test(name)))
+}
+
 /**
  * Whether something is a path this app would open.
  *
  * Absolute, because that is the only kind `session.new` and `session.open` take, and a
  * relative path here would be resolved against whatever the app's working directory happened
- * to be — a different directory between a dev run and a packaged one.
+ * to be — a different directory between a dev run and a packaged one. On Windows, absolute
+ * means it starts at a drive letter or a network share.
  */
 export function isProjectPath(value: unknown): value is string {
-  return typeof value === 'string' && value.startsWith('/') && !value.includes('\0')
+  return typeof value === 'string' && (value.startsWith('/') || isWindowsRoot(value)) && !value.includes('\0')
+}
+
+/** The last part of a project path, used as its label. Only a Windows path is split at `\`. */
+export function projectName(directory: string): string {
+  const segments = directory.split(isWindowsRoot(directory) ? /[\\/]/ : '/').filter(Boolean)
+  return segments.at(-1) ?? directory
 }
 
 /**
